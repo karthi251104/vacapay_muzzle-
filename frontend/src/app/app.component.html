@@ -1,0 +1,521 @@
+<main class="auth-shell" *ngIf="!currentUser">
+  <section class="login-panel">
+    <div class="brand login-brand">
+      <div class="brand-mark">V</div>
+      <div>
+        <p>Vacapay</p>
+        <h1>Cattle AI Enrollment</h1>
+      </div>
+    </div>
+
+    <div class="login-copy">
+      <p class="eyebrow">Secure Access</p>
+      <h2>Sign in to continue</h2>
+      <p>Admins create agents. Agents capture cattle sessions in the field.</p>
+    </div>
+
+    <form class="details login-form" (ngSubmit)="login()">
+      <div class="role-toggle">
+        <button type="button" [class.active]="loginMode === 'agent'" (click)="loginMode = 'agent'">Agent</button>
+        <button type="button" [class.active]="loginMode === 'admin'" (click)="loginMode = 'admin'">Admin</button>
+      </div>
+      <label>
+        Phone or ID
+        <input name="loginIdentifier" [(ngModel)]="loginIdentifier" placeholder="admin or agent ID">
+      </label>
+      <label>
+        Password
+        <input name="loginPassword" type="password" [(ngModel)]="loginPassword" placeholder="Password">
+      </label>
+      <button type="submit" class="primary-action">Sign In</button>
+      <p class="hint" *ngIf="loginMode === 'admin'">Demo admin: admin / admin123</p>
+      <div class="status auth-status">
+        <span class="status-dot"></span>
+        {{ message }}
+      </div>
+    </form>
+  </section>
+</main>
+
+<main class="admin-shell" *ngIf="isAdmin">
+  <header class="admin-topbar">
+    <div>
+      <p class="eyebrow">Admin Console</p>
+      <h1>Agent Management</h1>
+    </div>
+    <div class="admin-user">
+      <span>{{ currentUser?.name }}</span>
+      <button type="button" class="secondary" (click)="logout()">Logout</button>
+    </div>
+  </header>
+
+  <section class="admin-grid">
+    <form class="details admin-card" (ngSubmit)="createAgent()">
+      <div class="panel-head">
+        <h2>Create Agent</h2>
+        <span>Field Officer</span>
+      </div>
+      <label>
+        Agent Name
+        <input name="agentName" [(ngModel)]="agentName" placeholder="Field officer name">
+      </label>
+      <label>
+        Phone Number
+        <input name="agentPhone" [(ngModel)]="agentPhone" placeholder="9876543210">
+      </label>
+      <label>
+        Agent ID
+        <input name="newAgentId" [(ngModel)]="newAgentId" placeholder="AGENT-001">
+      </label>
+      <label>
+        Password
+        <input name="newAgentPassword" type="password" [(ngModel)]="newAgentPassword" placeholder="Temporary password">
+      </label>
+      <button type="submit" class="primary-action">Create Agent</button>
+      <div class="status auth-status">
+        <span class="status-dot"></span>
+        {{ message }}
+      </div>
+    </form>
+
+    <section class="asset-section agent-list">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Created Users</p>
+          <h3>Agents</h3>
+        </div>
+        <span class="count-pill">{{ agents.length }}</span>
+      </div>
+
+      <div class="agent-row" *ngFor="let agent of agents">
+        <div>
+          <strong>{{ agent.name }}</strong>
+          <span>{{ agent.agentId }}</span>
+        </div>
+        <p>{{ agent.phone }}</p>
+        <small>{{ agent.active ? 'Active' : 'Inactive' }} · Created {{ agent.createdAt | date:'mediumDate' }}</small>
+      </div>
+    </section>
+    <section class="asset-section review-list">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Model Review</p>
+          <h3>Near 70% Matches</h3>
+        </div>
+        <div class="actions">
+          <button type="button" class="secondary" (click)="toggleReviewMode()">
+            {{ showAllReviews ? 'Needs Review' : 'Show All' }}
+          </button>
+          <button type="button" class="secondary" (click)="loadMatchReviews()">Refresh</button>
+        </div>
+      </div>
+
+      <div class="review-empty" *ngIf="!matchReviews.length">
+        No match reviews found.
+      </div>
+
+      <article class="review-card" *ngFor="let review of matchReviews">
+        <div class="review-main">
+          <div>
+            <strong>{{ review.finalCattleId }}</strong>
+            <span>{{ review.reviewStatus }}</span>
+          </div>
+          <p>
+            {{ review.decision === 'matched_existing' ? 'Matched existing cattle' : 'New cattle kept' }}
+            · {{ review.confidencePercent }}% confidence
+            · Threshold {{ review.thresholdPercent }}%
+          </p>
+          <small>
+            Farmer {{ review.farmerName || 'NA' }} · Officer {{ review.fieldOfficerName || 'NA' }} · {{ review.captureDate || 'NA' }}
+          </small>
+        </div>
+
+        <div class="review-images" *ngIf="review.images.length">
+          <a *ngFor="let image of review.images.slice(0, 5)" [href]="image.cloudinaryUrl || image.previewUrl" target="_blank" rel="noreferrer">
+            {{ image.imageType }}
+          </a>
+        </div>
+
+        <div class="review-matches" *ngIf="review.topMatches.length">
+          <div *ngFor="let match of review.topMatches.slice(0, 5)">
+            <span>{{ match.cattleId }}</span>
+            <strong>{{ match.confidencePercent }}%</strong>
+          </div>
+        </div>
+
+        <div class="review-actions">
+          <button type="button" (click)="confirmMatchReview(review)">Confirm</button>
+          <button
+            type="button"
+            class="secondary"
+            *ngIf="review.topMatches[0]"
+            (click)="confirmMatchReview(review, review.topMatches[0].cattleId)"
+          >
+            Correct to Top 1
+          </button>
+        </div>
+      </article>
+    </section>
+  </section>
+</main>
+
+<main class="shell" *ngIf="isAgent">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">V</div>
+      <div>
+        <p>Vacapay</p>
+        <h1>Muzzle Enrollment</h1>
+      </div>
+    </div>
+    <div class="signed-in">
+      <div>
+        <strong>{{ currentUser?.name }}</strong>
+        <span>{{ currentUser?.agentId }}</span>
+      </div>
+      <button type="button" class="secondary" (click)="logout()">Logout</button>
+    </div>
+
+    <nav class="steps" aria-label="Enrollment progress">
+      <div class="step" [class.done]="enrollment" [class.active]="!enrollment">
+        <span>1</span>
+        <div>
+          <strong>Record</strong>
+          <small>Farmer and officer details</small>
+        </div>
+      </div>
+      <div class="step" [class.done]="muzzlePreviews.length === 5" [class.active]="enrollment && muzzlePreviews.length < 5">
+        <span>2</span>
+        <div>
+          <strong>Muzzle</strong>
+          <small>{{ muzzlePreviews.length }}/5 auto captured</small>
+        </div>
+      </div>
+      <div class="step" [class.done]="capturedOtherImages === requiredImages.length" [class.active]="muzzlePreviews.length === 5 && capturedOtherImages < requiredImages.length">
+        <span>3</span>
+        <div>
+          <strong>Evidence</strong>
+          <small>{{ capturedOtherImages }}/7 supporting images</small>
+        </div>
+      </div>
+      <div class="step" [class.done]="enrollment?.status === 'ready_for_embedding'" [class.active]="canComplete">
+        <span>4</span>
+        <div>
+          <strong>Submit</strong>
+          <small>{{ enrollmentStage }}</small>
+        </div>
+      </div>
+    </nav>
+
+    <form class="details" (ngSubmit)="createEnrollment()">
+      <div class="panel-head">
+        <h2>Enrollment Metadata</h2>
+        <span>{{ enrollmentStage }}</span>
+      </div>
+
+      <label>
+        Cattle ID
+        <input name="cattleId" [(ngModel)]="cattleId" placeholder="Leave blank for new cow">
+      </label>
+      <label>
+        Farmer ID
+        <input name="farmerId" [(ngModel)]="farmerId" placeholder="FARM-001">
+      </label>
+      <label>
+        Farmer Name
+        <input name="farmerName" [(ngModel)]="farmerName" placeholder="Search or enter farmer name">
+      </label>
+      <label>
+        Search Radius
+        <select name="radiusKm" [(ngModel)]="radiusKm">
+          <option [ngValue]="5">5 km</option>
+          <option [ngValue]="7">7 km</option>
+        </select>
+      </label>
+      <label>
+        Field Officer
+        <input name="fieldOfficerName" [(ngModel)]="fieldOfficerName" placeholder="Officer name">
+      </label>
+
+      <div class="location-row">
+        <label>
+          Latitude
+          <input name="locationLat" type="number" [(ngModel)]="locationLat">
+        </label>
+        <label>
+          Longitude
+          <input name="locationLon" type="number" [(ngModel)]="locationLon">
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="icon-button" title="Use GPS location" (click)="useGps()">GPS</button>
+        <button type="button" class="secondary" (click)="findRegisteredCattle()">
+          {{ searchingCattle ? 'Searching' : 'Find Registered' }}
+        </button>
+        <button type="submit" class="primary-action">Start Session</button>
+      </div>
+
+      <div class="match-list" *ngIf="cattleMatches.length">
+        <div class="match-card" *ngFor="let match of cattleMatches" (click)="selectRegisteredCattle(match)">
+          <div>
+            <strong>{{ match.cattleId }}</strong>
+            <span>Nearby candidate</span>
+          </div>
+          <p>{{ match.farmerName || 'Unknown farmer' }}</p>
+          <small>
+            {{ match.distanceKm === null ? 'Location not available' : (match.distanceKm | number:'1.1-1') + ' km away' }}
+            · {{ match.sessionCount }} sessions
+            · Last {{ match.lastCaptureDate || 'NA' }}
+          </small>
+        </div>
+      </div>
+
+      <dl class="record-summary" *ngIf="enrollment">
+        <div>
+          <dt>Cattle ID</dt>
+          <dd>{{ enrollment.cattleId }}</dd>
+        </div>
+        <div>
+          <dt>Capture Session</dt>
+          <dd>{{ enrollment.activeSessionId }}</dd>
+        </div>
+        <div>
+          <dt>Cow Root Folder</dt>
+          <dd>{{ enrollment.rootFolderLocation }}</dd>
+        </div>
+        <div>
+          <dt>Date Folder</dt>
+          <dd>{{ enrollment.folderLocation }}</dd>
+        </div>
+      </dl>
+    </form>
+  </aside>
+
+  <section class="mainstage">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Field Collection Console</p>
+        <h2>{{ nextAction }}</h2>
+      </div>
+      <div class="status">
+        <span class="status-dot" [class.live]="autoCaptureOn"></span>
+        {{ message }}
+      </div>
+    </header>
+
+    <section class="metrics">
+      <div class="metric">
+        <span>Total Images</span>
+        <strong>{{ totalCapturedImages }}/12</strong>
+      </div>
+      <div class="metric">
+        <span>Muzzle</span>
+        <strong>{{ muzzlePreviews.length }}/5</strong>
+      </div>
+      <div class="metric">
+        <span>Face</span>
+        <strong>{{ faceCount }}/3</strong>
+      </div>
+      <div class="metric">
+        <span>Body + Udder</span>
+        <strong>{{ bodyCount + udderCount }}/4</strong>
+      </div>
+      <div class="progress-card">
+        <div>
+          <span>Readiness</span>
+          <strong>{{ progressPercent }}%</strong>
+        </div>
+        <div class="progress-track">
+          <span [style.width.%]="progressPercent"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="capture-layout">
+      <article class="camera-panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">YOLO Assisted Capture</p>
+            <h3>Muzzle Camera</h3>
+          </div>
+          <div class="actions">
+            <button type="button" class="secondary" (click)="cameraOn ? stopCamera() : startCamera()">
+              {{ cameraOn ? 'Stop' : 'Camera' }}
+            </button>
+            <button type="button" [disabled]="!cameraOn || muzzlePreviews.length >= 5" (click)="toggleAutoCapture()">
+              {{ autoCaptureOn ? 'Pause' : 'Auto Capture' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="video-frame" [class.detecting]="isDetecting" [class.live]="cameraOn">
+          <video #video muted playsinline></video>
+          <div class="scan" *ngIf="autoCaptureOn">
+            <i></i>
+          </div>
+          <div
+            class="detection-box"
+            *ngIf="detectionBox"
+            [style.left.%]="detectionBox.left"
+            [style.top.%]="detectionBox.top"
+            [style.width.%]="detectionBox.width"
+            [style.height.%]="detectionBox.height"
+          >
+            <span>Muzzle {{ detectionBox.confidence | percent:'1.0-0' }}</span>
+          </div>
+          <div class="video-empty" *ngIf="!cameraOn">
+            <strong>Camera Offline</strong>
+            <span>Create enrollment and start camera</span>
+          </div>
+          <div class="camera-badge" *ngIf="cameraOn">
+            <span></span>
+            Live
+          </div>
+        </div>
+        <canvas #canvas hidden></canvas>
+
+        <div class="capture-meta">
+          <span>YOLO 640</span>
+          <span>Crop + CLAHE</span>
+          <span>Max 1024 x 768</span>
+          <span *ngIf="lastConfidence">Confidence {{ lastConfidence | percent:'1.0-1' }}</span>
+        </div>
+      </article>
+
+      <aside class="readiness-panel">
+        <div class="panel-head">
+          <h3>Quality Gate</h3>
+          <span>{{ enrollmentStage }}</span>
+        </div>
+
+        <div class="model-status" [class.ready]="yoloStatus?.ok" [class.failed]="yoloStatus && !yoloStatus.ok">
+          <div>
+            <strong>{{ yoloStatus?.ok ? 'YOLO Model Working' : 'YOLO Model Status' }}</strong>
+            <span *ngIf="checkingYolo">Checking...</span>
+            <span *ngIf="yoloStatus?.ok">Task: {{ yoloStatus?.task }} · OpenCV {{ yoloStatus?.opencvVersion }}</span>
+            <span *ngIf="yoloStatus && !yoloStatus.ok">{{ yoloStatus.error }}</span>
+            <span *ngIf="!yoloStatus && !checkingYolo">Not checked yet</span>
+          </div>
+          <button type="button" class="secondary" (click)="checkYoloStatus()">Check</button>
+        </div>
+
+        <div class="model-status" [class.ready]="embeddingStatus?.ok" [class.failed]="embeddingStatus && !embeddingStatus.ok">
+          <div>
+            <strong>{{ embeddingStatus?.ok ? 'Embedding Model Working' : 'Embedding Model Status' }}</strong>
+            <span *ngIf="checkingEmbedding">Checking...</span>
+            <span *ngIf="embeddingStatus?.ok">
+              DINOv2 threshold {{ embeddingStatus?.thresholdPercent || 70 }}% · Dim {{ embeddingStatus?.embeddingDim }}
+            </span>
+            <span *ngIf="embeddingStatus && !embeddingStatus.ok">{{ embeddingStatus.error }}</span>
+            <span *ngIf="!embeddingStatus && !checkingEmbedding">Not checked yet</span>
+          </div>
+          <button type="button" class="secondary" (click)="checkEmbeddingStatus()">Check</button>
+        </div>
+
+        <div class="model-status" [class.ready]="pineconeStatus?.ok" [class.failed]="pineconeStatus && !pineconeStatus.ok">
+          <div>
+            <strong>{{ pineconeStatus?.ok ? 'Pinecone Vector Search Working' : 'Pinecone Vector Status' }}</strong>
+            <span *ngIf="checkingPinecone">Checking...</span>
+            <span *ngIf="pineconeStatus?.ok">
+              {{ pineconeStatus?.namespace }} · {{ pineconeStatus?.totalVectorCount || 0 }} vectors
+            </span>
+            <span *ngIf="pineconeStatus && !pineconeStatus.ok">{{ pineconeStatus.error }}</span>
+            <span *ngIf="!pineconeStatus && !checkingPinecone">Not checked yet</span>
+          </div>
+          <button type="button" class="secondary" (click)="checkPineconeStatus()">Check</button>
+        </div>
+
+        <div class="model-status match-result" *ngIf="matchResolution" [class.ready]="matchResolution.decision === 'matched_existing'">
+          <div>
+            <strong>
+              {{ matchResolution.decision === 'matched_existing' ? 'Existing Cattle Matched' : 'New Cattle Created' }}
+            </strong>
+            <span *ngIf="matchResolution.decision === 'matched_existing'">
+              {{ matchResolution.matchedCattleId }} · {{ matchResolution.confidencePercent }}% confidence
+            </span>
+            <span *ngIf="matchResolution.decision === 'new_cattle'">
+              Below {{ matchResolution.thresholdPercent }}% threshold · kept {{ matchResolution.enrollment.cattleId }}
+            </span>
+            <span *ngIf="matchResolution.topMatches.length">
+              Top candidate {{ matchResolution.topMatches[0].cattleId }} · {{ matchResolution.topMatches[0].confidencePercent }}%
+            </span>
+          </div>
+        </div>
+
+        <div class="capture-counter">
+          <div>
+            <span>Muzzle captured</span>
+            <strong>{{ muzzlePreviews.length }}/5</strong>
+          </div>
+          <div>
+            <span>Current status</span>
+            <strong>{{ isDetecting ? 'Detecting' : (autoCaptureOn ? 'Watching' : 'Idle') }}</strong>
+          </div>
+        </div>
+
+        <div class="quality-list">
+          <div [class.done]="enrollment">
+            <span></span>
+            Metadata created
+          </div>
+          <div [class.done]="muzzlePreviews.length === 5">
+            <span></span>
+            5 muzzle crops saved
+          </div>
+          <div [class.done]="capturedOtherImages === requiredImages.length">
+            <span></span>
+            Supporting images complete
+          </div>
+          <div [class.done]="canComplete">
+            <span></span>
+            Ready for embedding service
+          </div>
+        </div>
+
+        <button type="button" class="submit-action" [disabled]="!canComplete" (click)="completeEnrollment()">
+          Complete Enrollment
+        </button>
+      </aside>
+    </section>
+
+    <section class="asset-section">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Collected Assets</p>
+          <h3>Muzzle Set</h3>
+        </div>
+        <span class="count-pill">{{ muzzlePreviews.length }}/5</span>
+      </div>
+
+      <div class="thumb-grid muzzle-grid">
+        <div class="thumb saved" *ngFor="let preview of muzzlePreviews; let i = index">
+          <img [src]="preview" [alt]="'Muzzle ' + (i + 1)">
+          <span>Muzzle {{ i + 1 }}</span>
+        </div>
+        <div class="thumb placeholder" *ngFor="let slot of missingMuzzleSlots">
+          <span>Muzzle {{ slot }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="asset-section">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Required Evidence</p>
+          <h3>Face, Side, Back, Udder</h3>
+        </div>
+        <span class="count-pill">{{ capturedOtherImages }}/7</span>
+      </div>
+
+      <div class="slot-grid">
+        <label class="slot" *ngFor="let item of requiredImages" [class.saved]="item.previewUrl" [class.uploading]="item.uploading">
+          <input type="file" accept="image/*" capture="environment" (change)="uploadRequiredImage($event, item)">
+          <img *ngIf="item.previewUrl" [src]="item.previewUrl" [alt]="item.label">
+          <span class="slot-group">{{ item.group }}</span>
+          <strong>{{ item.uploading ? 'Saving...' : item.label }}</strong>
+        </label>
+      </div>
+    </section>
+  </section>
+</main>

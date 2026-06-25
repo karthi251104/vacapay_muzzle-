@@ -1,0 +1,2 @@
+best_v4.pt filter=lfs diff=lfs merge=lfs -text
+backend/dinov2_triplet_v2_best.pt filter=lfs diff=lfs merge=lfs -text

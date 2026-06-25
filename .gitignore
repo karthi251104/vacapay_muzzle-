@@ -1,0 +1,11 @@
+node_modules/
+dist/
+data/
+*.log
+.angular/
+.env
+.pnpm-store/
+Ultralytics/settings.json
+tools/cloudflared.exe
+__pycache__/
+*.pyc

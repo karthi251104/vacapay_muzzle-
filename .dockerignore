@@ -1,0 +1,17 @@
+.git
+.agents
+.codex
+.pnpm-store
+node_modules
+frontend/node_modules
+backend/node_modules
+frontend/dist
+frontend/.angular
+frontend/out-tsc
+data
+*.log
+.env
+best_v4.pt
+backend/dinov2_triplet_v2_best.pt
+tools
+Ultralytics
