@@ -85,9 +85,13 @@ export class AppComponent implements OnDestroy {
 
   readonly agentScreens: AgentStep[] = [
     { key: 'home', label: 'Home', caption: 'Start' },
+    { key: 'farmer', label: 'Owner', caption: 'Details' },
     { key: 'farmer', label: 'Farmer', caption: 'Details' },
+    { key: 'location', label: 'Nearby', caption: 'Check' },
     { key: 'location', label: 'GPS', caption: 'Nearby cows' },
+    { key: 'muzzle', label: 'Muzzle', caption: '5 photos' },
     { key: 'muzzle', label: 'Muzzle', caption: 'AI capture' },
+    { key: 'evidence', label: 'Photos', caption: '7 more' },
     { key: 'evidence', label: 'Evidence', caption: 'Photos' },
     { key: 'review', label: 'Review', caption: 'Finish' }
   ];
@@ -732,26 +736,24 @@ export class AppComponent implements OnDestroy {
 
   get agentScreenTitle(): string {
     switch (this.agentScreen) {
-      case 'farmer': return 'Farmer Details';
-      case 'location': return 'Location Match';
-      case 'muzzle': return 'Muzzle Capture';
-      case 'evidence': return 'Evidence Capture';
-      case 'review': return 'Final Review';
-      default: return 'Field Home';
+      case 'farmer': return 'Owner Details';
+      case 'location': return 'Nearby Cattle';
+      case 'muzzle': return 'Muzzle Photos';
+      case 'evidence': return 'Other Photos';
+      case 'review': return 'Check & Save';
+      default: return 'Agent Home';
     }
   }
-
   get agentScreenSubtitle(): string {
     switch (this.agentScreen) {
-      case 'farmer': return 'Enter farmer and officer details for this cattle visit.';
-      case 'location': return 'Search the farmer list within 5-7 km before creating a new session.';
-      case 'muzzle': return 'YOLO detects the muzzle, crops it, applies CLAHE, and saves 5 images.';
-      case 'evidence': return 'Capture face, side, back, and udder images for the same cattle folder.';
-      case 'review': return 'Confirm the collected images and matching decision before submit.';
-      default: return 'Start a guided cattle enrollment flow.';
+      case 'farmer': return 'Enter owner details before checking nearby cattle.';
+      case 'location': return 'Use GPS to find cattle already captured near this owner.';
+      case 'muzzle': return 'Take 5 clear muzzle photos. The app checks and saves the best crops.';
+      case 'evidence': return 'Add face, side, back and udder photos for the same cattle.';
+      case 'review': return 'Check the record once, then save and return home.';
+      default: return 'Start capture, continue pending work, or check recent cattle.';
     }
   }
-
   get activeScreenNumber(): string {
     return String(Math.max(this.agentStepIndex + 1, 1)).padStart(2, '0');
   }
@@ -802,6 +804,7 @@ export class AppComponent implements OnDestroy {
     };
   }
 }
+
 
 
 

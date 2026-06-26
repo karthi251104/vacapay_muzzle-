@@ -1627,3 +1627,319 @@ select:focus {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Premium Tailwind-style field UI layer */
+:host {
+  --tw-bg: #f7f3e8;
+  --tw-card: rgba(255, 255, 255, 0.88);
+  --tw-card-solid: #fffdf7;
+  --tw-border: rgba(120, 103, 75, 0.18);
+  --tw-text: #172317;
+  --tw-muted: #6f6656;
+  --tw-primary: #25633f;
+  --tw-primary-2: #3f7f4f;
+  --tw-accent: #c89b3c;
+  --tw-sky: #e7f4ef;
+  --tw-danger: #a8472f;
+  --tw-shadow: 0 18px 44px rgba(55, 70, 44, 0.12);
+  --tw-shadow-lg: 0 28px 70px rgba(48, 62, 38, 0.18);
+}
+
+.auth-app,
+.admin-app,
+.mobile-flow {
+  background:
+    linear-gradient(180deg, rgba(255, 252, 243, 0.94), rgba(238, 246, 231, 0.96)),
+    radial-gradient(circle at 12% 12%, rgba(63, 127, 79, 0.18), transparent 28rem),
+    radial-gradient(circle at 88% 6%, rgba(200, 155, 60, 0.14), transparent 24rem),
+    var(--tw-bg);
+  color: var(--tw-text);
+}
+
+.auth-visual,
+.admin-hero,
+.flow-hero {
+  overflow: hidden;
+}
+
+.auth-visual::before,
+.flow-hero::after {
+  background-image: linear-gradient(rgba(255,255,255,0.14) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.12) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+.admin-hero,
+.flow-hero {
+  background:
+    linear-gradient(135deg, rgba(27, 65, 42, 0.98), rgba(48, 111, 68, 0.94) 58%, rgba(105, 135, 77, 0.9)),
+    radial-gradient(circle at 88% 18%, rgba(255,255,255,0.16), transparent 13rem);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: var(--tw-shadow-lg);
+}
+
+.auth-card,
+.panel,
+.screen-card,
+.mobile-header,
+.step-track button,
+.admin-stats article,
+.home-grid article,
+.review-summary article,
+.model-grid article,
+.field-stats article,
+.already-list,
+.already-card,
+.cattle-row,
+.cattle-detail,
+.session-card,
+.agent-card,
+.review-card {
+  background: var(--tw-card);
+  border: 1px solid var(--tw-border);
+  box-shadow: var(--tw-shadow);
+  backdrop-filter: blur(14px);
+}
+
+.panel,
+.screen-card,
+.auth-card {
+  padding: clamp(16px, 2vw, 24px);
+}
+
+button,
+.primary-action,
+.ghost {
+  min-height: 48px;
+}
+
+.primary-action,
+.segmented button.active,
+.step-track button.active,
+.bottom-nav button.active {
+  background: linear-gradient(135deg, var(--tw-primary), var(--tw-primary-2));
+  box-shadow: 0 14px 28px rgba(37, 99, 63, 0.24);
+  color: #fff;
+}
+
+.ghost,
+button.secondary {
+  background: #f1eadb;
+  color: #273c2b;
+}
+
+.eyebrow,
+.panel-title span,
+.admin-stats span,
+.field-stats span,
+.review-summary span,
+.model-grid span,
+.slot-card span {
+  color: var(--tw-muted);
+  font-size: 0.72rem;
+}
+
+.auth-headline h2,
+.admin-hero h1,
+.flow-hero h2 {
+  letter-spacing: 0;
+}
+
+.auth-headline h2 {
+  max-width: 780px;
+}
+
+.admin-hero h1,
+.flow-hero h2 {
+  text-wrap: balance;
+}
+
+.admin-hero p,
+.flow-hero p {
+  max-width: 680px;
+}
+
+.admin-stats {
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+}
+
+.admin-stats article,
+.field-stats article {
+  min-height: 104px;
+}
+
+.admin-stats strong,
+.field-stats strong {
+  color: var(--tw-primary);
+  font-size: clamp(1.7rem, 3vw, 2.45rem);
+}
+
+.admin-grid {
+  align-items: start;
+  grid-template-columns: minmax(300px, 0.72fr) minmax(0, 1fr);
+}
+
+.cattle-admin-panel {
+  background: rgba(255, 253, 247, 0.96);
+}
+
+.registry-layout {
+  align-items: start;
+  grid-template-columns: minmax(340px, 0.82fr) minmax(0, 1.3fr);
+}
+
+.cattle-table {
+  max-height: 720px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.cattle-row {
+  box-shadow: 0 10px 24px rgba(55, 70, 44, 0.08);
+}
+
+.cattle-row.active {
+  border-color: rgba(37, 99, 63, 0.45);
+  box-shadow: 0 18px 40px rgba(37, 99, 63, 0.14);
+}
+
+.cattle-main,
+.already-card {
+  border-radius: 8px;
+}
+
+.cattle-main img,
+.already-card img,
+.session-images button,
+.slot-card,
+.thumb,
+.final-gallery img {
+  box-shadow: 0 8px 18px rgba(55, 70, 44, 0.08);
+}
+
+.cattle-main strong,
+.already-card strong,
+.panel-title h2,
+.screen-card h2 {
+  color: var(--tw-text);
+}
+
+.folder-text,
+.cattle-main p,
+.cattle-main small,
+.already-card p,
+.already-card small,
+.session-head p {
+  color: var(--tw-muted);
+}
+
+.session-card {
+  background: #fffaf0;
+}
+
+.session-images {
+  grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+}
+
+.home-screen {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.home-grid article,
+.field-stats article {
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.home-grid article:hover,
+.field-stats article:hover,
+.already-card:hover {
+  border-color: rgba(37, 99, 63, 0.32);
+  box-shadow: 0 20px 42px rgba(55, 70, 44, 0.14);
+  transform: translateY(-2px);
+}
+
+.camera-screen {
+  border: 1px solid rgba(255,255,255,0.16);
+  box-shadow: 0 24px 60px rgba(18, 32, 21, 0.22);
+}
+
+.model-grid article {
+  background: #fffaf0;
+}
+
+.model-grid article.ready {
+  background: #eaf6e7;
+  border-color: rgba(63, 127, 79, 0.38);
+}
+
+.slot-grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.slot-card,
+.thumb {
+  background: linear-gradient(180deg, #fffdf7, #eef6ea);
+}
+
+.notice,
+.toast {
+  background: rgba(27, 49, 32, 0.96);
+  box-shadow: 0 14px 32px rgba(27, 49, 32, 0.18);
+}
+
+.bottom-nav {
+  background: rgba(255, 253, 247, 0.94);
+  border-color: var(--tw-border);
+  box-shadow: 0 -18px 42px rgba(55, 70, 44, 0.14);
+  backdrop-filter: blur(18px);
+}
+
+.bottom-nav button {
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.image-viewer {
+  backdrop-filter: blur(8px);
+}
+
+.image-viewer-card {
+  background: #fffdf7;
+  border: 1px solid var(--tw-border);
+}
+
+@media (max-width: 1060px) {
+  .admin-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .admin-grid,
+  .registry-layout,
+  .home-screen {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .auth-headline h2,
+  .flow-hero h2 {
+    font-size: clamp(2.15rem, 11vw, 3.2rem);
+  }
+
+  .admin-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-stats article,
+  .field-stats article {
+    min-height: 92px;
+  }
+
+  .step-track button {
+    flex-basis: 124px;
+    min-height: 76px;
+  }
+
+  .camera-screen {
+    min-height: min(560px, calc(100dvh - 220px));
+  }
+}

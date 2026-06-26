@@ -4,14 +4,14 @@
       <div class="brand-mark">V</div>
       <div>
         <p>Vacapay</p>
-        <h1>Muzzle AI</h1>
+        <h1>Field Capture</h1>
       </div>
     </div>
 
     <div class="auth-headline">
-      <p class="eyebrow">Field Identification Platform</p>
-      <h2>Capture cattle identity with guided AI screens.</h2>
-      <p>YOLO muzzle detection, CLAHE crops, DINOv2 matching, and field evidence collection in one mobile flow.</p>
+      <p class="eyebrow">Field Agent App</p>
+      <h2>Simple cattle capture for field teams.</h2>
+      <p>Capture owner details, GPS, muzzle photos and supporting photos in a guided mobile flow.</p>
     </div>
 
     <div class="preview-phone float-card">
@@ -36,7 +36,7 @@
     <div>
       <p class="eyebrow">Secure Access</p>
       <h2>Sign in</h2>
-      <p class="muted">Use admin access to create field officers, or agent access to start enrollment.</p>
+      <p class="muted">Agents capture cattle in the field. Admins manage records and downloads.</p>
     </div>
 
     <form class="form-stack" (ngSubmit)="login()">
@@ -64,7 +64,7 @@
 <main class="admin-app" *ngIf="isAdmin">
   <header class="admin-hero page-enter">
     <div>
-      <p class="eyebrow">Admin Console</p>
+      <p class="eyebrow">Admin</p>
       <h1>Farm & Cattle Records</h1>
       <p>See farmers, cattle visits, photos, and field officers in one simple place.</p>
     </div>
@@ -106,7 +106,7 @@
       <div class="panel-title">
         <div>
           <p class="eyebrow">Access</p>
-          <h2>Create Agent</h2>
+          <h2>Create Field Agent</h2>
         </div>
         <span>Field Officer</span>
       </div>
@@ -115,7 +115,7 @@
       <label><span>Phone Number</span><input name="agentPhone" [(ngModel)]="agentPhone" placeholder="9876543210"></label>
       <label><span>Agent ID</span><input name="newAgentId" [(ngModel)]="newAgentId" placeholder="AGENT-001"></label>
       <label><span>Password</span><input name="newAgentPassword" type="password" [(ngModel)]="newAgentPassword" placeholder="Temporary password"></label>
-      <button type="submit" class="primary-action">Create Agent</button>
+      <button type="submit" class="primary-action">Create Field Agent</button>
       <div class="notice"><span></span>{{ message }}</div>
     </form>
 
@@ -276,15 +276,15 @@
   <section class="screen-stage">
     <section class="screen-card home-screen page-enter" *ngIf="agentScreen === 'home'">
       <div class="home-copy">
-        <p class="eyebrow">Guided Enrollment</p>
-        <h2>Start with farmer details, then the app moves screen by screen.</h2>
-        <p>Same cow can be visited again later. The app searches farmer name and GPS radius first, then DINOv2 decides whether it matches existing cattle or creates a new folder.</p>
+        <p class="eyebrow">Field Work</p>
+        <h2>Start a new cattle capture in a few guided steps.</h2>
+        <p>Use owner name and GPS to check if cattle was already captured. Then take photos and save the visit.</p>
       </div>
       <div class="home-grid">
-        <article><span>01</span><strong>Farmer</strong><p>Name, ID, officer.</p></article>
-        <article><span>02</span><strong>GPS Match</strong><p>5 km or 7 km nearby list.</p></article>
-        <article><span>03</span><strong>Muzzle AI</strong><p>5 crops with YOLO and CLAHE.</p></article>
-        <article><span>04</span><strong>Evidence</strong><p>3 face, 2 side, back, udder.</p></article>
+        <article><span>01</span><strong>Owner</strong><p>Name and optional ID.</p></article>
+        <article><span>02</span><strong>Nearby</strong><p>Check cattle around you.</p></article>
+        <article><span>03</span><strong>Field Capture</strong><p>5 crops with YOLO and CLAHE.</p></article>
+        <article><span>04</span><strong>More Photos</strong><p>Face, side, back, udder.</p></article>
       </div>
       <div class="field-stats">
         <article><span>Farmers</span><strong>{{ cattleStats?.farmerCount || 0 }}</strong></article>
@@ -317,13 +317,13 @@
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 1</p>
-          <h2>Farmer Details</h2>
+          <h2>Owner Details</h2>
         </div>
         <span>Required</span>
       </div>
       <label><span>Cattle ID</span><input name="cattleId" [(ngModel)]="cattleId" placeholder="Leave blank for new cow"></label>
-      <label><span>Farmer ID</span><input name="farmerId" [(ngModel)]="farmerId" placeholder="FARM-001"></label>
-      <label><span>Farmer Name</span><input name="farmerName" [(ngModel)]="farmerName" placeholder="Enter farmer name"></label>
+      <label><span>Owner ID</span><input name="farmerId" [(ngModel)]="farmerId" placeholder="FARM-001"></label>
+      <label><span>Owner Name</span><input name="farmerName" [(ngModel)]="farmerName" placeholder="Enter farmer name"></label>
       <label><span>Field Officer</span><input name="fieldOfficerName" [(ngModel)]="fieldOfficerName" placeholder="Officer name"></label>
       <button type="submit" class="primary-action">Continue to GPS</button>
     </form>
@@ -332,7 +332,7 @@
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 2</p>
-          <h2>Find Registered Cattle Nearby</h2>
+          <h2>Check Nearby Cattle</h2>
         </div>
         <span>{{ radiusKm }} km</span>
       </div>
@@ -345,7 +345,7 @@
 
       <div class="action-row">
         <button type="button" class="ghost" (click)="useGps()">Use GPS</button>
-        <button type="button" class="ghost" (click)="findRegisteredCattle()">{{ searchingCattle ? 'Searching...' : 'Find Registered' }}</button>
+        <button type="button" class="ghost" (click)="findRegisteredCattle()">{{ searchingCattle ? 'Searching...' : 'Check Existing' }}</button>
       </div>
 
       <div class="match-list" *ngIf="cattleMatches.length">
@@ -356,14 +356,14 @@
         </button>
       </div>
 
-      <button type="button" class="primary-action big" (click)="createEnrollment()">Create Session and Open Camera</button>
+      <button type="button" class="primary-action big" (click)="createEnrollment()">Start Capture</button>
     </section>
 
     <section class="screen-card page-enter" *ngIf="agentScreen === 'muzzle'">
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 3</p>
-          <h2>YOLO Muzzle Capture</h2>
+          <h2>Muzzle Photos</h2>
         </div>
         <span>{{ muzzlePreviews.length }}/5</span>
       </div>
@@ -383,7 +383,7 @@
         </div>
         <div class="camera-empty" *ngIf="!cameraOn">
           <strong>Camera Ready</strong>
-          <span>Start camera to see YOLO bounding box on mobile</span>
+          <span>Start camera and keep the muzzle inside the guide</span>
         </div>
       </div>
       <canvas #canvas hidden></canvas>
@@ -394,9 +394,9 @@
       </div>
 
       <div class="model-grid">
-        <article [class.ready]="yoloStatus?.ok"><strong>{{ yoloStatus?.ok ? 'YOLO Working' : 'YOLO Status' }}</strong><span>{{ yoloStatus?.ok ? '640 / crop / CLAHE' : (yoloStatus?.error || 'Check model') }}</span><button type="button" class="ghost" (click)="checkYoloStatus()">Check</button></article>
-        <article [class.ready]="embeddingStatus?.ok"><strong>{{ embeddingStatus?.ok ? 'DINOv2 Working' : 'Embedding Status' }}</strong><span>Threshold {{ embeddingStatus?.thresholdPercent || 70 }}%</span><button type="button" class="ghost" (click)="checkEmbeddingStatus()">Check</button></article>
-        <article [class.ready]="pineconeStatus?.ok"><strong>{{ pineconeStatus?.ok ? 'Pinecone Working' : 'Vector Search' }}</strong><span>{{ pineconeStatus?.totalVectorCount || 0 }} vectors</span><button type="button" class="ghost" (click)="checkPineconeStatus()">Check</button></article>
+        <article [class.ready]="yoloStatus?.ok"><strong>{{ yoloStatus?.ok ? 'Muzzle Check Ready' : 'Muzzle Check' }}</strong><span>{{ yoloStatus?.ok ? 'Ready for clear muzzle photos' : (yoloStatus?.error || 'Check model') }}</span><button type="button" class="ghost" (click)="checkYoloStatus()">Check</button></article>
+        <article [class.ready]="embeddingStatus?.ok"><strong>{{ embeddingStatus?.ok ? 'Same-Cattle Check Ready' : 'Same-Cattle Check' }}</strong><span>Threshold {{ embeddingStatus?.thresholdPercent || 70 }}%</span><button type="button" class="ghost" (click)="checkEmbeddingStatus()">Check</button></article>
+        <article [class.ready]="pineconeStatus?.ok"><strong>{{ pineconeStatus?.ok ? 'Record Search Ready' : 'Record Search' }}</strong><span>{{ pineconeStatus?.totalVectorCount || 0 }} vectors</span><button type="button" class="ghost" (click)="checkPineconeStatus()">Check</button></article>
       </div>
 
       <div class="thumb-strip">
@@ -409,7 +409,7 @@
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 4</p>
-          <h2>Supporting Evidence</h2>
+          <h2>Other Photos</h2>
         </div>
         <span>{{ capturedOtherImages }}/7</span>
       </div>
@@ -423,14 +423,14 @@
         </label>
       </div>
 
-      <button type="button" class="primary-action big" [disabled]="capturedOtherImages < requiredImages.length" (click)="goAgentScreen('review')">Review Enrollment</button>
+      <button type="button" class="primary-action big" [disabled]="capturedOtherImages < requiredImages.length" (click)="goAgentScreen('review')">Check Record</button>
     </section>
 
     <section class="screen-card page-enter" *ngIf="agentScreen === 'review'">
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 5</p>
-          <h2>Final Review</h2>
+          <h2>Check & Save</h2>
         </div>
         <span>{{ enrollmentStage }}</span>
       </div>
@@ -453,13 +453,13 @@
         <img *ngFor="let item of requiredImages" [src]="item.previewUrl" [alt]="item.label" [hidden]="!item.previewUrl">
       </div>
 
-      <button type="button" class="primary-action big" [disabled]="!canComplete" (click)="completeEnrollment()">Complete Enrollment</button>
+      <button type="button" class="primary-action big" [disabled]="!canComplete" (click)="completeEnrollment()">Save Record</button>
     </section>
   </section>
 
   <nav class="bottom-nav">
     <button type="button" [class.active]="agentScreen === 'home'" (click)="goAgentScreen('home')">Home</button>
-    <button type="button" [class.active]="agentScreen === 'farmer' || agentScreen === 'location'" (click)="goAgentScreen('farmer')">Details</button>
+    <button type="button" [class.active]="agentScreen === 'farmer' || agentScreen === 'location'" (click)="goAgentScreen('farmer')">Owner</button>
     <button type="button" [class.active]="agentScreen === 'muzzle'" (click)="goAgentScreen('muzzle')">Camera</button>
     <button type="button" [class.active]="agentScreen === 'review'" (click)="goAgentScreen('review')">Review</button>
   </nav>
@@ -479,5 +479,6 @@
     <a [href]="imageViewer.url" target="_blank" rel="noreferrer">Open original</a>
   </div>
 </div>
+
 
 
