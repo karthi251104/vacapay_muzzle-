@@ -367,6 +367,22 @@ app.get('/api/cattle/search', async (req, res, next) => {
   }
 });
 
+
+app.get('/api/cattle', requireAuth, async (req, res, next) => {
+  try {
+    const rows = (await readMetadata()).map(normalizeRecord).filter(Boolean);
+    const cattle = rows
+      .map(toCattleSummary)
+      .sort((a, b) => String(b.lastCaptureDate || '').localeCompare(String(a.lastCaptureDate || '')));
+
+    res.json({
+      stats: buildCattleStats(cattle),
+      cattle
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 app.post('/api/enrollments', async (req, res, next) => {
   try {
     const now = new Date().toISOString();
@@ -1010,6 +1026,123 @@ async function resolveMuzzleMatch(cattleId) {
   };
 }
 
+
+function toCattleSummary(row) {
+  const sessions = (row.sessions || []).map((session) => toSessionSummary(row, session));
+  const lastSession = sessions.at(-1) || null;
+  const imageCount = sessions.reduce((total, session) => total + session.imageCount, 0);
+  const cloudinaryRootFolder = `${CLOUDINARY_ROOT_FOLDER}/cattle/${row.cattleId}`;
+
+  return {
+    cattleId: row.cattleId,
+    farmerId: row.farmerId || '',
+    farmerName: row.farmerName || '',
+    fieldOfficerId: row.fieldOfficerId || '',
+    fieldOfficerName: row.fieldOfficerName || '',
+    locationLat: row.locationLat ?? null,
+    locationLon: row.locationLon ?? null,
+    status: row.status || 'draft',
+    rootFolderLocation: row.rootFolderLocation || path.join(dataDir, row.cattleId),
+    cloudinaryRootFolder: cloudinaryEnabled ? cloudinaryRootFolder : null,
+    productionFolder: cloudinaryEnabled ? cloudinaryRootFolder : (row.rootFolderLocation || path.join(dataDir, row.cattleId)),
+    sessionCount: sessions.length,
+    imageCount,
+    lastCaptureDate: lastSession?.captureDate || null,
+    lastCaptureDateTime: lastSession?.captureDateTime || null,
+    lastPreviewUrl: lastSession?.previewUrl || null,
+    lastCloudinaryUrl: lastSession?.cloudinaryUrl || null,
+    sessions
+  };
+}
+
+function toSessionSummary(row, session) {
+  const imageRefs = Object.values(session.images || {})
+    .map((ref) => toImageSummary(ref))
+    .sort((a, b) => imageSortRank(a.imageType) - imageSortRank(b.imageType));
+  const firstImage = imageRefs.find((image) => image.imageType === 'muzzle1') || imageRefs[0] || null;
+  const cloudinaryFolder = `${CLOUDINARY_ROOT_FOLDER}/cattle/${row.cattleId}/${session.sessionId}`;
+
+  return {
+    sessionId: session.sessionId,
+    captureDate: session.captureDate,
+    captureDateTime: session.captureDateTime,
+    uploadDateTime: session.uploadDateTime,
+    status: session.status || 'draft',
+    folderLocation: session.folderLocation,
+    cloudinaryFolder: cloudinaryEnabled ? cloudinaryFolder : null,
+    productionFolder: cloudinaryEnabled ? cloudinaryFolder : session.folderLocation,
+    imageCount: imageRefs.length,
+    previewUrl: firstImage?.url || null,
+    cloudinaryUrl: firstImage?.cloudinaryUrl || null,
+    matchResult: session.matchResult || null,
+    images: imageRefs
+  };
+}
+
+function toImageSummary(ref) {
+  return {
+    imageType: ref.imageType,
+    fileName: ref.fileName,
+    previewUrl: ref.previewUrl,
+    cloudinaryUrl: ref.cloudinary?.secureUrl || null,
+    url: ref.cloudinary?.secureUrl || ref.previewUrl,
+    localPath: ref.localPath,
+    uploadedAt: ref.uploadedAt || null,
+    cloudinaryPublicId: ref.cloudinary?.publicId || null,
+    cloudinaryError: ref.cloudinaryError || null
+  };
+}
+
+function imageSortRank(imageType) {
+  const order = ['muzzle1', 'muzzle2', 'muzzle3', 'muzzle4', 'muzzle5', 'face1', 'face2', 'face3', 'leftside', 'rightside', 'back', 'udder'];
+  const index = order.indexOf(imageType);
+  return index >= 0 ? index : order.length;
+}
+
+function buildCattleStats(cattle) {
+  const farmerMap = new Map();
+  let imageCount = 0;
+  let sessionCount = 0;
+  let repeatedCattleCount = 0;
+
+  for (const cow of cattle) {
+    imageCount += cow.imageCount;
+    sessionCount += cow.sessionCount;
+    if (cow.sessionCount > 1) repeatedCattleCount += 1;
+
+    const key = (cow.farmerName || cow.farmerId || 'Unknown farmer').trim() || 'Unknown farmer';
+    const farmer = farmerMap.get(key) || {
+      farmerName: cow.farmerName || 'Unknown farmer',
+      farmerId: cow.farmerId || '',
+      cattleIds: new Set(),
+      sessionCount: 0,
+      imageCount: 0
+    };
+    farmer.cattleIds.add(cow.cattleId);
+    farmer.sessionCount += cow.sessionCount;
+    farmer.imageCount += cow.imageCount;
+    farmerMap.set(key, farmer);
+  }
+
+  const farmers = Array.from(farmerMap.values())
+    .map((farmer) => ({
+      farmerName: farmer.farmerName,
+      farmerId: farmer.farmerId,
+      cattleCount: farmer.cattleIds.size,
+      sessionCount: farmer.sessionCount,
+      imageCount: farmer.imageCount
+    }))
+    .sort((a, b) => b.sessionCount - a.sessionCount);
+
+  return {
+    cattleCount: cattle.length,
+    farmerCount: farmers.length,
+    sessionCount,
+    imageCount,
+    repeatedCattleCount,
+    farmers
+  };
+}
 async function ensureSessionEmbedding(row, session) {
   if (session.embedding?.average?.length) {
     return session.embedding.average;
@@ -1209,7 +1342,7 @@ async function refreshCloudinaryRefs(cattleId, session) {
 }
 
 async function uploadImageToCloudinary({ cattleId, sessionId, imageType, localPath }) {
-  const publicId = `${CLOUDINARY_ROOT_FOLDER}/${cattleId}/${sessionId}/${imageType}`;
+  const publicId = `${CLOUDINARY_ROOT_FOLDER}/cattle/${cattleId}/${sessionId}/${imageType}`;
   const uploaded = await cloudinary.uploader.upload(localPath, {
     public_id: publicId,
     overwrite: true,
@@ -1518,3 +1651,5 @@ function runPythonJson(args) {
     });
   });
 }
+
+

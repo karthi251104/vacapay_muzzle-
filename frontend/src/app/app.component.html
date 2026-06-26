@@ -87,6 +87,18 @@
       <span>Review Mode</span>
       <strong>{{ showAllReviews ? 'All' : 'Open' }}</strong>
     </article>
+    <article>
+      <span>Cattle</span>
+      <strong>{{ cattleStats?.cattleCount || 0 }}</strong>
+    </article>
+    <article>
+      <span>Repeat Visits</span>
+      <strong>{{ cattleStats?.repeatedCattleCount || 0 }}</strong>
+    </article>
+    <article>
+      <span>Images</span>
+      <strong>{{ cattleStats?.imageCount || 0 }}</strong>
+    </article>
   </section>
 
   <section class="admin-grid page-enter delay-2">
@@ -125,6 +137,69 @@
       </article>
     </section>
 
+    <section class="panel cattle-admin-panel">
+      <div class="panel-title">
+        <div>
+          <p class="eyebrow">Cattle Registry</p>
+          <h2>Repeat Sessions and Images</h2>
+        </div>
+        <div class="compact-actions">
+          <button type="button" class="ghost" (click)="loadCattleInventory()">Refresh</button>
+          <button type="button" [disabled]="!selectedCattleIds.length" (click)="downloadSelectedImages()">Download {{ selectedImageCount }} Images</button>
+        </div>
+      </div>
+
+      <div class="registry-layout">
+        <div class="cattle-table">
+          <article class="cattle-row" *ngFor="let cattle of cattleInventory" [class.active]="selectedAdminCattle?.cattleId === cattle.cattleId">
+            <label class="select-box">
+              <input type="checkbox" [checked]="isCattleSelected(cattle)" (change)="toggleCattleSelection(cattle)">
+              <span></span>
+            </label>
+            <button type="button" class="cattle-main" (click)="selectAdminCattle(cattle)">
+              <img *ngIf="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" [src]="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" alt="Cattle preview">
+              <div>
+                <strong>{{ cattle.cattleId }}</strong>
+                <p>{{ cattle.farmerName || 'Unknown farmer' }} / {{ cattle.fieldOfficerName || 'NA' }}</p>
+                <small>{{ cattle.sessionCount }} registrations / {{ cattle.imageCount }} images / {{ cattle.lastCaptureDate || 'No date' }}</small>
+              </div>
+            </button>
+          </article>
+        </div>
+
+        <aside class="cattle-detail" *ngIf="selectedAdminCattle; else cattleEmpty">
+          <div class="detail-head">
+            <div>
+              <p class="eyebrow">Selected Cattle</p>
+              <h3>{{ selectedAdminCattle.cattleId }}</h3>
+            </div>
+            <span>{{ selectedAdminCattle.sessionCount }} visits</span>
+          </div>
+          <p class="folder-text">Production folder: {{ selectedAdminCattle.productionFolder }}</p>
+
+          <article class="session-card" *ngFor="let session of selectedAdminCattle.sessions">
+            <div class="session-head">
+              <div>
+                <strong>{{ session.sessionId }}</strong>
+                <p>{{ session.captureDate }} / {{ session.status }}</p>
+              </div>
+              <span>{{ session.imageCount }}/12</span>
+            </div>
+            <p class="folder-text">{{ session.productionFolder }}</p>
+            <div class="session-images">
+              <button type="button" *ngFor="let image of session.images" (click)="openImage(image.imageType, imageUrl(image))">
+                <img [src]="imageUrl(image)" [alt]="image.imageType">
+                <span>{{ image.imageType }}</span>
+              </button>
+            </div>
+          </article>
+        </aside>
+
+        <ng-template #cattleEmpty>
+          <aside class="cattle-detail empty-state">Select a cattle row to view sessions and images.</aside>
+        </ng-template>
+      </div>
+    </section>
     <section class="panel review-panel">
       <div class="panel-title">
         <div>
@@ -211,6 +286,30 @@
         <article><span>03</span><strong>Muzzle AI</strong><p>5 crops with YOLO and CLAHE.</p></article>
         <article><span>04</span><strong>Evidence</strong><p>3 face, 2 side, back, udder.</p></article>
       </div>
+      <div class="field-stats">
+        <article><span>Farmers</span><strong>{{ cattleStats?.farmerCount || 0 }}</strong></article>
+        <article><span>Cattle</span><strong>{{ cattleStats?.cattleCount || 0 }}</strong></article>
+        <article><span>Registrations</span><strong>{{ cattleStats?.sessionCount || 0 }}</strong></article>
+        <article><span>Repeat Cattle</span><strong>{{ cattleStats?.repeatedCattleCount || 0 }}</strong></article>
+      </div>
+
+      <section class="already-list" *ngIf="recentCattle.length">
+        <div class="panel-title">
+          <div>
+            <p class="eyebrow">Already Enrolled</p>
+            <h2>Recent Cattle</h2>
+          </div>
+          <button type="button" class="ghost" (click)="loadCattleInventory()">Refresh</button>
+        </div>
+        <button type="button" class="already-card" *ngFor="let cattle of recentCattle" (click)="farmerName = cattle.farmerName; farmerId = cattle.farmerId; cattleId = cattle.cattleId; beginEnrollmentFlow()">
+          <img *ngIf="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" [src]="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" alt="Cattle preview">
+          <div>
+            <strong>{{ cattle.farmerName || 'Unknown farmer' }}</strong>
+            <p>{{ cattle.cattleId }}</p>
+            <small>{{ cattle.sessionCount }} registrations / last {{ cattle.lastCaptureDate || 'NA' }}</small>
+          </div>
+        </button>
+      </section>
       <button type="button" class="primary-action big" (click)="beginEnrollmentFlow()">Start Enrollment</button>
     </section>
 
@@ -365,4 +464,19 @@
     <button type="button" [class.active]="agentScreen === 'review'" (click)="goAgentScreen('review')">Review</button>
   </nav>
 </main>
+
+
+<div class="image-viewer" *ngIf="imageViewer" (click)="closeImageViewer()">
+  <div class="image-viewer-card" (click)="$event.stopPropagation()">
+    <div class="panel-title">
+      <div>
+        <p class="eyebrow">Image Viewer</p>
+        <h2>{{ imageViewer.title }}</h2>
+      </div>
+      <button type="button" class="ghost" (click)="closeImageViewer()">Close</button>
+    </div>
+    <img [src]="imageViewer.url" [alt]="imageViewer.title">
+    <a [href]="imageViewer.url" target="_blank" rel="noreferrer">Open original</a>
+  </div>
+</div>
 

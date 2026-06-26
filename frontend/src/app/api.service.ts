@@ -34,12 +34,22 @@ export interface CaptureImageRef {
   fileName: string;
   localPath: string;
   previewUrl: string;
+  cloudinary?: {
+    publicId: string;
+    secureUrl: string;
+    format: string;
+    bytes: number;
+    width: number;
+    height: number;
+  } | null;
+  cloudinaryError?: string;
 }
 
 export interface MuzzleCaptureResponse {
   slot: number;
   savedAs: string;
   previewUrl: string;
+  cloudinaryUrl?: string | null;
   matchResolution?: MuzzleMatchResolution | null;
   result: {
     detected: boolean;
@@ -80,6 +90,7 @@ export interface MuzzleMatchResolution {
 export interface ManualImageResponse {
   savedAs: string;
   previewUrl: string;
+  cloudinaryUrl?: string | null;
 }
 
 export interface CattleMatch {
@@ -96,6 +107,70 @@ export interface CattleMatch {
   distanceKm: number | null;
 }
 
+
+export interface CattleImageSummary {
+  imageType: string;
+  fileName: string;
+  previewUrl: string;
+  cloudinaryUrl: string | null;
+  url: string;
+  localPath: string;
+  uploadedAt: string | null;
+  cloudinaryPublicId: string | null;
+  cloudinaryError: string | null;
+}
+
+export interface CattleSessionSummary {
+  sessionId: string;
+  captureDate: string;
+  captureDateTime: string;
+  uploadDateTime: string;
+  status: string;
+  folderLocation: string;
+  cloudinaryFolder: string | null;
+  productionFolder: string;
+  imageCount: number;
+  previewUrl: string | null;
+  cloudinaryUrl: string | null;
+  matchResult: MuzzleMatchResolution | null;
+  images: CattleImageSummary[];
+}
+
+export interface CattleSummary {
+  cattleId: string;
+  farmerId: string;
+  farmerName: string;
+  fieldOfficerId: string;
+  fieldOfficerName: string;
+  locationLat: number | null;
+  locationLon: number | null;
+  status: string;
+  rootFolderLocation: string;
+  cloudinaryRootFolder: string | null;
+  productionFolder: string;
+  sessionCount: number;
+  imageCount: number;
+  lastCaptureDate: string | null;
+  lastCaptureDateTime: string | null;
+  lastPreviewUrl: string | null;
+  lastCloudinaryUrl: string | null;
+  sessions: CattleSessionSummary[];
+}
+
+export interface CattleStats {
+  cattleCount: number;
+  farmerCount: number;
+  sessionCount: number;
+  imageCount: number;
+  repeatedCattleCount: number;
+  farmers: Array<{
+    farmerName: string;
+    farmerId: string;
+    cattleCount: number;
+    sessionCount: number;
+    imageCount: number;
+  }>;
+}
 export interface AppUser {
   userId: string;
   role: 'admin' | 'agent';
@@ -203,6 +278,10 @@ export class ApiService {
     return this.http.get<{ agents: AppUser[] }>(`${this.baseUrl}/agents`, { headers: this.authHeaders() });
   }
 
+  listCattle(): Observable<{ stats: CattleStats; cattle: CattleSummary[] }> {
+    return this.http.get<{ stats: CattleStats; cattle: CattleSummary[] }>(`${this.baseUrl}/cattle`, { headers: this.authHeaders() });
+  }
+
   listMatchReviews(uncertainOnly = true): Observable<{ reviews: MatchReview[] }> {
     return this.http.get<{ reviews: MatchReview[] }>(`${this.baseUrl}/reviews/matches?uncertainOnly=${uncertainOnly}`, { headers: this.authHeaders() });
   }
@@ -263,3 +342,7 @@ export class ApiService {
     return this.token ? new HttpHeaders({ Authorization: `Bearer ${this.token}` }) : new HttpHeaders();
   }
 }
+
+
+
+

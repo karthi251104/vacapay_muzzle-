@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, AppUser, CattleMatch, EmbeddingStatus, Enrollment, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
+import { ApiService, AppUser, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
 
 interface RequiredImage {
   type: string;
@@ -45,6 +45,11 @@ export class AppComponent implements OnDestroy {
   loginMode: 'agent' | 'admin' = 'agent';
   agents: AppUser[] = [];
   matchReviews: MatchReview[] = [];
+  cattleInventory: CattleSummary[] = [];
+  cattleStats?: CattleStats;
+  selectedCattleIds: string[] = [];
+  selectedAdminCattle?: CattleSummary;
+  imageViewer?: { title: string; url: string };
   showAllReviews = false;
   agentName = '';
   agentPhone = '';
@@ -110,6 +115,7 @@ export class AppComponent implements OnDestroy {
       if (this.currentUser.role === 'admin') {
         this.loadAgents();
         this.loadMatchReviews();
+        this.loadCattleInventory();
       }
     }
   }
@@ -134,9 +140,11 @@ export class AppComponent implements OnDestroy {
           this.checkYoloStatus();
           this.checkEmbeddingStatus();
           this.checkPineconeStatus();
+          this.loadCattleInventory();
         } else {
           this.loadAgents();
           this.loadMatchReviews();
+          this.loadCattleInventory();
         }
       },
       error: (error) => {
@@ -209,6 +217,9 @@ export class AppComponent implements OnDestroy {
     this.currentUser = undefined;
     this.enrollment = undefined;
     this.agentScreen = 'home';
+    this.selectedCattleIds = [];
+    this.selectedAdminCattle = undefined;
+    this.imageViewer = undefined;
     this.message = 'Signed out.';
   }
 
@@ -245,6 +256,23 @@ export class AppComponent implements OnDestroy {
     this.api.listAgents().subscribe({
       next: ({ agents }) => {
         this.agents = agents;
+      },
+      error: (error) => {
+        this.message = this.errorMessage(error);
+      }
+    });
+  }
+
+  loadCattleInventory(): void {
+    if (!this.currentUser) return;
+
+    this.api.listCattle().subscribe({
+      next: ({ stats, cattle }) => {
+        this.cattleStats = stats;
+        this.cattleInventory = cattle;
+        if (this.selectedAdminCattle) {
+          this.selectedAdminCattle = cattle.find((item) => item.cattleId === this.selectedAdminCattle?.cattleId);
+        }
       },
       error: (error) => {
         this.message = this.errorMessage(error);
@@ -332,7 +360,11 @@ export class AppComponent implements OnDestroy {
             item.uploading = false;
           });
           this.agentScreen = 'muzzle';
-          this.message = `Enrollment ready: ${enrollment.cattleId}. Start muzzle capture.`;
+          const visitCount = enrollment.sessions?.length || 1;
+          this.message = visitCount > 1
+            ? `Already enrolled cattle ${enrollment.cattleId}. New visit ${visitCount} is saving in the same cattle folder.`
+            : `Enrollment ready: ${enrollment.cattleId}. Start muzzle capture.`;
+          this.loadCattleInventory();
         },
         error: (error) => {
           this.message = this.errorMessage(error);
@@ -475,7 +507,7 @@ export class AppComponent implements OnDestroy {
       next: (response) => {
         this.lastConfidence = response.result.confidence;
         this.detectionBox = this.toDetectionBox(response.result.bbox, response.result.imageSize, response.result.confidence);
-        this.muzzlePreviews.push(this.api.mediaUrl(response.previewUrl));
+        this.muzzlePreviews.push(response.cloudinaryUrl || this.api.mediaUrl(response.previewUrl));
         this.message = `YOLO detected muzzle. Captured ${slot}/5. CLAHE applied.`;
         this.isDetecting = false;
 
@@ -514,11 +546,12 @@ export class AppComponent implements OnDestroy {
     item.uploading = true;
     this.api.saveImage(this.enrollment.cattleId, item.type, file).subscribe({
       next: (response) => {
-        item.previewUrl = this.api.mediaUrl(response.previewUrl);
+        item.previewUrl = response.cloudinaryUrl || this.api.mediaUrl(response.previewUrl);
         item.uploading = false;
         this.message = `${item.label} saved.`;
         if (this.capturedOtherImages === this.requiredImages.length && this.muzzlePreviews.length === 5) {
           this.agentScreen = 'review';
+          this.loadCattleInventory();
         }
       },
       error: (error) => {
@@ -534,8 +567,9 @@ export class AppComponent implements OnDestroy {
     this.api.complete(this.enrollment.cattleId).subscribe({
       next: ({ enrollment }) => {
         this.enrollment = enrollment;
-        this.agentScreen = 'review';
-        this.message = 'Capture session complete and ready for embedding service.';
+        this.loadCattleInventory();
+        this.agentScreen = 'home';
+        this.message = 'Capture session complete. Returned home for the next cattle.';
       },
       error: (error) => {
         this.message = this.errorMessage(error);
@@ -550,10 +584,13 @@ export class AppComponent implements OnDestroy {
     this.refreshMuzzlePreviewsFromEnrollment(resolution.enrollment);
 
     if (resolution.decision === 'matched_existing') {
-      this.message = `DINOv2 matched existing cattle ${resolution.matchedCattleId} with ${resolution.confidencePercent}% confidence. Continue supporting images.`;
+      const visitCount = resolution.enrollment.sessions?.length || 1;
+      this.loadCattleInventory();
+      this.message = `Already enrolled cattle ${resolution.matchedCattleId} matched with ${resolution.confidencePercent}% confidence. This is visit ${visitCount} in the same cattle folder.`;
       return;
     }
 
+    this.loadCattleInventory();
     this.message = `DINOv2 did not cross ${resolution.thresholdPercent}%. New cattle ID kept: ${resolution.enrollment.cattleId}.`;
   }
 
@@ -568,6 +605,71 @@ export class AppComponent implements OnDestroy {
     if (previews.length === 5) {
       this.muzzlePreviews = previews;
     }
+  }
+
+  selectAdminCattle(cattle: CattleSummary): void {
+    this.selectedAdminCattle = cattle;
+  }
+
+  openImage(title: string, url?: string | null): void {
+    if (!url) return;
+    this.imageViewer = { title, url: this.api.mediaUrl(url) };
+  }
+
+  closeImageViewer(): void {
+    this.imageViewer = undefined;
+  }
+
+  imageUrl(image: CattleImageSummary): string {
+    return image.cloudinaryUrl || this.api.mediaUrl(image.previewUrl);
+  }
+
+  toggleCattleSelection(cattle: CattleSummary): void {
+    if (this.selectedCattleIds.includes(cattle.cattleId)) {
+      this.selectedCattleIds = this.selectedCattleIds.filter((id) => id !== cattle.cattleId);
+      return;
+    }
+
+    this.selectedCattleIds = [...this.selectedCattleIds, cattle.cattleId];
+  }
+
+  isCattleSelected(cattle: CattleSummary): boolean {
+    return this.selectedCattleIds.includes(cattle.cattleId);
+  }
+
+  downloadSelectedImages(): void {
+    const selected = this.cattleInventory.filter((cattle) => this.selectedCattleIds.includes(cattle.cattleId));
+    const images = selected.flatMap((cattle) => cattle.sessions.flatMap((session) => session.images));
+    if (!images.length) {
+      this.message = 'No images found for selected cattle.';
+      return;
+    }
+
+    images.slice(0, 80).forEach((image, index) => {
+      window.setTimeout(() => {
+        const url = this.imageUrl(image);
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        link.download = image.fileName || `${image.imageType}.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }, index * 120);
+    });
+
+    this.message = `Started bulk download for ${Math.min(images.length, 80)} images. Browser may ask to allow multiple downloads.`;
+  }
+
+  get selectedImageCount(): number {
+    return this.cattleInventory
+      .filter((cattle) => this.selectedCattleIds.includes(cattle.cattleId))
+      .reduce((total, cattle) => total + cattle.imageCount, 0);
+  }
+
+  get recentCattle(): CattleSummary[] {
+    return this.cattleInventory.slice(0, 5);
   }
 
   get canComplete(): boolean {
@@ -696,6 +798,9 @@ export class AppComponent implements OnDestroy {
     };
   }
 }
+
+
+
 
 
 
