@@ -159,7 +159,7 @@
   </section>
 </main>
 
-<main class="shell" *ngIf="isAgent">
+<main class="shell field-app" *ngIf="isAgent">
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark">V</div>
@@ -293,18 +293,44 @@
   </aside>
 
   <section class="mainstage">
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">Field Collection Console</p>
+    <header class="topbar mission-hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Field Mission</p>
         <h2>{{ nextAction }}</h2>
+        <span>{{ currentUser?.name }} - {{ currentUser?.agentId }}</span>
       </div>
-      <div class="status">
-        <span class="status-dot" [class.live]="autoCaptureOn"></span>
-        {{ message }}
+      <div class="hero-actions">
+        <div class="hero-status">
+          <span class="status-dot" [class.live]="autoCaptureOn"></span>
+          {{ message }}
+        </div>
+        <div class="hero-score">
+          <span>Readiness</span>
+          <strong>{{ progressPercent }}%</strong>
+        </div>
       </div>
     </header>
 
-    <section class="metrics">
+    <section class="workflow-strip" aria-label="Capture workflow">
+      <div [class.active]="!enrollment" [class.done]="enrollment">
+        <span>01</span>
+        <strong>Farmer</strong>
+      </div>
+      <div [class.active]="enrollment && muzzlePreviews.length < 5" [class.done]="muzzlePreviews.length === 5">
+        <span>02</span>
+        <strong>Muzzle AI</strong>
+      </div>
+      <div [class.active]="muzzlePreviews.length === 5 && capturedOtherImages < requiredImages.length" [class.done]="capturedOtherImages === requiredImages.length">
+        <span>03</span>
+        <strong>Evidence</strong>
+      </div>
+      <div [class.active]="canComplete" [class.done]="enrollment?.status === 'ready_for_embedding'">
+        <span>04</span>
+        <strong>Review</strong>
+      </div>
+    </section>
+
+    <section class="metrics cockpit-metrics">
       <div class="metric">
         <span>Total Images</span>
         <strong>{{ totalCapturedImages }}/12</strong>
@@ -332,8 +358,8 @@
       </div>
     </section>
 
-    <section class="capture-layout">
-      <article class="camera-panel">
+    <section class="capture-layout ai-capture-stage">
+      <article class="camera-panel camera-command">
         <div class="section-head">
           <div>
             <p class="eyebrow">YOLO Assisted Capture</p>
@@ -349,7 +375,7 @@
           </div>
         </div>
 
-        <div class="video-frame" [class.detecting]="isDetecting" [class.live]="cameraOn">
+        <div class="video-frame phone-camera" [class.detecting]="isDetecting" [class.live]="cameraOn">
           <video #video muted playsinline></video>
           <div class="scan" *ngIf="autoCaptureOn">
             <i></i>
@@ -383,7 +409,7 @@
         </div>
       </article>
 
-      <aside class="readiness-panel">
+      <aside class="readiness-panel intelligence-panel">
         <div class="panel-head">
           <h3>Quality Gate</h3>
           <span>{{ enrollmentStage }}</span>
@@ -518,4 +544,14 @@
       </div>
     </section>
   </section>
+  <nav class="mobile-dock" *ngIf="isAgent" aria-label="Mobile navigation">
+    <button type="button">Home</button>
+    <button type="button">Enroll</button>
+    <button type="button">Camera</button>
+    <button type="button">Review</button>
+  </nav>
 </main>
+
+
+
+
