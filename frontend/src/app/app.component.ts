@@ -611,6 +611,11 @@ export class AppComponent implements OnDestroy {
     this.selectedAdminCattle = cattle;
   }
 
+  shortId(id?: string): string {
+    if (!id) return 'NA';
+    return id.length > 12 ? `${id.slice(0, 8)}...${id.slice(-4)}` : id;
+  }
+
   openImage(title: string, url?: string | null): void {
     if (!url) return;
     this.imageViewer = { title, url: this.api.mediaUrl(url) };
@@ -638,30 +643,29 @@ export class AppComponent implements OnDestroy {
   }
 
   downloadSelectedImages(): void {
-    const selected = this.cattleInventory.filter((cattle) => this.selectedCattleIds.includes(cattle.cattleId));
-    const images = selected.flatMap((cattle) => cattle.sessions.flatMap((session) => session.images));
-    if (!images.length) {
-      this.message = 'No images found for selected cattle.';
+    if (!this.selectedCattleIds.length) {
+      this.message = 'Select one or more cattle to download.';
       return;
     }
 
-    images.slice(0, 80).forEach((image, index) => {
-      window.setTimeout(() => {
-        const url = this.imageUrl(image);
+    this.message = 'Preparing ZIP download...';
+    this.api.downloadCattleZip(this.selectedCattleIds).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.target = '_blank';
-        link.rel = 'noreferrer';
-        link.download = image.fileName || `${image.imageType}.jpg`;
+        link.download = `vacapay-cattle-${new Date().toISOString().slice(0, 10)}.zip`;
         document.body.appendChild(link);
         link.click();
         link.remove();
-      }, index * 120);
+        URL.revokeObjectURL(url);
+        this.message = `ZIP downloaded for ${this.selectedCattleIds.length} selected cattle.`;
+      },
+      error: (error) => {
+        this.message = this.errorMessage(error);
+      }
     });
-
-    this.message = `Started bulk download for ${Math.min(images.length, 80)} images. Browser may ask to allow multiple downloads.`;
   }
-
   get selectedImageCount(): number {
     return this.cattleInventory
       .filter((cattle) => this.selectedCattleIds.includes(cattle.cattleId))
@@ -798,6 +802,8 @@ export class AppComponent implements OnDestroy {
     };
   }
 }
+
+
 
 
 

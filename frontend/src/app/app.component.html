@@ -65,8 +65,8 @@
   <header class="admin-hero page-enter">
     <div>
       <p class="eyebrow">Admin Console</p>
-      <h1>Operations Command</h1>
-      <p>Manage field officers and review uncertain muzzle matches.</p>
+      <h1>Farm & Cattle Records</h1>
+      <p>See farmers, cattle visits, photos, and field officers in one simple place.</p>
     </div>
     <div class="top-actions">
       <div class="user-chip">{{ currentUser?.name }}</div>
@@ -80,11 +80,11 @@
       <strong>{{ agents.length }}</strong>
     </article>
     <article>
-      <span>Match Reviews</span>
+      <span>Review Needed</span>
       <strong>{{ matchReviews.length }}</strong>
     </article>
     <article>
-      <span>Review Mode</span>
+      <span>View</span>
       <strong>{{ showAllReviews ? 'All' : 'Open' }}</strong>
     </article>
     <article>
@@ -92,7 +92,7 @@
       <strong>{{ cattleStats?.cattleCount || 0 }}</strong>
     </article>
     <article>
-      <span>Repeat Visits</span>
+      <span>Same Cow Again</span>
       <strong>{{ cattleStats?.repeatedCattleCount || 0 }}</strong>
     </article>
     <article>
@@ -140,12 +140,12 @@
     <section class="panel cattle-admin-panel">
       <div class="panel-title">
         <div>
-          <p class="eyebrow">Cattle Registry</p>
-          <h2>Repeat Sessions and Images</h2>
+          <p class="eyebrow">Farm Records</p>
+          <h2>Farmers, Cattle and Visits</h2>
         </div>
         <div class="compact-actions">
           <button type="button" class="ghost" (click)="loadCattleInventory()">Refresh</button>
-          <button type="button" [disabled]="!selectedCattleIds.length" (click)="downloadSelectedImages()">Download {{ selectedImageCount }} Images</button>
+          <button type="button" [disabled]="!selectedCattleIds.length" (click)="downloadSelectedImages()">Download ZIP</button>
         </div>
       </div>
 
@@ -159,9 +159,9 @@
             <button type="button" class="cattle-main" (click)="selectAdminCattle(cattle)">
               <img *ngIf="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" [src]="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" alt="Cattle preview">
               <div>
-                <strong>{{ cattle.cattleId }}</strong>
-                <p>{{ cattle.farmerName || 'Unknown farmer' }} / {{ cattle.fieldOfficerName || 'NA' }}</p>
-                <small>{{ cattle.sessionCount }} registrations / {{ cattle.imageCount }} images / {{ cattle.lastCaptureDate || 'No date' }}</small>
+                <strong>{{ cattle.farmerName || 'Unknown farmer' }}</strong>
+                <p>Cattle ID: {{ shortId(cattle.cattleId) }} / Officer: {{ cattle.fieldOfficerName || 'NA' }}</p>
+                <small>{{ cattle.sessionCount }} visits / {{ cattle.imageCount }} photos / last {{ cattle.lastCaptureDate || 'No date' }}</small>
               </div>
             </button>
           </article>
@@ -170,18 +170,18 @@
         <aside class="cattle-detail" *ngIf="selectedAdminCattle; else cattleEmpty">
           <div class="detail-head">
             <div>
-              <p class="eyebrow">Selected Cattle</p>
-              <h3>{{ selectedAdminCattle.cattleId }}</h3>
+              <p class="eyebrow">Selected Record</p>
+              <h3>{{ selectedAdminCattle.farmerName || 'Unknown farmer' }}</h3><p class="simple-id">Cattle ID: {{ shortId(selectedAdminCattle.cattleId) }}</p>
             </div>
             <span>{{ selectedAdminCattle.sessionCount }} visits</span>
           </div>
-          <p class="folder-text">Production folder: {{ selectedAdminCattle.productionFolder }}</p>
+          <p class="folder-text">Folder: {{ selectedAdminCattle.productionFolder }}</p>
 
           <article class="session-card" *ngFor="let session of selectedAdminCattle.sessions">
             <div class="session-head">
               <div>
-                <strong>{{ session.sessionId }}</strong>
-                <p>{{ session.captureDate }} / {{ session.status }}</p>
+                <strong>Visit {{ selectedAdminCattle.sessions.indexOf(session) + 1 }}</strong>
+                <p>{{ session.captureDate }} / {{ session.imageCount }} photos</p>
               </div>
               <span>{{ session.imageCount }}/12</span>
             </div>
@@ -203,8 +203,8 @@
     <section class="panel review-panel">
       <div class="panel-title">
         <div>
-          <p class="eyebrow">Model Review</p>
-          <h2>70% Threshold Queue</h2>
+          <p class="eyebrow">Manual Check</p>
+          <h2>Review Possible Matches</h2>
         </div>
         <div class="compact-actions">
           <button type="button" class="ghost" (click)="toggleReviewMode()">{{ showAllReviews ? 'Open Only' : 'Show All' }}</button>
@@ -479,4 +479,5 @@
     <a [href]="imageViewer.url" target="_blank" rel="noreferrer">Open original</a>
   </div>
 </div>
+
 

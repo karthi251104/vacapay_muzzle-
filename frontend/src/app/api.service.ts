@@ -282,6 +282,13 @@ export class ApiService {
     return this.http.get<{ stats: CattleStats; cattle: CattleSummary[] }>(`${this.baseUrl}/cattle`, { headers: this.authHeaders() });
   }
 
+  downloadCattleZip(cattleIds: string[]): Observable<Blob> {
+    return this.http.post(`${this.baseUrl}/cattle/download`, { cattleIds }, {
+      headers: this.authHeaders(),
+      responseType: 'blob'
+    });
+  }
+
   listMatchReviews(uncertainOnly = true): Observable<{ reviews: MatchReview[] }> {
     return this.http.get<{ reviews: MatchReview[] }>(`${this.baseUrl}/reviews/matches?uncertainOnly=${uncertainOnly}`, { headers: this.authHeaders() });
   }
@@ -342,6 +349,7 @@ export class ApiService {
     return this.token ? new HttpHeaders({ Authorization: `Bearer ${this.token}` }) : new HttpHeaders();
   }
 }
+
 
 
 

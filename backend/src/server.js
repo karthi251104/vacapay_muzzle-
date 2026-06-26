@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { Buffer } from 'node:buffer';
 import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
@@ -379,6 +380,49 @@ app.get('/api/cattle', requireAuth, async (req, res, next) => {
       stats: buildCattleStats(cattle),
       cattle
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/cattle/download', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const cattleIds = Array.isArray(req.body?.cattleIds) ? req.body.cattleIds.map(String) : [];
+    if (!cattleIds.length) {
+      res.status(400).json({ error: 'Select at least one cattle.' });
+      return;
+    }
+
+    const selectedIds = new Set(cattleIds);
+    const rows = (await readMetadata()).map(normalizeRecord).filter((row) => row && selectedIds.has(row.cattleId));
+    const files = [];
+
+    for (const row of rows) {
+      const farmerFolder = safeZipName(row.farmerName || row.farmerId || 'unknown-farmer');
+      const cattleFolder = safeZipName(row.cattleId);
+      for (const session of row.sessions || []) {
+        const sessionFolder = safeZipName(session.sessionId || session.captureDate || 'visit');
+        for (const image of Object.values(session.images || {})) {
+          const data = await readImageForZip(image);
+          if (!data) continue;
+          files.push({
+            zipPath: `${farmerFolder}/${cattleFolder}/${sessionFolder}/${safeZipName(image.fileName || `${image.imageType}.jpg`)}`,
+            data
+          });
+        }
+      }
+    }
+
+    if (!files.length) {
+      res.status(404).json({ error: 'No downloadable images found for selected cattle.' });
+      return;
+    }
+
+    const zip = createZip(files);
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="vacapay-cattle-${stamp}.zip"`);
+    res.send(zip);
   } catch (error) {
     next(error);
   }
@@ -1027,6 +1071,114 @@ async function resolveMuzzleMatch(cattleId) {
 }
 
 
+
+
+async function readImageForZip(image) {
+  const candidates = [];
+  if (image?.localPath) candidates.push(image.localPath);
+  if (image?.previewUrl?.startsWith('/media/')) {
+    candidates.push(path.join(dataDir, image.previewUrl.replace(/^\/media\//, '')));
+  }
+
+  for (const candidate of candidates) {
+    if (candidate && await pathExists(candidate)) {
+      return fs.readFile(candidate);
+    }
+  }
+
+  const cloudinaryUrl = image?.cloudinary?.secureUrl;
+  if (cloudinaryUrl) {
+    const response = await fetch(cloudinaryUrl);
+    if (response.ok) {
+      return Buffer.from(await response.arrayBuffer());
+    }
+  }
+
+  return null;
+}
+function safeZipName(value) {
+  return String(value || 'item')
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 120) || 'item';
+}
+
+function createZip(files) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const name = Buffer.from(file.zipPath.replace(/\\/g, '/'), 'utf8');
+    const data = Buffer.isBuffer(file.data) ? file.data : Buffer.from(file.data);
+    const crc = crc32(data);
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0x0800, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt16LE(0, 10);
+    localHeader.writeUInt16LE(0, 12);
+    localHeader.writeUInt32LE(crc, 14);
+    localHeader.writeUInt32LE(data.length, 18);
+    localHeader.writeUInt32LE(data.length, 22);
+    localHeader.writeUInt16LE(name.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+    localParts.push(localHeader, name, data);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0x0800, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt16LE(0, 12);
+    centralHeader.writeUInt16LE(0, 14);
+    centralHeader.writeUInt32LE(crc, 16);
+    centralHeader.writeUInt32LE(data.length, 20);
+    centralHeader.writeUInt32LE(data.length, 24);
+    centralHeader.writeUInt16LE(name.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+    centralParts.push(centralHeader, name);
+    offset += localHeader.length + name.length + data.length;
+  }
+
+  const centralSize = centralParts.reduce((total, part) => total + part.length, 0);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(centralSize, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+
+  return Buffer.concat([...localParts, ...centralParts, end]);
+}
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ byte) & 0xff];
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+  }
+  return value >>> 0;
+});
 function toCattleSummary(row) {
   const sessions = (row.sessions || []).map((session) => toSessionSummary(row, session));
   const lastSession = sessions.at(-1) || null;
@@ -1651,5 +1803,7 @@ function runPythonJson(args) {
     });
   });
 }
+
+
 
 

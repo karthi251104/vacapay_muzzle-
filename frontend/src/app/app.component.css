@@ -1504,3 +1504,126 @@ select:focus {
     grid-template-columns: repeat(3, minmax(72px, 1fr));
   }
 }
+
+/* Farmer-friendly nature theme overrides */
+:host {
+  --leaf: #2f6f46;
+  --leaf-dark: #234f35;
+  --grass: #6f9f52;
+  --cream: #fbf8ef;
+  --soil: #6e5944;
+  --sky-soft: #e8f4f1;
+}
+
+.admin-app,
+.mobile-flow,
+.auth-app {
+  background:
+    linear-gradient(180deg, rgba(251, 248, 239, 0.96), rgba(236, 244, 232, 0.98)),
+    radial-gradient(circle at 12% 10%, rgba(111, 159, 82, 0.18), transparent 28rem),
+    radial-gradient(circle at 92% 4%, rgba(117, 170, 156, 0.16), transparent 24rem);
+}
+
+.admin-hero,
+.flow-hero {
+  background:
+    linear-gradient(135deg, rgba(35, 79, 53, 0.96), rgba(47, 111, 70, 0.92)),
+    linear-gradient(90deg, rgba(236, 214, 160, 0.18), transparent);
+  box-shadow: 0 22px 48px rgba(47, 73, 46, 0.18);
+}
+
+.brand-mark,
+.segmented button.active,
+.primary-action,
+.step-track button.active,
+.bottom-nav button.active {
+  background: linear-gradient(135deg, var(--leaf-dark), var(--leaf));
+  box-shadow: 0 12px 24px rgba(47, 111, 70, 0.2);
+}
+
+.panel,
+.auth-card,
+.screen-card,
+.admin-stats article,
+.home-grid article,
+.review-summary article,
+.model-grid article,
+.cattle-detail,
+.session-card,
+.already-list,
+.already-card,
+.cattle-row,
+.agent-card,
+.review-card {
+  background: rgba(255, 253, 246, 0.94);
+  border-color: #ded8c7;
+}
+
+.admin-stats {
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+}
+
+.admin-stats span,
+.field-stats span,
+.panel-title span,
+.eyebrow {
+  color: #6f604b;
+}
+
+.admin-stats strong,
+.field-stats strong,
+.cattle-main strong,
+.already-card strong,
+.panel-title h2 {
+  color: #1f3528;
+}
+
+.ghost {
+  background: #efe8d8;
+  color: #304231;
+}
+
+.cattle-admin-panel .panel-title h2 {
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+}
+
+.cattle-main p,
+.cattle-main small,
+.already-card p,
+.already-card small,
+.folder-text,
+.session-head p {
+  color: #756750;
+}
+
+.detail-head span,
+.session-head span,
+.review-tags span {
+  background: #e6f1df;
+  color: var(--leaf-dark);
+}
+
+.select-box input:checked + span {
+  background: var(--leaf);
+  border-color: var(--leaf);
+}
+
+.simple-id {
+  color: #756750;
+  font-size: 0.82rem;
+  font-weight: 800;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 1060px) {
+  .admin-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .admin-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
