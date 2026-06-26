@@ -20,6 +20,14 @@ interface DetectionBox {
   confidence: number;
 }
 
+type AgentScreen = 'home' | 'farmer' | 'location' | 'muzzle' | 'evidence' | 'review';
+
+interface AgentStep {
+  key: AgentScreen;
+  label: string;
+  caption: string;
+}
+
 @Component({
   selector: 'app-root',
   standalone: true,
@@ -68,6 +76,16 @@ export class AppComponent implements OnDestroy {
   checkingYolo = false;
   checkingEmbedding = false;
   checkingPinecone = false;
+  agentScreen: AgentScreen = 'home';
+
+  readonly agentScreens: AgentStep[] = [
+    { key: 'home', label: 'Home', caption: 'Start' },
+    { key: 'farmer', label: 'Farmer', caption: 'Details' },
+    { key: 'location', label: 'GPS', caption: 'Nearby cows' },
+    { key: 'muzzle', label: 'Muzzle', caption: 'AI capture' },
+    { key: 'evidence', label: 'Evidence', caption: 'Photos' },
+    { key: 'review', label: 'Review', caption: 'Finish' }
+  ];
 
   readonly requiredImages: RequiredImage[] = [
     { type: 'face1', label: 'Face 1', group: 'Face', uploading: false },
@@ -111,6 +129,7 @@ export class AppComponent implements OnDestroy {
         this.message = user.role === 'admin' ? 'Admin signed in.' : 'Agent signed in.';
 
         if (user.role === 'agent') {
+          this.agentScreen = 'home';
           this.fieldOfficerName = user.name;
           this.checkYoloStatus();
           this.checkEmbeddingStatus();
@@ -189,7 +208,37 @@ export class AppComponent implements OnDestroy {
     localStorage.removeItem('vacapay_user');
     this.currentUser = undefined;
     this.enrollment = undefined;
+    this.agentScreen = 'home';
     this.message = 'Signed out.';
+  }
+
+  goAgentScreen(screen: AgentScreen): void {
+    if (screen === 'muzzle' && !this.enrollment) {
+      this.message = 'Create a cattle session before muzzle capture.';
+      return;
+    }
+
+    if ((screen === 'evidence' || screen === 'review') && this.muzzlePreviews.length < 5) {
+      this.message = 'Capture all 5 muzzle images before moving ahead.';
+      return;
+    }
+
+    if (screen === 'review' && this.capturedOtherImages < this.requiredImages.length) {
+      this.message = 'Finish the 7 supporting images before final review.';
+      return;
+    }
+
+    this.agentScreen = screen;
+  }
+
+  beginEnrollmentFlow(): void {
+    this.agentScreen = 'farmer';
+    this.message = 'Enter farmer details, then continue to GPS.';
+  }
+
+  continueToLocation(): void {
+    this.agentScreen = 'location';
+    this.message = 'Use GPS and search nearby registered cattle before creating the session.';
   }
 
   loadAgents(): void {
@@ -282,7 +331,8 @@ export class AppComponent implements OnDestroy {
             item.previewUrl = undefined;
             item.uploading = false;
           });
-          this.message = `Enrollment ready: ${enrollment.cattleId}`;
+          this.agentScreen = 'muzzle';
+          this.message = `Enrollment ready: ${enrollment.cattleId}. Start muzzle capture.`;
         },
         error: (error) => {
           this.message = this.errorMessage(error);
@@ -438,6 +488,7 @@ export class AppComponent implements OnDestroy {
           if (!response.matchResolution) {
             this.message = 'All 5 muzzle images captured. DINOv2 matching is pending.';
           }
+          this.agentScreen = 'evidence';
         }
       },
       error: (error) => {
@@ -466,6 +517,9 @@ export class AppComponent implements OnDestroy {
         item.previewUrl = this.api.mediaUrl(response.previewUrl);
         item.uploading = false;
         this.message = `${item.label} saved.`;
+        if (this.capturedOtherImages === this.requiredImages.length && this.muzzlePreviews.length === 5) {
+          this.agentScreen = 'review';
+        }
       },
       error: (error) => {
         item.uploading = false;
@@ -480,6 +534,7 @@ export class AppComponent implements OnDestroy {
     this.api.complete(this.enrollment.cattleId).subscribe({
       next: ({ enrollment }) => {
         this.enrollment = enrollment;
+        this.agentScreen = 'review';
         this.message = 'Capture session complete and ready for embedding service.';
       },
       error: (error) => {
@@ -565,6 +620,36 @@ export class AppComponent implements OnDestroy {
     return this.requiredImages.filter((item) => item.group === 'Udder' && item.previewUrl).length;
   }
 
+  get agentStepIndex(): number {
+    return this.agentScreens.findIndex((step) => step.key === this.agentScreen);
+  }
+
+  get agentScreenTitle(): string {
+    switch (this.agentScreen) {
+      case 'farmer': return 'Farmer Details';
+      case 'location': return 'Location Match';
+      case 'muzzle': return 'Muzzle Capture';
+      case 'evidence': return 'Evidence Capture';
+      case 'review': return 'Final Review';
+      default: return 'Field Home';
+    }
+  }
+
+  get agentScreenSubtitle(): string {
+    switch (this.agentScreen) {
+      case 'farmer': return 'Enter farmer and officer details for this cattle visit.';
+      case 'location': return 'Search the farmer list within 5-7 km before creating a new session.';
+      case 'muzzle': return 'YOLO detects the muzzle, crops it, applies CLAHE, and saves 5 images.';
+      case 'evidence': return 'Capture face, side, back, and udder images for the same cattle folder.';
+      case 'review': return 'Confirm the collected images and matching decision before submit.';
+      default: return 'Start a guided cattle enrollment flow.';
+    }
+  }
+
+  get activeScreenNumber(): string {
+    return String(Math.max(this.agentStepIndex + 1, 1)).padStart(2, '0');
+  }
+
   get missingMuzzleSlots(): number[] {
     return Array.from({ length: 5 - this.muzzlePreviews.length }, (_, index) => this.muzzlePreviews.length + index + 1);
   }
@@ -611,3 +696,7 @@ export class AppComponent implements OnDestroy {
     };
   }
 }
+
+
+
+
