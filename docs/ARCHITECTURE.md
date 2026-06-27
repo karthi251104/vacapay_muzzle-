@@ -1,159 +1,188 @@
 # Architecture
 
-## High-Level System
+## 1. High-Level System
 
-The system has 5 main pieces:
+Vacapay Muzzle has these main pieces:
 
-1. Angular mobile web app
-2. Node.js backend
-3. Python model scripts
-4. Cloud services
-5. Docker packaging
+1. Angular mobile web frontend.
+2. Node.js/Express backend.
+3. Python model scripts for YOLO and DINOv2.
+4. MongoDB Atlas for metadata.
+5. Cloudinary for image/object storage.
+6. Pinecone for vector search.
+7. Docker packaging for full local/server deployment.
 
-## Frontend
+## 2. Frontend
 
 Location:
 
-- `F:\vacapay\vacapay muzzle\frontend`
+```text
+frontend/
+```
+
+Main files:
+
+```text
+frontend/src/app/app.component.html
+frontend/src/app/app.component.ts
+frontend/src/app/app.component.css
+frontend/src/app/api.service.ts
+frontend/proxy.conf.json
+```
 
 Responsibilities:
 
 - login UI for admin and agent
-- enrollment form
-- GPS capture
+- admin dashboard
+- agent creation UI
+- field-agent mobile capture flow
+- owner ID and GPS input
 - camera preview
-- muzzle capture loop
-- body image uploads
-- status cards for YOLO, embedding model, Pinecone
-- admin review UI for uncertain matches
+- muzzle auto capture controls
+- detection box display
+- 12-image progress
+- supporting photo upload slots
+- admin cattle list/detail
+- image viewer
+- ZIP download action
+- duplicate merge action
+- match review UI
 
-Main frontend file:
+During local dev, Angular runs on port 4200 and proxies `/api` and `/media` to backend port 3000.
 
-- `F:\vacapay\vacapay muzzle\frontend\src\app\app.component.ts`
-
-The frontend talks to backend via HTTP APIs.
-
-## Backend
+## 3. Backend
 
 Location:
 
-- `F:\vacapay\vacapay muzzle\backend`
+```text
+backend/
+```
 
-Main entry:
+Main file:
 
-- `F:\vacapay\vacapay muzzle\backend\src\server.js`
+```text
+backend/src/server.js
+```
 
 Responsibilities:
 
 - auth/session handling
-- admin + agent management
-- enrollment record creation
-- image upload/capture processing
-- Python script execution
-- local storage management
-- MongoDB writes/reads
+- default admin creation
+- agent management
+- enrollment/session creation
+- automatic same-folder reuse when one clear existing cattle exists
+- image upload handling
+- local image storage
 - Cloudinary upload
+- MongoDB read/write
+- YOLO script execution
+- DINOv2 embedding script execution
 - Pinecone upsert/query
+- local vector fallback comparison
 - match audit storage
+- admin merge endpoint
+- ZIP download creation
+- serving built Angular app in Docker/single-port mode
 
-## Python Scripts
+## 4. Python Scripts
 
 Location:
 
-- `F:\vacapay\vacapay muzzle\backend\scripts`
+```text
+backend/scripts/
+```
 
 Scripts:
 
-- `yolo_status.py`  
-  Checks whether YOLO model loads
+```text
+yolo_status.py          checks YOLO model readiness
+yolo_crop_clahe.py      detects muzzle, crops, applies CLAHE
+resize_image.py         resizes supporting images if needed
+embedding_status.py     checks DINOv2 model readiness
+embedding_average.py    creates average embedding from 5 muzzle crops
+```
 
-- `yolo_crop_clahe.py`  
-  Runs YOLO, crops muzzle, applies CLAHE
+## 5. Storage Layout
 
-- `resize_image.py`  
-  Resizes image if greater than 1024 x 768
-
-- `embedding_status.py`  
-  Checks embedding model readiness
-
-- `embedding_average.py`  
-  Builds embeddings for muzzle images and averages them
-
-## Datastores
-
-### MongoDB Atlas
-
-Used for:
-
-- users
-- cattle metadata
-- match audits
-
-### Cloudinary
-
-Used for:
-
-- demo image hosting
-- remote image URLs for stored captures
-
-### Pinecone
-
-Used for:
-
-- storing averaged muzzle embeddings
-- querying nearest cattle vectors
-
-## Local Filesystem Storage
-
-Root storage folder:
-
-- `F:\vacapay\vacapay muzzle\data`
-
-Contains:
-
-- raw uploads
-- processed images
-- local fallback JSON files
-- cattle folders
-
-Typical cattle folder shape:
+Local data root:
 
 ```text
 data/
-  <cattle-id>/
-    muzzle1.jpg
-    muzzle2.jpg
-    muzzle3.jpg
-    muzzle4.jpg
-    muzzle5.jpg
-    face1.jpg
-    face2.jpg
-    face3.jpg
-    leftside.jpg
-    rightside.jpg
-    back.jpg
-    udder.jpg
 ```
 
-## Matching Logic
+Cattle folder shape:
 
-After 5 muzzle images are accepted:
+```text
+data/
+  cattle-id/
+    yyyy-mm-dd/
+      muzzle1.jpg
+      muzzle2.jpg
+      muzzle3.jpg
+      muzzle4.jpg
+      muzzle5.jpg
+      face1.jpg
+      face2.jpg
+      face3.jpg
+      leftside.jpg
+      rightside.jpg
+      back.jpg
+      udder.jpg
+```
 
-1. backend collects the 5 processed muzzle crops
-2. Python creates one embedding per image
-3. the embeddings are averaged
-4. the average is normalized
-5. Pinecone is queried for nearest vectors
-6. matches are filtered by farmer name and location radius
-7. if score is above threshold, the cattle can be treated as same cattle
-8. otherwise a new cattle ID is kept
+Repeat visits use the same cattle ID with a new date/session folder.
 
-## Why Docker Exists Here
+Cloudinary mirrors the logical structure under:
 
-Docker is mainly for:
+```text
+vacapay/cattle/cattle-id/yyyy-mm-dd/
+```
 
-- stable server deployment
-- one-command full app run
-- consistent Node + Python + OpenCV + Torch environment
+## 6. MongoDB Collections
+
+Collections:
+
+```text
+users
+cattle
+match_audits
+```
+
+Important cattle data:
+
+- cattle ID
+- owner/farmer ID
+- owner/farmer name
+- field officer ID/name
+- GPS
+- sessions/visits
+- local folder path
+- Cloudinary image refs
+- embeddings
+- match result
+
+If MongoDB is not configured, backend falls back to local JSON files in `data/`.
+
+## 7. Matching Architecture
+
+After 5 muzzle photos:
+
+1. Backend ensures the 5 muzzle crops exist.
+2. DINOv2 script creates average embedding.
+3. Backend stores embedding in session metadata.
+4. Backend upserts vector to Pinecone if configured.
+5. Backend searches Pinecone or local candidates.
+6. Candidates are filtered by owner/location radius.
+7. If score >= 70%, session moves to matched existing cattle folder.
+8. If score < 70%, new cattle ID remains.
+
+## 8. Why Docker Exists
+
+Docker is used for:
+
+- one-command full app startup
+- consistent Node/Python/Torch/OpenCV environment
+- server deployment style
+- mounting model files and data volume
 
 Docker is not required for UI-only work.

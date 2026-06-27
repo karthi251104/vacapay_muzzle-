@@ -1,113 +1,132 @@
-# Vacapay Teammate Handoff
+# Teammate Handoff
 
 This project is a mobile-first cattle enrollment and muzzle matching demo app.
 
-The app is meant for:
+The fastest way to understand it:
 
-- field officers who collect cattle images in the field
-- admins who create agents and review uncertain cattle matches
-- a future backend search flow that uses muzzle embeddings to identify cattle
+1. Read `docs/PROJECT_PROCESS.md`.
+2. Run the app using `docs/NO_DOCKER_SETUP.md` if Docker is not available.
+3. UI teammates should read `docs/UI_HANDOFF.md`.
+4. Use `docs/RUN_COMMANDS.md` for copy-paste commands.
 
-## Main Goal
+## What The App Is For
 
-The product helps register a cattle once, then later re-register the same cattle on another date and decide whether:
+Field agents capture cattle images in the field. The backend stores photos and metadata, processes muzzle images, and tries to identify whether a later visit is the same cattle or a new cattle.
 
-- it is the same already-registered cattle
-- or it is a new cattle and needs a new cattle ID
+## Who Uses It
 
-This decision is made using:
+- Admin: creates agents, manages records, views/downloads images, reviews/merges records.
+- Field agent: captures cattle visits on mobile.
+- Farmer/owner: does not use the app directly.
 
-- farmer name
-- GPS proximity
-- muzzle image matching with YOLO + DINOv2
+## Current Implementation
 
-## Current Tech Stack
-
-- Frontend: Ionic-style mobile UI built in Angular
-- Backend: Node.js + Express
-- ML inference helpers: Python scripts
-- Muzzle detection: YOLO model `best_v4.pt`
-- Muzzle embedding: DINOv2 triplet model `backend/dinov2_triplet_v2_best.pt`
-- Database: MongoDB Atlas
-- Image/object storage: Cloudinary
-- Vector search: Pinecone
-- Containerization: Docker
-
-## Folder Overview
-
-```text
-F:\vacapay\vacapay muzzle
-  backend/                 Node backend + Python scripts
-  frontend/                Angular mobile app
-  data/                    Local data, uploads, fallback JSON, captured images
-  tools/                   Utilities like cloudflared.exe
-  best_v4.pt               YOLO muzzle detection model
-  backend/dinov2_triplet_v2_best.pt
-                           DINOv2 embedding model
-  Dockerfile               Full app container build
-  docker-compose.yml       Local/server container run config
-  .env                     Local environment secrets/config
-```
-
-## What Is Already Implemented
+Implemented:
 
 - admin login
 - agent creation
 - agent login
-- field enrollment flow
-- live camera access in browser
-- YOLO muzzle crop flow
-- CLAHE enhancement after crop
-- local image save
-- optional Cloudinary upload
-- MongoDB cattle metadata storage
-- DINOv2 average embedding creation after 5 muzzle captures
-- Pinecone vector upsert/query
-- uncertain match audit storage
-- admin review screen for uncertain matches
+- field-agent mobile flow
+- owner ID + GPS based nearby search
+- camera capture
+- YOLO muzzle crop
+- CLAHE enhancement
+- 12-image visit capture
+- MongoDB metadata
+- Cloudinary image upload
+- DINOv2 average embedding
+- Pinecone search
+- same-cattle auto folder reuse
+- admin image viewer
+- admin ZIP download
+- admin duplicate merge
 
-## What Is Not Final Yet
+## Important Business Behavior
 
-- production Ionic packaging
-- final polished UI design
-- full end-to-end repeated field test for same cattle across different days
-- fully finalized search workflow for the final embedding model behavior
-- production deployment hardening
+The agent does not type cattle ID.
 
-## What Teammates Should Usually Work On
+The backend decides:
 
-### UI teammate
+- reuse existing cattle folder if there is one clear owner/GPS match
+- use DINOv2 muzzle matching if there are multiple possible cattle
+- keep a new cattle ID if confidence is below threshold
 
-Focus inside:
+## Main Files For UI Work
 
-- `F:\vacapay\vacapay muzzle\frontend\src\app\`
+```text
+frontend/src/app/app.component.html
+frontend/src/app/app.component.css
+frontend/src/app/app.component.ts
+frontend/src/app/api.service.ts
+```
 
-Main files:
+## Main Files For Backend Work
 
-- `F:\vacapay\vacapay muzzle\frontend\src\app\app.component.ts`
-- `F:\vacapay\vacapay muzzle\frontend\src\app\app.component.html`
-- `F:\vacapay\vacapay muzzle\frontend\src\app\app.component.css`
-- `F:\vacapay\vacapay muzzle\frontend\src\app\api.service.ts`
+```text
+backend/src/server.js
+backend/scripts/yolo_crop_clahe.py
+backend/scripts/embedding_average.py
+backend/scripts/yolo_status.py
+backend/scripts/embedding_status.py
+```
 
-### Backend teammate
+## Local Run Without Docker
 
-Focus inside:
+Backend terminal:
 
-- `F:\vacapay\vacapay muzzle\backend\src\server.js`
-- `F:\vacapay\vacapay muzzle\backend\scripts\`
+```powershell
+cd "F:\vacapay\vacapay muzzle\backend"
+.\.venv\Scripts\Activate.ps1
+$env:PYTHON_BIN=(Resolve-Path .\.venv\Scripts\python.exe).Path
+node src/server.js
+```
 
-### ML / matching teammate
+Frontend terminal:
 
-Focus inside:
+```powershell
+cd "F:\vacapay\vacapay muzzle\frontend"
+pnpm start
+```
 
-- `F:\vacapay\vacapay muzzle\backend\scripts\embedding_average.py`
-- `F:\vacapay\vacapay muzzle\backend\scripts\yolo_crop_clahe.py`
+Open:
 
-## Recommended Reading Order
+```text
+http://localhost:4200
+```
 
-1. `README.md`
-2. `docs/ARCHITECTURE.md`
-3. `docs/WORKFLOWS.md`
-4. `docs/SETUP_LOCAL.md`
-5. `docs/RUN_COMMANDS.md`
-6. `docs/DEPLOYMENT.md`
+## Local Run With Docker
+
+```powershell
+cd "F:\vacapay\vacapay muzzle"
+$env:Path="D:\Docker\Desktop\resources\bin;" + $env:Path
+docker compose up -d --build
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+## Demo Login
+
+```text
+ID/phone: admin
+Password: admin123
+```
+
+## Before Sending Changes Back
+
+Run:
+
+```powershell
+cd "F:\vacapay\vacapay muzzle\frontend"
+pnpm build
+```
+
+If backend changed:
+
+```powershell
+cd "F:\vacapay\vacapay muzzle"
+node --check backend/src/server.js
+```

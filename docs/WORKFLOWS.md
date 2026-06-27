@@ -2,116 +2,117 @@
 
 ## 1. Admin Workflow
 
-Admin can:
+1. Admin logs in.
+2. Admin creates field agents with name, phone, agent ID, and password.
+3. Admin views cattle/farm records.
+4. Admin opens cattle details and image viewer.
+5. Admin downloads selected cattle images as ZIP when needed.
+6. Admin reviews uncertain matches.
+7. Admin can merge duplicate cattle IDs if old/test data has duplicates.
 
-- log in
-- create agents
-- inspect uncertain matches
-- confirm or correct match review
+## 2. Field Agent Enrollment Workflow
 
-### Admin Flow
+1. Agent logs in.
+2. Agent taps `Start Enrollment`.
+3. Agent enters Owner ID and owner name.
+4. Agent captures GPS or enters coordinates.
+5. Agent checks nearby existing cattle.
+6. Agent starts capture.
+7. Agent captures 5 muzzle images.
+8. Agent captures 7 supporting images.
+9. Agent reviews and saves.
 
-1. Admin logs in
-2. Admin creates field agents
-3. Agents receive phone/ID and password
-4. Admin later reviews uncertain match cases
+Total images per visit: 12.
 
-## 2. Agent Enrollment Workflow
+## 3. Automatic Same-Folder Workflow
 
-Field officer / agent does:
+This is the preferred repeat-cattle behavior.
 
-1. log in
-2. enter farmer details
-3. capture GPS
-4. create enrollment session
-5. capture 5 muzzle images
-6. capture 3 face images
-7. capture left side, right side, back, udder
-8. finish enrollment
+When an agent starts a capture:
 
-## 3. Muzzle Capture Workflow
+1. Backend checks Owner ID/name and GPS radius.
+2. If exactly one existing cattle record is found, the backend reuses that cattle ID.
+3. A new date/session folder is created under the same cattle folder.
+4. Agent sees a message that an existing cattle folder was found.
+5. The visit saves under that cattle record.
 
-This is the most important flow.
+The agent does not manually enter or choose cattle ID.
 
-### What happens for each muzzle capture
+## 4. Multiple Cattle for Same Owner
 
-1. agent opens camera
-2. live video starts
-3. frontend sends frame to backend
-4. backend runs YOLO on the frame
-5. if muzzle is detected:
-   - backend crops muzzle
-   - CLAHE is applied
-   - processed muzzle is saved
-6. frontend receives detection confidence and crop result
-7. UI increments muzzle count
+If one owner has multiple cattle, the system should not guess.
 
-### Why 5 muzzle images
+Flow:
 
-The system needs 5 muzzle images for a more stable average embedding.  
-This reduces the chance of one bad frame affecting matching.
+1. Backend creates/keeps a new capture session.
+2. Agent captures 5 muzzle photos.
+3. DINOv2 matching runs.
+4. If confidence >= 70%, the visit moves into the matched cattle folder.
+5. If confidence < 70%, it remains a new cattle record.
 
-## 4. Same Cattle Re-Enrollment Workflow
+## 5. Muzzle Capture Workflow
 
-Business need:
+For each muzzle image:
 
-The same cattle may be registered again after 2 days or later.
+1. Browser camera frame is captured.
+2. Frontend uploads the frame to backend.
+3. Backend runs YOLO with `best_v4.pt` and image size 640.
+4. YOLO returns muzzle bounding box and confidence.
+5. Backend crops the muzzle.
+6. CLAHE is applied to the crop.
+7. Crop is saved locally and optionally uploaded to Cloudinary.
+8. UI shows count and bounding box.
 
-Expected behavior:
+Five muzzle images are required to create a stable average embedding.
 
-- if likely same cattle, data should go into the same cattle folder
-- if not matched well enough, create a new cattle ID/folder
+## 6. DINOv2 Matching Workflow
 
-### Current decision logic
+After the 5th muzzle image:
 
-The app uses:
+1. Backend loads the 5 muzzle crops.
+2. `embedding_average.py` creates one embedding per crop.
+3. The five embeddings are averaged and normalized.
+4. Backend upserts/query vectors in Pinecone if configured.
+5. Backend can fall back to local cosine comparison.
+6. Top matches are filtered by owner/location context.
+7. Match threshold is 70% by default.
 
-1. farmer name
-2. nearby GPS radius
-3. DINOv2 muzzle embedding confidence
+## 7. Supporting Images Workflow
 
-If confidence is strong enough, same cattle can reuse the existing cattle folder.
+After muzzle capture, the agent adds:
 
-## 5. Admin Review Workflow
+- face1
+- face2
+- face3
+- leftside
+- rightside
+- back
+- udder
 
-When a match is not strong enough or is near threshold:
+The save button is enabled only when all 12 images are present.
 
-1. backend stores a match audit record
-2. admin opens review screen
-3. admin sees:
-   - final cattle ID
-   - confidence
-   - top matches
-   - captured images
-4. admin confirms or corrects the result
+## 8. Admin Review Workflow
 
-## 6. Search Workflow
+For uncertain/near-threshold cases:
 
-Planned/partially implemented flow:
+1. Backend stores a match audit.
+2. Admin opens manual check/review panel.
+3. Admin sees final cattle ID, top matches, confidence, and images.
+4. Admin confirms or corrects.
 
-1. agent captures 5 muzzle images for search
-2. backend preprocesses all 5
-3. average embedding is created
-4. Pinecone is queried
-5. backend returns top 5
-6. app displays candidate cattle
-7. admin or user can inspect top results
+## 9. Admin Duplicate Merge Workflow
 
-## 7. Image Rules
+Use this only for old duplicate data or mistakes.
 
-Per cattle:
+1. Select the correct main cattle row.
+2. Tick duplicate cattle rows.
+3. Click `Merge into selected`.
+4. Backend moves sessions/images into the main cattle record.
+5. Duplicate cattle IDs are removed.
 
-- muzzle: 5
-- face: 3
-- left side: 1
-- right side: 1
-- back: 1
-- udder: 1
+## 10. ZIP Download Workflow
 
-Total:
-
-- 12 images per cattle
-
-Resize rule:
-
-- if image is larger than 1024 x 768, resize before storage
+1. Admin ticks one or more cattle rows.
+2. Admin clicks `Download ZIP`.
+3. Backend creates a ZIP using local or Cloudinary-backed image references.
+4. ZIP groups images by owner/cattle/session folders.

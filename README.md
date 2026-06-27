@@ -1,276 +1,81 @@
-# Vacapay
+# Vacapay Muzzle Demo
 
-Demo implementation for field cattle enrollment and muzzle search preparation.
-## Documentation Map
+Vacapay Muzzle is a mobile-first cattle enrollment demo for field agents and admins. Field agents capture cattle photos, the backend crops muzzle images with YOLO, creates DINOv2 muzzle embeddings, searches Pinecone/MongoDB records, and saves repeat visits under the correct cattle folder when the same cattle is found.
 
-Team handoff docs are in:
+## Quick Documentation Map
 
-- `F:\vacapay\vacapay muzzle\docs\TEAMMATE_HANDOFF.md`
-- `F:\vacapay\vacapay muzzle\docs\ARCHITECTURE.md`
-- `F:\vacapay\vacapay muzzle\docs\WORKFLOWS.md`
-- `F:\vacapay\vacapay muzzle\docs\SETUP_LOCAL.md`
-- `F:\vacapay\vacapay muzzle\docs\RUN_COMMANDS.md`
-- `F:\vacapay\vacapay muzzle\docs\DEPLOYMENT.md`
+Read in this order if you are new to the project:
 
-## What is implemented now
+1. `docs/PROJECT_PROCESS.md` - what the app does, feature list, and full business workflow.
+2. `docs/NO_DOCKER_SETUP.md` - how to run locally without Docker.
+3. `docs/UI_HANDOFF.md` - where UI code lives and how a UI teammate should work.
+4. `docs/RUN_COMMANDS.md` - copy-paste commands for daily work.
+5. `docs/ARCHITECTURE.md` - backend/frontend/storage/model architecture.
+6. `docs/WORKFLOWS.md` - detailed user and model workflows.
 
-- Angular field-officer enrollment UI.
-- Admin login and agent creation UI.
-- Agent login before field capture.
-- Live camera muzzle auto-capture flow until 5 muzzle images are accepted.
-- Node.js backend for storing cattle image folders and metadata.
-- MongoDB Atlas metadata storage when `MONGODB_URI` is configured, with local JSON fallback for offline demo.
-- YOLO muzzle crop using `best_v4.pt` with `imgsz=640`.
-- CLAHE enhancement after muzzle crop.
-- Optional Cloudinary upload for every accepted processed image.
-- DINOv2 triplet embedding model configured at `backend/dinov2_triplet_v2_best.pt`.
-- Embedding match confidence threshold configured at `70%`.
-- Optional Pinecone vector storage/search when `PINECONE_API_KEY` and `PINECONE_INDEX_HOST` are configured.
-- Docker packaging for backend, frontend build, Python inference dependencies, mounted model files, MongoDB, Cloudinary, and Pinecone env.
-- MongoDB match audit storage in `match_audits`.
-- Admin review screen for uncertain matches near the `70%` threshold.
-- Manual capture/upload slots for face, left side, right side, back, and udder.
+## Current Stack
 
-## Required local software
+- Frontend: Angular 18 mobile-first single page app.
+- Backend: Node.js + Express.
+- ML helpers: Python scripts.
+- Muzzle detection: YOLO model `best_v4.pt`, image size 640.
+- Muzzle crop enhancement: CLAHE after YOLO crop.
+- Embedding model: DINOv2 triplet model `backend/dinov2_triplet_v2_best.pt`.
+- Metadata DB: MongoDB Atlas, with local JSON fallback.
+- Image storage: Cloudinary for demo/remote storage, local `data/` for fallback.
+- Vector DB: Pinecone cosine index, dimension 768.
+- Container option: Docker Compose.
 
-- Node.js 20+
-- pnpm or npm
-- Python 3.10+
-- Python packages: `ultralytics`, `opencv-python`, `numpy`
+## Main Features Implemented
 
-Install Python packages:
+- Admin login.
+- Admin creates field agents with phone, agent ID, and password.
+- Agent login.
+- Mobile field-agent capture flow.
+- Owner ID and GPS based nearby cattle check.
+- Camera based muzzle capture.
+- YOLO muzzle detection and crop.
+- CLAHE applied after crop.
+- 5 muzzle images per cattle visit.
+- 7 supporting images: 3 face, left side, right side, back, udder.
+- Total 12 images per visit.
+- MongoDB metadata storage.
+- Cloudinary image upload.
+- DINOv2 average embedding from 5 muzzle crops.
+- Pinecone vector upsert/search.
+- Automatic same-cattle repeat visit handling.
+- Admin cattle record browsing with image viewer.
+- Admin ZIP download for selected cattle records.
+- Admin merge tool for old duplicate cattle records.
 
-```bash
-python -m pip install ultralytics opencv-python numpy
-```
+## Important Current Behavior
 
-Install app packages:
+When an agent starts a new capture:
 
-```bash
-pnpm install:all
-```
+- The field agent does not enter a cattle ID.
+- Backend creates a cattle ID for a new cattle.
+- If owner/GPS has exactly one existing cattle record, backend automatically reuses that cattle ID and creates a new date/session folder.
+- If the owner has multiple possible cattle, the app does not guess. It waits for muzzle matching after 5 muzzle photos.
+- If DINOv2 score is at least 70%, the visit moves into the matched existing cattle folder.
+- If score is below 70%, the new cattle ID remains.
 
-Run backend:
+## Default Demo Login
 
-```bash
-pnpm dev:backend
-```
-
-Run frontend:
-
-```bash
-pnpm dev:frontend
-```
-
-Open:
-
-```text
-http://localhost:4200
-```
-
-## Mobile Preview With Dev Tunnels
-
-Run the backend first:
-
-```powershell
-cd "<your-folder>\vacapay\backend"
-$env:PYTHON_BIN="C:\Users\dev1x\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
-C:\Users\dev1x\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe src/server.js
-```
-
-Run the frontend in another terminal:
-
-```powershell
-cd "<your-folder>\vacapay\frontend"
-$env:Path="C:\Users\dev1x\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin;" + $env:Path
-C:\Users\dev1x\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\pnpm.cmd start
-```
-
-Create a dev tunnel/public forwarded port for:
-
-```text
-4200
-```
-
-Open the generated HTTPS tunnel URL on mobile. The frontend uses relative `/api` and `/media` paths, so the single `4200` tunnel proxies backend requests to local port `3000`.
-
-Camera access on mobile requires HTTPS, so use the HTTPS tunnel URL instead of a plain local IP URL.
-
-## Demo Login
-
-Default admin:
+Default admin is created automatically when no users exist:
 
 ```text
 ID/phone: admin
 Password: admin123
 ```
 
-Admin can create field agents with:
+Agents are created by the admin inside the app.
 
-```text
-agent name
-phone number
-agent ID
-temporary password
-```
-
-Agents then log in with their phone number or agent ID and password. Capture sessions store the logged-in agent ID/name in the enrollment metadata.
-
-## Cloudinary Image Storage
-
-The backend saves processed images locally first, then uploads the same accepted image to Cloudinary when these environment variables are present:
+## Run With Docker
 
 ```powershell
-$env:CLOUDINARY_CLOUD_NAME="dcoblsomz"
-$env:CLOUDINARY_API_KEY="448473262611422"
-$env:CLOUDINARY_API_SECRET="paste-your-current-secret-here"
-$env:CLOUDINARY_ROOT_FOLDER="vacapay"
-```
-
-Cloudinary folder structure:
-
-```text
-vacapay/
-  cattle-id/
-    yyyy-mm-dd/
-      muzzle1
-      muzzle2
-      face1
-      leftside
-      ...
-```
-
-The metadata stores each image's local path, preview URL, Cloudinary `secureUrl`, `publicId`, size, width, and height. With MongoDB enabled, this image reference object is stored in MongoDB.
-
-## MongoDB Atlas Metadata
-
-The backend uses MongoDB Atlas when `MONGODB_URI` is set:
-
-```powershell
-$env:MONGODB_URI="mongodb+srv://USER:PASSWORD@HOST/?appName=Cluster0"
-$env:MONGODB_DB_NAME="vacapay"
-```
-
-If the `mongodb+srv://` URI fails on Windows DNS, use the standard non-SRV URI from Atlas instead:
-
-```powershell
-$env:MONGODB_URI="mongodb://USER:PASSWORD@HOST1:27017,HOST2:27017,HOST3:27017/?ssl=true&authSource=admin&replicaSet=REPLICA_SET&retryWrites=true&w=majority&appName=Cluster0"
-```
-
-Collections created automatically:
-
-```text
-users
-cattle
-```
-
-Indexes created automatically:
-
-```text
-users.userId unique
-users.agentId unique
-users.phone unique
-cattle.cattleId unique
-cattle.farmerName
-cattle.location 2dsphere
-```
-
-If `MONGODB_URI` is not set, the app keeps using local JSON files in `data/`.
-
-On first MongoDB start, if the MongoDB collections are empty, the backend imports existing local `data/enrollments.json` and `data/users.json`.
-
-## DINOv2 Muzzle Matching Flow
-
-After the 5th muzzle crop is accepted:
-
-1. Backend runs `backend/scripts/embedding_average.py`.
-2. The script loads `backend/dinov2_triplet_v2_best.pt`.
-3. It creates one normalized embedding for each of the 5 muzzle crops.
-4. It averages the 5 embeddings and normalizes the average.
-5. Backend upserts the vector to Pinecone when Pinecone is configured.
-6. Backend queries Pinecone for top vector matches, then filters to same farmer/location radius.
-7. If Pinecone is not configured or fails, backend falls back to local cosine comparison.
-8. If the best score is at least `70%`, the session is moved into that existing cattle ID folder.
-9. If the best score is below `70%`, the new cattle ID is kept.
-10. The match decision, confidence score, top 5 candidates, and embedding metadata are stored with the capture session.
-
-The field officer does not manually choose the correct cow. The nearby registered cattle list is only context; DINOv2 makes the decision after the 5 muzzle images.
-
-## Pinecone Vector Search
-
-Create one Pinecone serverless index:
-
-```text
-Index name: vacapay
-Dimension: 768
-Metric: cosine
-```
-
-Set these variables before backend start:
-
-```powershell
-$env:PINECONE_API_KEY="your-pinecone-api-key"
-$env:PINECONE_INDEX_HOST="https://vacapay-u1fuv30.svc.aped-4627-b74a.pinecone.io"
-$env:PINECONE_NAMESPACE="vacapay"
-```
-
-Check status:
-
-```powershell
-Invoke-RestMethod http://localhost:3000/api/pinecone/status
-```
-
-The vector ID format is:
-
-```text
-cattleId__sessionId
-```
-
-Pinecone metadata includes cattle ID, session ID, farmer name, normalized farmer name, field officer, location, capture date, and folder location.
-
-## Admin Match Review
-
-Admins can review uncertain DINOv2 decisions from the admin console.
-
-The backend stores each match decision in MongoDB:
-
-```text
-match_audits
-```
-
-Review API:
-
-```text
-GET  /api/reviews/matches
-POST /api/reviews/matches/:auditId
-```
-
-The screen shows:
-
-```text
-final cattle ID
-decision
-confidence
-threshold
-farmer/officer/date
-top 5 matches
-captured image links
-confirm / correct to top 1
-```
-
-## Docker Run
-
-Create `.env` from `.env.example`:
-
-```powershell
-Copy-Item .env.example .env
-notepad .env
-```
-
-Fill MongoDB, Cloudinary, and Pinecone secrets in `.env`, then run:
-
-```powershell
-docker compose up --build
+cd "F:\vacapay\vacapay muzzle"
+$env:Path="D:\Docker\Desktop\resources\bin;" + $env:Path
+docker compose up -d --build
 ```
 
 Open:
@@ -279,62 +84,60 @@ Open:
 http://localhost:3000
 ```
 
-The Docker container mounts:
+## Run Without Docker
+
+See `docs/NO_DOCKER_SETUP.md` for full steps. Short version:
+
+Terminal 1:
+
+```powershell
+cd "F:\vacapay\vacapay muzzle\backend"
+pnpm install
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+$env:PYTHON_BIN=(Resolve-Path .\.venv\Scripts\python.exe).Path
+node src/server.js
+```
+
+Terminal 2:
+
+```powershell
+cd "F:\vacapay\vacapay muzzle\frontend"
+pnpm install
+pnpm start
+```
+
+Open:
 
 ```text
-./data
-./best_v4.pt
-./backend/dinov2_triplet_v2_best.pt
+http://localhost:4200
 ```
 
-## Defaults
+## Mobile Camera Testing
 
-The backend automatically loads the root `.env` file:
+Camera on mobile needs HTTPS. Use the bundled Cloudflare tunnel:
+
+```powershell
+cd "F:\vacapay\vacapay muzzle"
+.\tools\cloudflared.exe tunnel --url http://localhost:3000
+```
+
+Open the generated HTTPS URL on mobile.
+
+## Models
+
+Required files:
 
 ```text
-<your-folder>\vacapay\.env
+best_v4.pt
+backend/dinov2_triplet_v2_best.pt
 ```
 
-Use this file for MongoDB, Cloudinary, Pinecone, YOLO, and DINOv2 settings. The `.env` file is ignored by git.
+These files are large and should be handled with Git LFS or shared separately if missing on another system.
 
-The backend expects the model at:
+## Environment
 
-```text
-<your-folder>\vacapay\best_v4.pt
-```
+Copy `.env.example` to `.env`, then fill MongoDB, Cloudinary, and Pinecone values.
 
-The embedding model is expected at:
-
-```text
-<your-folder>\vacapay\backend\dinov2_triplet_v2_best.pt
-```
-
-The current embedding match threshold is:
-
-```text
-70%
-```
-
-Override if needed:
-
-```bash
-MODEL_PATH="<your-folder>\vacapay\best_v4.pt" pnpm dev:backend
-```
-
-Saved demo data goes into:
-
-```text
-data/
-  enrollments.json
-  cattle-id/
-    muzzle1.jpg
-    ...
-```
-
-When Cloudinary is enabled, demo images are also uploaded to the configured Cloudinary account.
-
-## Still To Be Done
-
-- End-to-end field test on mobile with one new cow, then the same cow again.
-- Install Docker Desktop if Docker validation/run is needed on this laptop.
-
+Do not commit `.env`.
