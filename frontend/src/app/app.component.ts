@@ -71,7 +71,7 @@ export class AppComponent implements OnDestroy {
   cameraOn = false;
   autoCaptureOn = false;
   isDetecting = false;
-  message = 'Create enrollment to start.';
+  message = 'Start a new cattle capture.';
   lastConfidence?: number;
   detectionBox?: DetectionBox;
   yoloStatus?: YoloStatus;
@@ -86,12 +86,8 @@ export class AppComponent implements OnDestroy {
   readonly agentScreens: AgentStep[] = [
     { key: 'home', label: 'Home', caption: 'Start' },
     { key: 'farmer', label: 'Owner', caption: 'Details' },
-    { key: 'farmer', label: 'Farmer', caption: 'Details' },
     { key: 'location', label: 'Nearby', caption: 'Check' },
-    { key: 'location', label: 'GPS', caption: 'Nearby cows' },
     { key: 'muzzle', label: 'Muzzle', caption: '5 photos' },
-    { key: 'muzzle', label: 'Muzzle', caption: 'AI capture' },
-    { key: 'evidence', label: 'Photos', caption: '7 more' },
     { key: 'evidence', label: 'Evidence', caption: 'Photos' },
     { key: 'review', label: 'Review', caption: 'Finish' }
   ];
@@ -228,8 +224,15 @@ export class AppComponent implements OnDestroy {
   }
 
   goAgentScreen(screen: AgentScreen): void {
+    if (screen === 'home') {
+      this.resetCaptureState(false);
+      this.agentScreen = 'home';
+      this.message = 'Ready for the next cattle. Start a new capture when ready.';
+      return;
+    }
+
     if (screen === 'muzzle' && !this.enrollment) {
-      this.message = 'Create a cattle session before muzzle capture.';
+      this.message = 'Start capture before opening the camera.';
       return;
     }
 
@@ -248,10 +251,28 @@ export class AppComponent implements OnDestroy {
 
   beginEnrollmentFlow(): void {
     this.agentScreen = 'farmer';
-    this.message = 'Enter farmer details, then continue to GPS.';
+    this.message = 'Enter owner ID, then continue to GPS.';
+  }
+
+  startNewEnrollment(): void {
+    this.resetCaptureState(true);
+    this.beginEnrollmentFlow();
+  }
+
+  startFromRecent(cattle: CattleSummary): void {
+    this.resetCaptureState(false);
+    this.farmerId = cattle.farmerId || '';
+    this.farmerName = cattle.farmerName || '';
+    this.message = 'Owner details loaded. Start a fresh capture for this cattle.';
+    this.agentScreen = 'farmer';
   }
 
   continueToLocation(): void {
+    if (!this.farmerId.trim()) {
+      this.message = 'Owner ID is required before GPS check.';
+      return;
+    }
+
     this.agentScreen = 'location';
     this.message = 'Use GPS and search nearby registered cattle before creating the session.';
   }
@@ -342,16 +363,21 @@ export class AppComponent implements OnDestroy {
   }
 
   createEnrollment(): void {
-    this.message = 'Creating enrollment...';
+    if (!this.farmerId.trim()) {
+      this.message = 'Owner ID is required before starting capture.';
+      return;
+    }
+
+    this.message = 'Starting capture session...';
     this.api
       .createEnrollment({
-        cattleId: this.cattleId,
-        farmerId: this.farmerId,
-        farmerName: this.farmerName,
+        farmerId: this.farmerId.trim(),
+        farmerName: this.farmerName.trim(),
         fieldOfficerName: this.currentUser?.name || this.fieldOfficerName,
         fieldOfficerId: this.currentUser?.agentId,
         locationLat: this.locationLat,
-        locationLon: this.locationLon
+        locationLon: this.locationLon,
+        matchRadiusKm: this.radiusKm
       })
       .subscribe({
         next: ({ enrollment }) => {
@@ -364,10 +390,7 @@ export class AppComponent implements OnDestroy {
             item.uploading = false;
           });
           this.agentScreen = 'muzzle';
-          const visitCount = enrollment.sessions?.length || 1;
-          this.message = visitCount > 1
-            ? `Already enrolled cattle ${enrollment.cattleId}. New visit ${visitCount} is saving in the same cattle folder.`
-            : `Enrollment ready: ${enrollment.cattleId}. Start muzzle capture.`;
+          this.message = 'Capture session ready. Start muzzle photos for this cattle.';
           this.loadCattleInventory();
         },
         error: (error) => {
@@ -399,6 +422,7 @@ export class AppComponent implements OnDestroy {
     this.message = 'Searching already registered cattle nearby...';
     this.api
       .searchRegisteredCattle({
+        farmerId: this.farmerId,
         farmerName: this.farmerName,
         lat: this.locationLat,
         lon: this.locationLon,
@@ -422,12 +446,12 @@ export class AppComponent implements OnDestroy {
   selectRegisteredCattle(match: CattleMatch): void {
     this.farmerId = match.farmerId || this.farmerId;
     this.farmerName = match.farmerName || this.farmerName;
-    this.message = `Candidate noted: ${match.cattleId}. DINOv2 will decide after 5 muzzle captures.`;
+    this.message = `Possible existing cattle selected: ${this.shortId(match.cattleId)}. The app will confirm after 5 muzzle photos.`;
   }
 
   async startCamera(): Promise<void> {
     if (!this.enrollment) {
-      this.message = 'Create enrollment first.';
+      this.message = 'Start capture first.';
       return;
     }
 
@@ -504,7 +528,7 @@ export class AppComponent implements OnDestroy {
 
     this.isDetecting = true;
     const slot = this.muzzlePreviews.length + 1;
-    this.message = `Checking muzzle ${slot}/5 with YOLO...`;
+    this.message = `Checking muzzle photo ${slot}/5...`;
     const blob = await this.frameBlob();
 
     this.api.captureMuzzle(this.enrollment.cattleId, blob, slot).subscribe({
@@ -512,7 +536,7 @@ export class AppComponent implements OnDestroy {
         this.lastConfidence = response.result.confidence;
         this.detectionBox = this.toDetectionBox(response.result.bbox, response.result.imageSize, response.result.confidence);
         this.muzzlePreviews.push(response.cloudinaryUrl || this.api.mediaUrl(response.previewUrl));
-        this.message = `YOLO detected muzzle. Captured ${slot}/5. CLAHE applied.`;
+        this.message = `Muzzle photo ${slot}/5 saved.`;
         this.isDetecting = false;
 
         if (response.matchResolution) {
@@ -522,7 +546,7 @@ export class AppComponent implements OnDestroy {
         if (this.muzzlePreviews.length >= 5 && this.autoCaptureOn) {
           this.toggleAutoCapture();
           if (!response.matchResolution) {
-            this.message = 'All 5 muzzle images captured. DINOv2 matching is pending.';
+            this.message = 'All 5 muzzle photos captured. Checking if this cattle is already saved.';
           }
           this.agentScreen = 'evidence';
         }
@@ -530,8 +554,8 @@ export class AppComponent implements OnDestroy {
       error: (error) => {
         this.detectionBox = undefined;
         this.message = error.status === 422
-          ? `YOLO did not detect clear muzzle for ${slot}/5. Hold steady and show full muzzle.`
-          : `YOLO/backend error: ${this.errorMessage(error)}`;
+          ? `Muzzle was not clear for photo ${slot}/5. Hold steady and show the full muzzle.`
+          : `Capture error: ${this.errorMessage(error)}`;
         this.isDetecting = false;
       }
     });
@@ -539,7 +563,7 @@ export class AppComponent implements OnDestroy {
 
   uploadRequiredImage(event: Event, item: RequiredImage): void {
     if (!this.enrollment) {
-      this.message = 'Create enrollment first.';
+      this.message = 'Start capture first.';
       return;
     }
 
@@ -572,6 +596,7 @@ export class AppComponent implements OnDestroy {
       next: ({ enrollment }) => {
         this.enrollment = enrollment;
         this.loadCattleInventory();
+        this.resetCaptureState(false);
         this.agentScreen = 'home';
         this.message = 'Capture session complete. Returned home for the next cattle.';
       },
@@ -590,12 +615,12 @@ export class AppComponent implements OnDestroy {
     if (resolution.decision === 'matched_existing') {
       const visitCount = resolution.enrollment.sessions?.length || 1;
       this.loadCattleInventory();
-      this.message = `Already enrolled cattle ${resolution.matchedCattleId} matched with ${resolution.confidencePercent}% confidence. This is visit ${visitCount} in the same cattle folder.`;
+      this.message = `Same cattle found. Visit ${visitCount} is saved under the existing cattle record.`;
       return;
     }
 
     this.loadCattleInventory();
-    this.message = `DINOv2 did not cross ${resolution.thresholdPercent}%. New cattle ID kept: ${resolution.enrollment.cattleId}.`;
+    this.message = 'No strong existing match found. A new cattle record is kept.';
   }
 
   private refreshMuzzlePreviewsFromEnrollment(enrollment: Enrollment): void {
@@ -746,8 +771,8 @@ export class AppComponent implements OnDestroy {
   }
   get agentScreenSubtitle(): string {
     switch (this.agentScreen) {
-      case 'farmer': return 'Enter owner details before checking nearby cattle.';
-      case 'location': return 'Use GPS to find cattle already captured near this owner.';
+      case 'farmer': return 'Enter owner ID before checking nearby cattle.';
+      case 'location': return 'Use GPS to find cattle already captured for this owner.';
       case 'muzzle': return 'Take 5 clear muzzle photos. The app checks and saves the best crops.';
       case 'evidence': return 'Add face, side, back and udder photos for the same cattle.';
       case 'review': return 'Check the record once, then save and return home.';
@@ -781,6 +806,27 @@ export class AppComponent implements OnDestroy {
     });
   }
 
+  private resetCaptureState(clearOwnerDetails: boolean): void {
+    this.stopCamera();
+    this.enrollment = undefined;
+    this.cattleId = '';
+    this.cattleMatches = [];
+    this.muzzlePreviews = [];
+    this.matchResolution = undefined;
+    this.lastConfidence = undefined;
+    this.detectionBox = undefined;
+    this.requiredImages.forEach((item) => {
+      item.previewUrl = undefined;
+      item.uploading = false;
+    });
+
+    if (clearOwnerDetails) {
+      this.farmerId = '';
+      this.farmerName = '';
+      this.locationLat = null;
+      this.locationLon = null;
+    }
+  }
   private errorMessage(error: unknown): string {
     if (error instanceof HttpErrorResponse && error.error?.error) {
       return error.error.error;

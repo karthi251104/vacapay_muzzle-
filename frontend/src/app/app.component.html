@@ -278,12 +278,12 @@
       <div class="home-copy">
         <p class="eyebrow">Field Work</p>
         <h2>Start a new cattle capture in a few guided steps.</h2>
-        <p>Use owner name and GPS to check if cattle was already captured. Then take photos and save the visit.</p>
+        <p>Use owner ID and GPS to find nearby cattle, then capture a clean photo set for this visit.</p>
       </div>
       <div class="home-grid">
-        <article><span>01</span><strong>Owner</strong><p>Name and optional ID.</p></article>
+        <article><span>01</span><strong>Owner</strong><p>Owner ID and name.</p></article>
         <article><span>02</span><strong>Nearby</strong><p>Check cattle around you.</p></article>
-        <article><span>03</span><strong>Field Capture</strong><p>5 crops with YOLO and CLAHE.</p></article>
+        <article><span>03</span><strong>Muzzle</strong><p>5 guided muzzle photos.</p></article>
         <article><span>04</span><strong>More Photos</strong><p>Face, side, back, udder.</p></article>
       </div>
       <div class="field-stats">
@@ -301,16 +301,16 @@
           </div>
           <button type="button" class="ghost" (click)="loadCattleInventory()">Refresh</button>
         </div>
-        <button type="button" class="already-card" *ngFor="let cattle of recentCattle" (click)="farmerName = cattle.farmerName; farmerId = cattle.farmerId; cattleId = cattle.cattleId; beginEnrollmentFlow()">
+        <button type="button" class="already-card" *ngFor="let cattle of recentCattle" (click)="startFromRecent(cattle)">
           <img *ngIf="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" [src]="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" alt="Cattle preview">
           <div>
             <strong>{{ cattle.farmerName || 'Unknown farmer' }}</strong>
-            <p>{{ cattle.cattleId }}</p>
+            <p>Owner ID: {{ cattle.farmerId || 'NA' }}</p>
             <small>{{ cattle.sessionCount }} registrations / last {{ cattle.lastCaptureDate || 'NA' }}</small>
           </div>
         </button>
       </section>
-      <button type="button" class="primary-action big" (click)="beginEnrollmentFlow()">Start Enrollment</button>
+      <button type="button" class="primary-action big" (click)="startNewEnrollment()">Start Enrollment</button>
     </section>
 
     <form class="screen-card form-stack page-enter" *ngIf="agentScreen === 'farmer'" (ngSubmit)="continueToLocation()">
@@ -321,11 +321,10 @@
         </div>
         <span>Required</span>
       </div>
-      <label><span>Cattle ID</span><input name="cattleId" [(ngModel)]="cattleId" placeholder="Leave blank for new cow"></label>
-      <label><span>Owner ID</span><input name="farmerId" [(ngModel)]="farmerId" placeholder="FARM-001"></label>
+      <label><span>Owner ID</span><input name="farmerId" [(ngModel)]="farmerId" placeholder="OWNER-001" required></label>
       <label><span>Owner Name</span><input name="farmerName" [(ngModel)]="farmerName" placeholder="Enter farmer name"></label>
       <label><span>Field Officer</span><input name="fieldOfficerName" [(ngModel)]="fieldOfficerName" placeholder="Officer name"></label>
-      <button type="submit" class="primary-action">Continue to GPS</button>
+      <button type="submit" class="primary-action" [disabled]="!farmerId.trim()">Continue to GPS</button>
     </form>
 
     <section class="screen-card page-enter" *ngIf="agentScreen === 'location'">
@@ -350,13 +349,13 @@
 
       <div class="match-list" *ngIf="cattleMatches.length">
         <button type="button" class="candidate-card" *ngFor="let match of cattleMatches" (click)="selectRegisteredCattle(match)">
-          <strong>{{ match.cattleId }}</strong>
+          <strong>Existing cattle record</strong>
           <span>{{ match.farmerName || 'Unknown farmer' }}</span>
           <small>{{ match.distanceKm === null ? 'No GPS' : (match.distanceKm | number:'1.1-1') + ' km' }} / {{ match.sessionCount }} sessions</small>
         </button>
       </div>
 
-      <button type="button" class="primary-action big" (click)="createEnrollment()">Start Capture</button>
+      <button type="button" class="primary-action big" [disabled]="!farmerId.trim()" (click)="createEnrollment()">Start Capture</button>
     </section>
 
     <section class="screen-card page-enter" *ngIf="agentScreen === 'muzzle'">
@@ -395,7 +394,7 @@
 
       <div class="model-grid">
         <article [class.ready]="yoloStatus?.ok"><strong>{{ yoloStatus?.ok ? 'Muzzle Check Ready' : 'Muzzle Check' }}</strong><span>{{ yoloStatus?.ok ? 'Ready for clear muzzle photos' : (yoloStatus?.error || 'Check model') }}</span><button type="button" class="ghost" (click)="checkYoloStatus()">Check</button></article>
-        <article [class.ready]="embeddingStatus?.ok"><strong>{{ embeddingStatus?.ok ? 'Same-Cattle Check Ready' : 'Same-Cattle Check' }}</strong><span>Threshold {{ embeddingStatus?.thresholdPercent || 70 }}%</span><button type="button" class="ghost" (click)="checkEmbeddingStatus()">Check</button></article>
+        <article [class.ready]="embeddingStatus?.ok"><strong>{{ embeddingStatus?.ok ? 'Same-Cattle Check Ready' : 'Same-Cattle Check' }}</strong><span>{{ embeddingStatus?.ok ? 'Ready to compare cattle' : 'Check compare service' }}</span><button type="button" class="ghost" (click)="checkEmbeddingStatus()">Check</button></article>
         <article [class.ready]="pineconeStatus?.ok"><strong>{{ pineconeStatus?.ok ? 'Record Search Ready' : 'Record Search' }}</strong><span>{{ pineconeStatus?.totalVectorCount || 0 }} vectors</span><button type="button" class="ghost" (click)="checkPineconeStatus()">Check</button></article>
       </div>
 
@@ -436,16 +435,16 @@
       </div>
 
       <div class="review-summary">
-        <article><span>Cattle ID</span><strong>{{ enrollment?.cattleId || cattleId || 'Pending' }}</strong></article>
+        <article><span>Owner ID</span><strong>{{ farmerId || enrollment?.farmerId || 'NA' }}</strong></article>
         <article><span>Farmer</span><strong>{{ farmerName || enrollment?.farmerName || 'NA' }}</strong></article>
         <article><span>Images</span><strong>{{ totalCapturedImages }}/12</strong></article>
         <article><span>Folder</span><strong>{{ enrollment?.folderLocation || 'Not created' }}</strong></article>
       </div>
 
       <div class="match-result" *ngIf="matchResolution">
-        <strong>{{ matchResolution.decision === 'matched_existing' ? 'Existing cattle matched' : 'New cattle kept' }}</strong>
-        <p *ngIf="matchResolution.decision === 'matched_existing'">{{ matchResolution.matchedCattleId }} / {{ matchResolution.confidencePercent }}% confidence</p>
-        <p *ngIf="matchResolution.decision === 'new_cattle'">Below {{ matchResolution.thresholdPercent }}% threshold. New cattle folder remains active.</p>
+        <strong>{{ matchResolution.decision === 'matched_existing' ? 'Same cattle found' : 'New cattle saved' }}</strong>
+        <p *ngIf="matchResolution.decision === 'matched_existing'">This visit will stay under the existing cattle record.</p>
+        <p *ngIf="matchResolution.decision === 'new_cattle'">No strong existing match was found, so this remains a new cattle record.</p>
       </div>
 
       <div class="final-gallery">

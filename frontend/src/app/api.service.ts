@@ -301,17 +301,19 @@ export class ApiService {
     return this.http.post<{ agent: AppUser }>(`${this.baseUrl}/agents`, payload, { headers: this.authHeaders() });
   }
 
-  createEnrollment(payload: Partial<Enrollment>): Observable<{ enrollment: Enrollment }> {
+  createEnrollment(payload: Partial<Enrollment> & { matchRadiusKm?: number }): Observable<{ enrollment: Enrollment }> {
     return this.http.post<{ enrollment: Enrollment }>(`${this.baseUrl}/enrollments`, payload);
   }
 
   searchRegisteredCattle(params: {
+    farmerId?: string;
     farmerName?: string;
     lat?: number | null;
     lon?: number | null;
     radiusKm?: number;
   }): Observable<{ cattle: CattleMatch[] }> {
     const query = new URLSearchParams();
+    if (params.farmerId) query.set('farmerId', params.farmerId);
     if (params.farmerName) query.set('farmerName', params.farmerName);
     if (params.lat !== null && params.lat !== undefined) query.set('lat', String(params.lat));
     if (params.lon !== null && params.lon !== undefined) query.set('lon', String(params.lon));
@@ -349,6 +351,7 @@ export class ApiService {
     return this.token ? new HttpHeaders({ Authorization: `Bearer ${this.token}` }) : new HttpHeaders();
   }
 }
+
 
 
 
