@@ -323,6 +323,7 @@ app.get('/api/farmers', async (req, res, next) => {
 
 app.get('/api/cattle/search', async (req, res, next) => {
   try {
+    const farmerId = String(req.query.farmerId || '').trim().toLowerCase();
     const farmerName = String(req.query.farmerName || '').trim().toLowerCase();
     const lat = Number(req.query.lat);
     const lon = Number(req.query.lon);
@@ -331,7 +332,13 @@ app.get('/api/cattle/search', async (req, res, next) => {
     const rows = (await readMetadata()).map(normalizeRecord).filter(Boolean);
 
     const cattle = rows
-      .filter((row) => !farmerName || row.farmerName.toLowerCase().includes(farmerName))
+      .filter((row) => {
+        const rowFarmerId = String(row.farmerId || '').trim().toLowerCase();
+        const rowFarmerName = String(row.farmerName || '').trim().toLowerCase();
+        const idMatches = !farmerId || rowFarmerId === farmerId || rowFarmerId.includes(farmerId);
+        const nameMatches = !farmerName || rowFarmerName.includes(farmerName);
+        return idMatches && nameMatches;
+      })
       .map((row) => {
         const distanceKm = hasLocation && Number.isFinite(Number(row.locationLat)) && Number.isFinite(Number(row.locationLon))
           ? haversineKm(lat, lon, Number(row.locationLat), Number(row.locationLon))
@@ -427,6 +434,73 @@ app.post('/api/cattle/download', requireAuth, requireAdmin, async (req, res, nex
     next(error);
   }
 });
+app.post('/api/cattle/merge', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const targetCattleId = String(req.body.targetCattleId || '').trim();
+    const sourceCattleIds = Array.isArray(req.body.sourceCattleIds)
+      ? req.body.sourceCattleIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    const uniqueSourceIds = [...new Set(sourceCattleIds)].filter((id) => id && id !== targetCattleId);
+
+    if (!targetCattleId || !uniqueSourceIds.length) {
+      res.status(400).json({ error: 'Select one main cattle and at least one duplicate cattle.' });
+      return;
+    }
+
+    const rows = (await readMetadata()).map(normalizeRecord).filter(Boolean);
+    const targetIndex = rows.findIndex((row) => row.cattleId === targetCattleId);
+
+    if (targetIndex < 0) {
+      res.status(404).json({ error: 'Main cattle record not found.' });
+      return;
+    }
+
+    const targetRow = rows[targetIndex];
+    const mergedIds = [];
+
+    for (const sourceId of uniqueSourceIds) {
+      const sourceIndex = rows.findIndex((row) => row?.cattleId === sourceId);
+      const sourceRow = rows[sourceIndex];
+      if (!sourceRow) continue;
+
+      for (const session of sourceRow.sessions || []) {
+        await moveSessionIntoTargetCattle({ sourceRow, targetRow, session });
+      }
+
+      targetRow.farmerId = targetRow.farmerId || sourceRow.farmerId || '';
+      targetRow.farmerName = targetRow.farmerName || sourceRow.farmerName || '';
+      targetRow.fieldOfficerId = sourceRow.fieldOfficerId || targetRow.fieldOfficerId || '';
+      targetRow.fieldOfficerName = sourceRow.fieldOfficerName || targetRow.fieldOfficerName || '';
+      targetRow.locationLat = targetRow.locationLat ?? sourceRow.locationLat ?? null;
+      targetRow.locationLon = targetRow.locationLon ?? sourceRow.locationLon ?? null;
+      targetRow.status = 'admin_merged';
+      targetRow.uploadDateTime = new Date().toISOString();
+      rows[sourceIndex] = null;
+      mergedIds.push(sourceId);
+
+      await fs.rm(path.join(dataDir, sourceId), { recursive: true, force: true }).catch(() => {});
+    }
+
+    if (!mergedIds.length) {
+      res.status(404).json({ error: 'No duplicate records were found to merge.' });
+      return;
+    }
+
+    targetRow.sessions = (targetRow.sessions || []).sort((a, b) => String(a.captureDateTime || '').localeCompare(String(b.captureDateTime || '')));
+    targetRow.activeSessionId = targetRow.sessions.at(-1)?.sessionId || targetRow.activeSessionId;
+    targetRow.folderLocation = targetRow.sessions.at(-1)?.folderLocation || targetRow.folderLocation;
+    targetRow.captureDateTime = targetRow.sessions.at(-1)?.captureDateTime || targetRow.captureDateTime;
+
+    if (mongoDb) {
+      await mongoDb.collection('cattle').deleteMany({ cattleId: { $in: mergedIds } });
+    }
+
+    await writeMetadata(rows.filter(Boolean));
+    res.json({ target: toCattleSummary(targetRow), mergedCattleIds: mergedIds });
+  } catch (error) {
+    next(error);
+  }
+});
 app.post('/api/enrollments', async (req, res, next) => {
   try {
     const now = new Date().toISOString();
@@ -454,6 +528,7 @@ app.post('/api/enrollments', async (req, res, next) => {
     record.fieldOfficerId = req.body.fieldOfficerId || record.fieldOfficerId || '';
     record.locationLat = req.body.locationLat ?? record.locationLat ?? null;
     record.locationLon = req.body.locationLon ?? record.locationLon ?? null;
+    record.matchRadiusKm = Number(req.body.matchRadiusKm || record.matchRadiusKm || 7);
     record.rootFolderLocation = rootFolder;
     record.folderLocation = session.folderLocation;
     record.captureDateTime = session.captureDateTime;
@@ -1455,6 +1530,33 @@ async function mergeSessionIntoExistingCattle({ rows, queryIndex, targetIndex, t
   return targetRow;
 }
 
+async function moveSessionIntoTargetCattle({ sourceRow, targetRow, session }) {
+  const targetRoot = await ensureCattleFolder(targetRow.cattleId);
+  const dateKey = session.captureDate || String(session.captureDateTime || new Date().toISOString()).slice(0, 10);
+  const nextFolder = await nextSessionFolder(targetRoot, dateKey);
+  const oldFolder = session.folderLocation;
+
+  if (oldFolder && await pathExists(oldFolder)) {
+    await fs.mkdir(path.dirname(nextFolder), { recursive: true });
+    await fs.rename(oldFolder, nextFolder);
+    session.sessionId = path.basename(nextFolder);
+    session.folderLocation = nextFolder;
+    rebaseSessionImageRefs(session, targetRow.cattleId);
+  } else {
+    session.sessionId = session.sessionId || path.basename(nextFolder);
+  }
+
+  session.status = 'admin_merged';
+  session.adminMergedFromCattleId = sourceRow.cattleId;
+  session.matchedFromCattleId = session.matchedFromCattleId || sourceRow.cattleId;
+
+  if (cloudinaryEnabled && session.images) {
+    await refreshCloudinaryRefs(targetRow.cattleId, session);
+  }
+
+  targetRow.sessions = [...(targetRow.sessions || []), session];
+}
+
 async function nextSessionFolder(rootFolder, dateKey) {
   let folderName = dateKey;
   let folder = path.join(rootFolder, folderName);
@@ -1803,7 +1905,3 @@ function runPythonJson(args) {
     });
   });
 }
-
-
-
-

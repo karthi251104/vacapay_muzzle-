@@ -145,13 +145,26 @@
         </div>
         <div class="compact-actions">
           <button type="button" class="ghost" (click)="loadCattleInventory()">Refresh</button>
+          <button type="button" class="ghost" [disabled]="!selectedAdminCattle || !mergeSourceCount" (click)="mergeSelectedIntoMainCattle()">Merge into selected</button>
           <button type="button" [disabled]="!selectedCattleIds.length" (click)="downloadSelectedImages()">Download ZIP</button>
         </div>
       </div>
 
+      <div class="duplicate-alerts" *ngIf="ownerRecordGroups.length">
+        <article *ngFor="let group of ownerRecordGroups">
+          <strong>{{ group.label }}</strong>
+          <span>{{ group.count }} cattle IDs / {{ group.visits }} visits. If these are the same animal, select the correct main row, tick duplicates, then merge.</span>
+        </article>
+      </div>
+
+      <div class="merge-help" *ngIf="selectedAdminCattle">
+        Main record: <strong>{{ shortId(selectedAdminCattle.cattleId) }}</strong>
+        <span *ngIf="mergeSourceCount"> / {{ mergeSourceCount }} duplicate selected</span>
+      </div>
+
       <div class="registry-layout">
         <div class="cattle-table">
-          <article class="cattle-row" *ngFor="let cattle of cattleInventory" [class.active]="selectedAdminCattle?.cattleId === cattle.cattleId">
+          <article class="cattle-row" *ngFor="let cattle of cattleInventory" [class.active]="selectedAdminCattle?.cattleId === cattle.cattleId" [class.merge-source]="isCattleSelected(cattle) && selectedAdminCattle?.cattleId !== cattle.cattleId">
             <label class="select-box">
               <input type="checkbox" [checked]="isCattleSelected(cattle)" (change)="toggleCattleSelection(cattle)">
               <span></span>
@@ -160,7 +173,8 @@
               <img *ngIf="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" [src]="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" alt="Cattle preview">
               <div>
                 <strong>{{ cattle.farmerName || 'Unknown farmer' }}</strong>
-                <p>Cattle ID: {{ shortId(cattle.cattleId) }} / Officer: {{ cattle.fieldOfficerName || 'NA' }}</p>
+                <p>ID: {{ shortId(cattle.cattleId) }} / Owner ID: {{ cattle.farmerId || 'NA' }} / Officer: {{ cattle.fieldOfficerName || 'NA' }}</p>
+                <em *ngIf="selectedAdminCattle?.cattleId === cattle.cattleId">Main record</em>
                 <small>{{ cattle.sessionCount }} visits / {{ cattle.imageCount }} photos / last {{ cattle.lastCaptureDate || 'No date' }}</small>
               </div>
             </button>
@@ -478,6 +492,3 @@
     <a [href]="imageViewer.url" target="_blank" rel="noreferrer">Open original</a>
   </div>
 </div>
-
-
-

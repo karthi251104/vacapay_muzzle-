@@ -1943,3 +1943,46 @@ button.secondary {
     min-height: min(560px, calc(100dvh - 220px));
   }
 }
+
+.duplicate-alerts {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 16px;
+}
+
+.duplicate-alerts article,
+.merge-help {
+  background: #fff7df;
+  border: 1px solid #ead79f;
+  border-radius: 8px;
+  color: #4f4320;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.duplicate-alerts strong,
+.merge-help strong {
+  color: #244d36;
+}
+
+.duplicate-alerts span,
+.merge-help span {
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.cattle-row.merge-source {
+  border-color: #c48a2a;
+  box-shadow: 0 0 0 2px rgba(196, 138, 42, 0.18);
+}
+
+.cattle-main em {
+  color: #25633f;
+  display: inline-block;
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 900;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}

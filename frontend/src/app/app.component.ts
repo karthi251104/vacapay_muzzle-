@@ -670,6 +670,34 @@ export class AppComponent implements OnDestroy {
   isCattleSelected(cattle: CattleSummary): boolean {
     return this.selectedCattleIds.includes(cattle.cattleId);
   }
+  mergeSelectedIntoMainCattle(): void {
+    if (!this.selectedAdminCattle) {
+      this.message = 'Select the correct main cattle row first.';
+      return;
+    }
+
+    const sourceCattleIds = this.selectedCattleIds.filter((id) => id !== this.selectedAdminCattle?.cattleId);
+    if (!sourceCattleIds.length) {
+      this.message = 'Tick duplicate cattle rows to merge into the selected main record.';
+      return;
+    }
+
+    const ok = window.confirm(`Merge ${sourceCattleIds.length} duplicate cattle record(s) into ${this.shortId(this.selectedAdminCattle.cattleId)}?`);
+    if (!ok) return;
+
+    this.message = 'Merging duplicate cattle records...';
+    this.api.mergeCattleRecords(this.selectedAdminCattle.cattleId, sourceCattleIds).subscribe({
+      next: ({ target, mergedCattleIds }) => {
+        this.selectedCattleIds = [];
+        this.selectedAdminCattle = target;
+        this.message = `Merged ${mergedCattleIds.length} duplicate record(s). Main cattle now has ${target.sessionCount} visits.`;
+        this.loadCattleInventory();
+      },
+      error: (error) => {
+        this.message = this.errorMessage(error);
+      }
+    });
+  }
 
   downloadSelectedImages(): void {
     if (!this.selectedCattleIds.length) {
@@ -694,6 +722,24 @@ export class AppComponent implements OnDestroy {
         this.message = this.errorMessage(error);
       }
     });
+  }
+
+  get ownerRecordGroups(): Array<{ key: string; label: string; count: number; visits: number }> {
+    const groups = new Map<string, { key: string; label: string; count: number; visits: number }>();
+    for (const cattle of this.cattleInventory) {
+      const key = (cattle.farmerId || cattle.farmerName || 'unknown').trim().toLowerCase();
+      const label = cattle.farmerName || cattle.farmerId || 'Unknown owner';
+      const group = groups.get(key) || { key, label, count: 0, visits: 0 };
+      group.count += 1;
+      group.visits += cattle.sessionCount;
+      groups.set(key, group);
+    }
+    return Array.from(groups.values()).filter((group) => group.count > 1).sort((a, b) => b.count - a.count);
+  }
+
+  get mergeSourceCount(): number {
+    if (!this.selectedAdminCattle) return 0;
+    return this.selectedCattleIds.filter((id) => id !== this.selectedAdminCattle?.cattleId).length;
   }
   get selectedImageCount(): number {
     return this.cattleInventory
@@ -850,13 +896,3 @@ export class AppComponent implements OnDestroy {
     };
   }
 }
-
-
-
-
-
-
-
-
-
-

@@ -289,9 +289,14 @@ export class ApiService {
     });
   }
 
+  mergeCattleRecords(targetCattleId: string, sourceCattleIds: string[]): Observable<{ target: CattleSummary; mergedCattleIds: string[] }> {
+    return this.http.post<{ target: CattleSummary; mergedCattleIds: string[] }>(`${this.baseUrl}/cattle/merge`, { targetCattleId, sourceCattleIds }, { headers: this.authHeaders() });
+  }
+
   listMatchReviews(uncertainOnly = true): Observable<{ reviews: MatchReview[] }> {
     return this.http.get<{ reviews: MatchReview[] }>(`${this.baseUrl}/reviews/matches?uncertainOnly=${uncertainOnly}`, { headers: this.authHeaders() });
   }
+
 
   updateMatchReview(auditId: string, payload: { reviewStatus: string; correctCattleId?: string; reviewNotes?: string }): Observable<{ review: MatchReview }> {
     return this.http.post<{ review: MatchReview }>(`${this.baseUrl}/reviews/matches/${auditId}`, payload, { headers: this.authHeaders() });
