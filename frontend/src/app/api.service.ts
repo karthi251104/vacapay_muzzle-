@@ -16,6 +16,7 @@ export interface Enrollment {
   captureDateTime: string;
   uploadDateTime: string;
   status: string;
+  autoSelectedExistingCattle?: boolean;
   sessions?: CaptureSession[];
 }
 
@@ -356,9 +357,3 @@ export class ApiService {
     return this.token ? new HttpHeaders({ Authorization: `Bearer ${this.token}` }) : new HttpHeaders();
   }
 }
-
-
-
-
-
-

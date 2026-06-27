@@ -390,7 +390,9 @@ export class AppComponent implements OnDestroy {
             item.uploading = false;
           });
           this.agentScreen = 'muzzle';
-          this.message = 'Capture session ready. Start muzzle photos for this cattle.';
+          this.message = enrollment.autoSelectedExistingCattle
+            ? 'Existing cattle folder found. This visit will save under today date.'
+            : 'Capture session ready. Start muzzle photos for this cattle.';
           this.loadCattleInventory();
         },
         error: (error) => {

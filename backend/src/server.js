@@ -533,7 +533,8 @@ app.post('/api/enrollments', async (req, res, next) => {
     record.folderLocation = session.folderLocation;
     record.captureDateTime = session.captureDateTime;
     record.uploadDateTime = now;
-    record.status = 'draft';
+    record.status = autoTarget ? 'repeat_visit_auto_folder' : 'draft';
+    record.autoSelectedExistingCattle = Boolean(autoTarget);
     record.activeSessionId = session.sessionId;
     session.fieldOfficerId = record.fieldOfficerId;
     session.fieldOfficerName = record.fieldOfficerName;
@@ -1324,6 +1325,36 @@ function imageSortRank(imageType) {
   const order = ['muzzle1', 'muzzle2', 'muzzle3', 'muzzle4', 'muzzle5', 'face1', 'face2', 'face3', 'leftside', 'rightside', 'back', 'udder'];
   const index = order.indexOf(imageType);
   return index >= 0 ? index : order.length;
+}
+
+function findSingleOwnerCattleForNewVisit(rows, { farmerId, farmerName, lat, lon, radiusKm }) {
+  const ownerId = String(farmerId || '').trim().toLowerCase();
+  const ownerName = String(farmerName || '').trim().toLowerCase();
+  const radius = Number(radiusKm || 7);
+  const queryLat = Number(lat);
+  const queryLon = Number(lon);
+  const hasLocation = Number.isFinite(queryLat) && Number.isFinite(queryLon);
+
+  if (!ownerId && !ownerName) return null;
+
+  const candidates = rows
+    .map(normalizeRecord)
+    .filter(Boolean)
+    .filter((row) => {
+      const rowOwnerId = String(row.farmerId || '').trim().toLowerCase();
+      const rowOwnerName = String(row.farmerName || '').trim().toLowerCase();
+      const idMatches = ownerId && rowOwnerId && rowOwnerId === ownerId;
+      const nameMatches = !ownerId && ownerName && rowOwnerName && rowOwnerName === ownerName;
+      if (!idMatches && !nameMatches) return false;
+
+      if (!hasLocation) return true;
+      const rowLat = Number(row.locationLat);
+      const rowLon = Number(row.locationLon);
+      if (!Number.isFinite(rowLat) || !Number.isFinite(rowLon)) return true;
+      return haversineKm(queryLat, queryLon, rowLat, rowLon) <= radius;
+    });
+
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 function buildCattleStats(cattle) {
