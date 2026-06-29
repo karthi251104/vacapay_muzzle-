@@ -1,17 +1,18 @@
 # Vacapay Muzzle Demo
 
-Vacapay Muzzle is a mobile-first cattle enrollment demo for field agents and admins. Field agents capture cattle photos, the backend crops muzzle images with YOLO, creates DINOv2 muzzle embeddings, searches Pinecone/MongoDB records, and saves repeat visits under the correct cattle folder when the same cattle is found.
+Vacapay Muzzle is a mobile-first cattle muzzle field-testing app for agents and admins. Field agents add or search farmers, capture GPS and cattle photos, the backend crops muzzle images with YOLO, creates DINOv2 muzzle embeddings, searches farmer cattle plus the full saved muzzle database, and saves same-cattle matches separately as duplicate evidence for clean testing.
 
 ## Quick Documentation Map
 
 Read in this order if you are new to the project:
 
-1. `docs/PROJECT_PROCESS.md` - what the app does, feature list, and full business workflow.
-2. `docs/NO_DOCKER_SETUP.md` - how to run locally without Docker.
-3. `docs/UI_HANDOFF.md` - where UI code lives and how a UI teammate should work.
-4. `docs/RUN_COMMANDS.md` - copy-paste commands for daily work.
-5. `docs/ARCHITECTURE.md` - backend/frontend/storage/model architecture.
-6. `docs/WORKFLOWS.md` - detailed user and model workflows.
+1. `docs/FIELD_TESTING_PROGRESS.md` - current testing workflow, reset status, demo flow, and progress summary.
+2. `docs/PROJECT_PROCESS.md` - what the app does, feature list, and full business workflow.
+3. `docs/NO_DOCKER_SETUP.md` - how to run locally without Docker.
+4. `docs/UI_HANDOFF.md` - where UI code lives and how a UI teammate should work.
+5. `docs/RUN_COMMANDS.md` - copy-paste commands for daily work.
+6. `docs/ARCHITECTURE.md` - backend/frontend/storage/model architecture.
+7. `docs/WORKFLOWS.md` - detailed user and model workflows.
 
 ## Current Stack
 
@@ -32,7 +33,9 @@ Read in this order if you are new to the project:
 - Admin creates field agents with phone, agent ID, and password.
 - Agent login.
 - Mobile field-agent capture flow.
-- Owner ID and GPS based nearby cattle check.
+- Add new farmer flow with required GPS.
+- Existing farmer search by GPS, farmer name, or farmer ID.
+- Farmer cattle lookup before capture.
 - Camera based muzzle capture.
 - YOLO muzzle detection and crop.
 - CLAHE applied after crop.
@@ -43,21 +46,34 @@ Read in this order if you are new to the project:
 - Cloudinary image upload.
 - DINOv2 average embedding from 5 muzzle crops.
 - Pinecone vector upsert/search.
-- Automatic same-cattle repeat visit handling.
+- Muzzle matching against selected farmer cattle records and all saved muzzle records.
+- Top 1 and Top 5 match result tracking.
+- Duplicate same-cattle captures saved separately as duplicate evidence.
+- Admin testing registry split into unique cattle database and duplicate capture evidence.
 - Admin cattle record browsing with image viewer.
 - Admin ZIP download for selected cattle records.
-- Admin merge tool for old duplicate cattle records.
 
 ## Important Current Behavior
 
 When an agent starts a new capture:
 
-- The field agent does not enter a cattle ID.
-- Backend creates a cattle ID for a new cattle.
-- If owner/GPS has exactly one existing cattle record, backend automatically reuses that cattle ID and creates a new date/session folder.
-- If the owner has multiple possible cattle, the app does not guess. It waits for muzzle matching after 5 muzzle photos.
-- If DINOv2 score is at least 70%, the visit moves into the matched existing cattle folder.
-- If score is below 70%, the new cattle ID remains.
+- The agent first adds a new farmer or searches an existing farmer by GPS/name/ID.
+- GPS is required before cattle capture starts.
+- Backend creates a cattle ID for the new capture.
+- After 5 muzzle photos, the backend checks the selected farmer cattle records first.
+- The backend also checks all saved muzzle records in the wider database.
+- Match results are tagged as `farmer_cattle` or `all_other_muzzle`.
+- Top 1 and Top 5 candidates are stored for testing and review.
+- If DINOv2 score is at least 70%, the new capture is saved separately as duplicate evidence and linked to the matched original cattle.
+- If score is below 70%, the new cattle remains in the unique cattle database.
+
+## Field Testing Progress
+
+For the current field-testing process, demo sequence, reset status, duplicate evidence behavior, and implementation summary, see:
+
+```text
+docs/FIELD_TESTING_PROGRESS.md
+```
 
 ## Default Demo Login
 
