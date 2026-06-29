@@ -2,17 +2,13 @@
 
 Vacapay Muzzle is a mobile-first cattle muzzle field-testing app for agents and admins. Field agents add or search farmers, capture GPS and cattle photos, the backend crops muzzle images with YOLO, creates DINOv2 muzzle embeddings, searches farmer cattle plus the full saved muzzle database, and saves same-cattle matches separately as duplicate evidence for clean testing.
 
-## Quick Documentation Map
+## Documentation
 
-Read in this order if you are new to the project:
+Current project process, reset status, demo flow, duplicate evidence behavior, and implementation summary are in:
 
-1. `docs/FIELD_TESTING_PROGRESS.md` - current testing workflow, reset status, demo flow, and progress summary.
-2. `docs/PROJECT_PROCESS.md` - what the app does, feature list, and full business workflow.
-3. `docs/NO_DOCKER_SETUP.md` - how to run locally without Docker.
-4. `docs/UI_HANDOFF.md` - where UI code lives and how a UI teammate should work.
-5. `docs/RUN_COMMANDS.md` - copy-paste commands for daily work.
-6. `docs/ARCHITECTURE.md` - backend/frontend/storage/model architecture.
-7. `docs/WORKFLOWS.md` - detailed user and model workflows.
+```text
+docs/FIELD_TESTING_PROGRESS.md
+```
 
 ## Current Stack
 
@@ -102,7 +98,7 @@ http://localhost:3000
 
 ## Run Without Docker
 
-See `docs/NO_DOCKER_SETUP.md` for full steps. Short version:
+Short local run version:
 
 Terminal 1:
 
