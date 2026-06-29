@@ -249,16 +249,60 @@
         </div>
       </div>
 
+      <section class="field-results" *ngIf="allMatchReviews.length">
+        <div class="field-result-grid">
+          <article><span>Registered Cattle</span><strong>{{ fieldTestMetrics.registeredCattle }}</strong></article>
+          <article><span>Repeat Visits</span><strong>{{ fieldTestMetrics.repeatVisits }}</strong></article>
+          <article><span>Reviewed Ground Truth</span><strong>{{ fieldTestMetrics.reviewedVisits }}</strong></article>
+          <article><span>Correct Re-visits</span><strong>{{ fieldTestMetrics.correctMatches }}</strong></article>
+          <article><span>Missed Matches</span><strong>{{ fieldTestMetrics.missedMatches }}</strong></article>
+          <article><span>Wrong Matches</span><strong>{{ fieldTestMetrics.wrongMatches }}</strong></article>
+          <article><span>Top-1 Accuracy</span><strong>{{ fieldTestMetrics.top1Accuracy }}%</strong></article>
+          <article><span>Top-5 Accuracy</span><strong>{{ fieldTestMetrics.top5Accuracy }}%</strong></article>
+          <article><span>False Matches</span><strong>{{ fieldTestMetrics.falseMatchCount }}</strong></article>
+          <article><span>Needs Expected Cow</span><strong>{{ fieldTestMetrics.pendingTruth }}</strong></article>
+        </div>
+
+        <div class="field-note">
+          <strong>How this matches the folder test</strong>
+          <span>Expected cow is the ground truth label. Top matches are the model predictions. Confirm each repeat visit with the correct cattle ID to calculate real field accuracy.</span>
+        </div>
+
+        <div class="officer-results" *ngIf="officerFieldSummaries.length">
+          <div class="officer-row officer-head">
+            <span>Officer</span>
+            <span>Repeats</span>
+            <span>Reviewed</span>
+            <span>Correct</span>
+            <span>Missed</span>
+            <span>Wrong</span>
+            <span>Top-1</span>
+            <span>Top-5</span>
+            <span>Quality</span>
+          </div>
+          <div class="officer-row" *ngFor="let officer of officerFieldSummaries">
+            <strong>{{ officer.officer }}</strong>
+            <span>{{ officer.repeatVisits }}</span>
+            <span>{{ officer.reviewedVisits }}</span>
+            <span>{{ officer.correctMatches }}</span>
+            <span>{{ officer.missedMatches }}</span>
+            <span>{{ officer.wrongMatches }}</span>
+            <span>{{ officer.top1Accuracy }}%</span>
+            <span>{{ officer.top5Accuracy }}%</span>
+            <span>{{ officer.captureQuality }}</span>
+          </div>
+        </div>
+      </section>
       <div class="empty-state" *ngIf="!matchReviews.length">No match history found.</div>
 
       <article class="review-card" *ngFor="let review of matchReviews">
         <div>
           <strong>{{ review.finalCattleId }}</strong>
           <p>{{ review.farmerName || 'NA' }} / {{ review.fieldOfficerName || 'NA' }}</p>
-          <small>{{ review.decision === 'matched_existing' ? 'Matched re-visit saved separately' : 'New cattle registered' }} / {{ review.confidencePercent }}%</small>
+          <small>{{ review.decision === 'matched_existing' ? 'Matched re-visit saved separately' : 'New cattle registered' }} / {{ review.confidencePercent }}% / {{ reviewResultLabel(review) }}</small>
         </div>
         <div class="review-tags">
-          <span *ngFor="let match of review.topMatches.slice(0, 5)">{{ match.cattleId }} {{ match.confidencePercent }}%</span>
+          <span *ngFor="let match of review.topMatches.slice(0, 5)" [class.expected]="expectedCattleId(review) === match.cattleId">{{ match.cattleId }} {{ match.confidencePercent }}%</span>
         </div>
         <div class="compact-actions">
           <button type="button" (click)="confirmMatchReview(review)">Confirm</button>

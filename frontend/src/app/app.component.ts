@@ -22,6 +22,32 @@ interface DetectionBox {
 
 type AgentScreen = 'home' | 'farmer' | 'location' | 'muzzle' | 'evidence' | 'review';
 
+
+interface FieldTestMetrics {
+  registeredCattle: number;
+  repeatVisits: number;
+  reviewedVisits: number;
+  correctMatches: number;
+  missedMatches: number;
+  wrongMatches: number;
+  top1Accuracy: number;
+  top5Accuracy: number;
+  falseMatchCount: number;
+  pendingTruth: number;
+}
+
+interface OfficerFieldSummary {
+  officer: string;
+  repeatVisits: number;
+  reviewedVisits: number;
+  correctMatches: number;
+  missedMatches: number;
+  wrongMatches: number;
+  top1Accuracy: number;
+  top5Accuracy: number;
+  avgScore: number;
+  captureQuality: string;
+}
 interface AgentStep {
   key: AgentScreen;
   label: string;
@@ -45,6 +71,7 @@ export class AppComponent implements OnDestroy {
   loginMode: 'agent' | 'admin' = 'agent';
   agents: AppUser[] = [];
   matchReviews: MatchReview[] = [];
+  allMatchReviews: MatchReview[] = [];
   cattleInventory: CattleSummary[] = [];
   cattleStats?: CattleStats;
   selectedCattleIds: string[] = [];
@@ -346,9 +373,10 @@ export class AppComponent implements OnDestroy {
   }
 
   loadMatchReviews(): void {
-    this.api.listMatchReviews(!this.showAllReviews).subscribe({
+    this.api.listMatchReviews(false).subscribe({
       next: ({ reviews }) => {
-        this.matchReviews = reviews;
+        this.allMatchReviews = reviews;
+        this.applyReviewFilter();
       },
       error: (error) => {
         this.message = this.errorMessage(error);
@@ -356,9 +384,15 @@ export class AppComponent implements OnDestroy {
     });
   }
 
+  applyReviewFilter(): void {
+    this.matchReviews = this.showAllReviews
+      ? this.allMatchReviews
+      : this.allMatchReviews.filter((review) => review.reviewStatus !== 'confirmed');
+  }
+
   toggleReviewMode(): void {
     this.showAllReviews = !this.showAllReviews;
-    this.loadMatchReviews();
+    this.applyReviewFilter();
   }
 
   confirmMatchReview(review: MatchReview, correctCattleId?: string): void {
@@ -370,7 +404,8 @@ export class AppComponent implements OnDestroy {
       })
       .subscribe({
         next: ({ review: updated }) => {
-          this.matchReviews = this.matchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
+          this.allMatchReviews = this.allMatchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
+          this.applyReviewFilter();
           this.message = `Review saved for ${updated.finalCattleId}.`;
         },
         error: (error) => {
@@ -874,6 +909,114 @@ export class AppComponent implements OnDestroy {
     return this.adminRegistryView === 'duplicates' ? this.duplicateCattleInventory : this.uniqueCattleInventory;
   }
 
+  get fieldTestMetrics(): FieldTestMetrics {
+    const reviews = this.allMatchReviews;
+    const reviewed = reviews.filter((review) => this.isReviewedRepeatTest(review));
+    const correctMatches = reviewed.filter((review) => this.isCorrectMatchedReview(review)).length;
+    const missedMatches = reviewed.filter((review) => this.isMissedReview(review)).length;
+    const wrongMatches = reviewed.filter((review) => this.isWrongMatchedReview(review)).length;
+    const top1Correct = reviewed.filter((review) => this.isTopKCorrect(review, 1)).length;
+    const top5Correct = reviewed.filter((review) => this.isTopKCorrect(review, 5)).length;
+
+    return {
+      registeredCattle: this.cattleStats?.uniqueCattleCount || this.cattleStats?.cattleCount || 0,
+      repeatVisits: reviews.filter((review) => this.isRepeatTestCandidate(review)).length,
+      reviewedVisits: reviewed.length,
+      correctMatches,
+      missedMatches,
+      wrongMatches,
+      top1Accuracy: this.percent(top1Correct, reviewed.length),
+      top5Accuracy: this.percent(top5Correct, reviewed.length),
+      falseMatchCount: wrongMatches,
+      pendingTruth: reviews.filter((review) => this.isRepeatTestCandidate(review) && !this.expectedCattleId(review)).length
+    };
+  }
+
+  get officerFieldSummaries(): OfficerFieldSummary[] {
+    const groups = new Map<string, MatchReview[]>();
+    for (const review of this.allMatchReviews) {
+      const officer = review.fieldOfficerName || 'Unknown officer';
+      groups.set(officer, [...(groups.get(officer) || []), review]);
+    }
+
+    return Array.from(groups.entries())
+      .map(([officer, reviews]) => {
+        const reviewed = reviews.filter((review) => this.isReviewedRepeatTest(review));
+        const correctMatches = reviewed.filter((review) => this.isCorrectMatchedReview(review)).length;
+        const missedMatches = reviewed.filter((review) => this.isMissedReview(review)).length;
+        const wrongMatches = reviewed.filter((review) => this.isWrongMatchedReview(review)).length;
+        const top1Correct = reviewed.filter((review) => this.isTopKCorrect(review, 1)).length;
+        const top5Correct = reviewed.filter((review) => this.isTopKCorrect(review, 5)).length;
+        const avgScore = this.percent(reviews.reduce((total, review) => total + Number(review.confidence || 0), 0), reviews.length);
+
+        return {
+          officer,
+          repeatVisits: reviews.filter((review) => this.isRepeatTestCandidate(review)).length,
+          reviewedVisits: reviewed.length,
+          correctMatches,
+          missedMatches,
+          wrongMatches,
+          top1Accuracy: this.percent(top1Correct, reviewed.length),
+          top5Accuracy: this.percent(top5Correct, reviewed.length),
+          avgScore,
+          captureQuality: this.captureQualityLabel(avgScore)
+        };
+      })
+      .sort((a, b) => b.reviewedVisits - a.reviewedVisits || b.repeatVisits - a.repeatVisits || a.officer.localeCompare(b.officer));
+  }
+
+  isRepeatTestCandidate(review: MatchReview): boolean {
+    const expected = this.expectedCattleId(review);
+    return review.decision === 'matched_existing' || Boolean(expected && expected !== review.finalCattleId);
+  }
+
+  isReviewedRepeatTest(review: MatchReview): boolean {
+    return Boolean(this.expectedCattleId(review) && this.isRepeatTestCandidate(review));
+  }
+  expectedCattleId(review: MatchReview): string | null {
+    return review.correctCattleId || null;
+  }
+
+  isCorrectMatchedReview(review: MatchReview): boolean {
+    const expected = this.expectedCattleId(review);
+    return Boolean(expected && review.decision === 'matched_existing' && review.matchedCattleId === expected);
+  }
+
+  isMissedReview(review: MatchReview): boolean {
+    const expected = this.expectedCattleId(review);
+    return Boolean(expected && review.decision === 'new_cattle');
+  }
+
+  isWrongMatchedReview(review: MatchReview): boolean {
+    const expected = this.expectedCattleId(review);
+    return Boolean(expected && review.decision === 'matched_existing' && review.matchedCattleId && review.matchedCattleId !== expected);
+  }
+
+  isTopKCorrect(review: MatchReview, k: number): boolean {
+    const expected = this.expectedCattleId(review);
+    if (!expected) return false;
+    return review.topMatches.slice(0, k).some((match) => match.cattleId === expected);
+  }
+
+  reviewResultLabel(review: MatchReview): string {
+    if (!this.expectedCattleId(review)) return 'Needs expected cow';
+    if (this.isCorrectMatchedReview(review)) return 'Correct';
+    if (this.isMissedReview(review)) return 'Missed';
+    if (this.isWrongMatchedReview(review)) return 'Wrong';
+    if (this.isTopKCorrect(review, 5)) return 'In Top 5';
+    return 'Check';
+  }
+
+  percent(numerator: number, denominator: number): number {
+    if (!denominator) return 0;
+    return Math.round((numerator / denominator) * 1000) / 10;
+  }
+
+  captureQualityLabel(scorePercent: number): string {
+    if (scorePercent >= 85) return 'Good';
+    if (scorePercent >= 70) return 'Medium';
+    return 'Needs work';
+  }
   get ownerRecordGroups(): Array<{ key: string; label: string; count: number; visits: number }> {
     const groups = new Map<string, { key: string; label: string; count: number; visits: number }>();
     for (const cattle of this.uniqueCattleInventory) {
