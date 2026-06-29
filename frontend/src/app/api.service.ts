@@ -64,6 +64,9 @@ export interface MuzzleCaptureResponse {
 
 export interface MuzzleMatchResult {
   cattleId: string;
+  cattleNumber: number | null;
+  cattleLabel: string;
+  searchScope?: 'farmer_cattle' | 'all_other_muzzle';
   sessionId: string;
   farmerName: string;
   fieldOfficerName: string;
@@ -96,6 +99,9 @@ export interface ManualImageResponse {
 
 export interface CattleMatch {
   cattleId: string;
+  cattleNumber: number | null;
+  cattleLabel: string;
+  searchScope?: 'farmer_cattle' | 'all_other_muzzle';
   farmerId: string;
   farmerName: string;
   fieldOfficerName: string;
@@ -106,6 +112,7 @@ export interface CattleMatch {
   lastCaptureDate: string | null;
   lastStatus: string;
   distanceKm: number | null;
+  withinRadius?: boolean;
 }
 
 
@@ -134,11 +141,17 @@ export interface CattleSessionSummary {
   previewUrl: string | null;
   cloudinaryUrl: string | null;
   matchResult: MuzzleMatchResolution | null;
+  duplicateSavedSeparately?: boolean;
+  duplicateOfCattleId?: string | null;
+  duplicateOfFarmerName?: string;
   images: CattleImageSummary[];
 }
 
 export interface CattleSummary {
   cattleId: string;
+  cattleNumber: number | null;
+  cattleLabel: string;
+  searchScope?: 'farmer_cattle' | 'all_other_muzzle';
   farmerId: string;
   farmerName: string;
   fieldOfficerId: string;
@@ -146,6 +159,9 @@ export interface CattleSummary {
   locationLat: number | null;
   locationLon: number | null;
   status: string;
+  isDuplicateEvidence?: boolean;
+  duplicateOfCattleId?: string | null;
+  duplicateOfFarmerName?: string;
   rootFolderLocation: string;
   cloudinaryRootFolder: string | null;
   productionFolder: string;
@@ -160,6 +176,10 @@ export interface CattleSummary {
 
 export interface CattleStats {
   cattleCount: number;
+  uniqueCattleCount?: number;
+  duplicateCaptureCount?: number;
+  duplicateImageCount?: number;
+  totalRecordCount?: number;
   farmerCount: number;
   sessionCount: number;
   imageCount: number;
@@ -172,6 +192,18 @@ export interface CattleStats {
     imageCount: number;
   }>;
 }
+export interface FarmerMatch {
+  key: string;
+  farmerId: string;
+  farmerName: string;
+  cattleCount: number;
+  visitCount: number;
+  imageCount: number;
+  distanceKm: number | null;
+  withinRadius: boolean;
+  lastCaptureDate: string | null;
+}
+
 export interface AppUser {
   userId: string;
   role: 'admin' | 'agent';
@@ -311,6 +343,19 @@ export class ApiService {
     return this.http.post<{ enrollment: Enrollment }>(`${this.baseUrl}/enrollments`, payload);
   }
 
+  searchFarmers(params: {
+    q?: string;
+    lat?: number | null;
+    lon?: number | null;
+    radiusKm?: number;
+  }): Observable<{ farmers: FarmerMatch[] }> {
+    const query = new URLSearchParams();
+    if (params.q) query.set('q', params.q);
+    if (params.lat !== null && params.lat !== undefined) query.set('lat', String(params.lat));
+    if (params.lon !== null && params.lon !== undefined) query.set('lon', String(params.lon));
+    if (params.radiusKm) query.set('radiusKm', String(params.radiusKm));
+    return this.http.get<{ farmers: FarmerMatch[] }>(`${this.baseUrl}/farmers?${query.toString()}`);
+  }
   searchRegisteredCattle(params: {
     farmerId?: string;
     farmerName?: string;

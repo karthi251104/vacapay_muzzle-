@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, AppUser, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
+import { ApiService, AppUser, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, FarmerMatch, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
 
 interface RequiredImage {
   type: string;
@@ -49,6 +49,7 @@ export class AppComponent implements OnDestroy {
   cattleStats?: CattleStats;
   selectedCattleIds: string[] = [];
   selectedAdminCattle?: CattleSummary;
+  adminRegistryView: 'unique' | 'duplicates' = 'unique';
   imageViewer?: { title: string; url: string };
   showAllReviews = false;
   agentName = '';
@@ -64,6 +65,13 @@ export class AppComponent implements OnDestroy {
   locationLat: number | null = null;
   locationLon: number | null = null;
   radiusKm = 7;
+  selectedFarmerKey = '';
+  farmerMatches: FarmerMatch[] = [];
+  gpsFarmerMatches: FarmerMatch[] = [];
+  nameFarmerMatches: FarmerMatch[] = [];
+  searchingFarmers = false;
+  searchingGpsFarmers = false;
+  searchingNameFarmers = false;
   cattleMatches: CattleMatch[] = [];
   searchingCattle = false;
 
@@ -250,15 +258,43 @@ export class AppComponent implements OnDestroy {
   }
 
   beginEnrollmentFlow(): void {
+    this.startNewFarmerMode();
+  }
+
+  startNewFarmerMode(): void {
+    this.resetCaptureState(true);
     this.agentScreen = 'farmer';
-    this.message = 'Enter owner ID, then continue to GPS.';
+    this.message = 'Add farmer details, then start the first cow capture.';
+  }
+
+  startExistingFarmerSearch(): void {
+    this.resetCaptureState(true);
+    this.agentScreen = 'location';
+    this.message = 'Use GPS first, then search and select an existing farmer.';
   }
 
   startNewEnrollment(): void {
-    this.resetCaptureState(true);
-    this.beginEnrollmentFlow();
+    this.startNewFarmerMode();
   }
 
+  startNewFarmerCapture(): void {
+    if (!this.farmerId.trim() && !this.farmerName.trim()) {
+      this.message = 'Enter farmer ID or farmer name before adding a new farmer.';
+      return;
+    }
+
+    if (!this.hasGps) {
+      this.message = 'Use GPS first before creating this farmer.';
+      return;
+    }
+
+    this.farmerMatches = [];
+    this.gpsFarmerMatches = [];
+    this.nameFarmerMatches = [];
+    this.cattleMatches = [];
+    this.message = 'New farmer selected. Starting first cow capture...';
+    this.createEnrollment();
+  }
   startFromRecent(cattle: CattleSummary): void {
     this.resetCaptureState(false);
     this.farmerId = cattle.farmerId || '';
@@ -268,13 +304,13 @@ export class AppComponent implements OnDestroy {
   }
 
   continueToLocation(): void {
-    if (!this.farmerId.trim()) {
-      this.message = 'Owner ID is required before GPS check.';
+    if (!this.farmerId.trim() && !this.farmerName.trim()) {
+      this.message = 'Farmer ID or farmer name is required before GPS check.';
       return;
     }
 
     this.agentScreen = 'location';
-    this.message = 'Use GPS and search nearby registered cattle before creating the session.';
+    this.message = 'Use GPS or name search. Select the farmer, then capture muzzle for the cow.';
   }
 
   loadAgents(): void {
@@ -295,8 +331,12 @@ export class AppComponent implements OnDestroy {
       next: ({ stats, cattle }) => {
         this.cattleStats = stats;
         this.cattleInventory = cattle;
+        const visibleRecords = this.visibleCattleInventory;
         if (this.selectedAdminCattle) {
-          this.selectedAdminCattle = cattle.find((item) => item.cattleId === this.selectedAdminCattle?.cattleId);
+          const selected = visibleRecords.find((item) => item.cattleId === this.selectedAdminCattle?.cattleId);
+          this.selectedAdminCattle = selected || visibleRecords[0];
+        } else {
+          this.selectedAdminCattle = visibleRecords[0];
         }
       },
       error: (error) => {
@@ -363,8 +403,13 @@ export class AppComponent implements OnDestroy {
   }
 
   createEnrollment(): void {
-    if (!this.farmerId.trim()) {
-      this.message = 'Owner ID is required before starting capture.';
+    if (!this.farmerId.trim() && !this.farmerName.trim()) {
+      this.message = 'Farmer ID or farmer name is required before starting capture.';
+      return;
+    }
+
+    if (!this.hasGps) {
+      this.message = 'Use GPS first before starting cow capture.';
       return;
     }
 
@@ -392,7 +437,7 @@ export class AppComponent implements OnDestroy {
           this.agentScreen = 'muzzle';
           this.message = enrollment.autoSelectedExistingCattle
             ? 'Existing cattle folder found. This visit will save under today date.'
-            : 'Capture session ready. Start muzzle photos for this cattle.';
+            : 'Capture session ready. Start muzzle photos. The app will search farmer cattle and all saved muzzle records.';
           this.loadCattleInventory();
         },
         error: (error) => {
@@ -419,9 +464,84 @@ export class AppComponent implements OnDestroy {
     );
   }
 
+  findFarmers(): void {
+    this.findFarmersByGps();
+    this.findFarmersByName();
+  }
+
+  findFarmersByGps(): void {
+    if (this.locationLat === null || this.locationLon === null) {
+      this.message = 'Use GPS first, then search nearby existing farmers.';
+      return;
+    }
+
+    this.searchingFarmers = true;
+    this.searchingGpsFarmers = true;
+    this.message = 'Searching farmers near this GPS location...';
+    this.api
+      .searchFarmers({
+        lat: this.locationLat,
+        lon: this.locationLon,
+        radiusKm: this.radiusKm
+      })
+      .subscribe({
+        next: ({ farmers }) => {
+          this.gpsFarmerMatches = farmers;
+          this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+          this.searchingFarmers = false;
+          this.searchingGpsFarmers = false;
+          this.message = farmers.length
+            ? `GPS found ${farmers.length} farmer(s). Select the correct farmer to load saved cows.`
+            : 'No farmers found near this GPS. Try name search or add a new farmer.';
+        },
+        error: (error) => {
+          this.searchingFarmers = false;
+          this.searchingGpsFarmers = false;
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
+  findFarmersByName(): void {
+    const q = (this.farmerName || this.farmerId).trim();
+    if (!q) {
+      this.message = 'Enter farmer name or farmer ID to search by name.';
+      return;
+    }
+
+    this.searchingFarmers = true;
+    this.searchingNameFarmers = true;
+    this.message = 'Searching farmers by name/ID...';
+    this.api
+      .searchFarmers({ q, radiusKm: this.radiusKm })
+      .subscribe({
+        next: ({ farmers }) => {
+          this.nameFarmerMatches = farmers;
+          this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+          this.searchingFarmers = false;
+          this.searchingNameFarmers = false;
+          this.message = farmers.length
+            ? `Name search found ${farmers.length} farmer(s). Select the correct farmer to load saved cows.`
+            : 'No farmer found by that name/ID. Use GPS search or add a new farmer.';
+        },
+        error: (error) => {
+          this.searchingFarmers = false;
+          this.searchingNameFarmers = false;
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
+  selectFarmer(match: FarmerMatch): void {
+    this.farmerId = match.farmerId || this.farmerId;
+    this.farmerName = match.farmerName || this.farmerName;
+    this.selectedFarmerKey = match.key || `${match.farmerId}:${match.farmerName}`;
+    this.message = `${match.farmerName || match.farmerId} selected. First checking this farmer's ${match.cattleCount} cow(s), then all saved muzzle records.`;
+    this.findRegisteredCattle();
+  }
   findRegisteredCattle(): void {
     this.searchingCattle = true;
-    this.message = 'Searching already registered cattle nearby...';
+    this.message = 'Loading this farmer\'s saved cattle records...';
     this.api
       .searchRegisteredCattle({
         farmerId: this.farmerId,
@@ -435,8 +555,8 @@ export class AppComponent implements OnDestroy {
           this.cattleMatches = cattle;
           this.searchingCattle = false;
           this.message = cattle.length
-            ? `Found ${cattle.length} registered cattle near this farmer/location.`
-            : 'No registered cattle found for this farmer and radius.';
+            ? `Found ${cattle.length} saved cow record(s) for this farmer. Now take muzzle photos to identify the correct cow.`
+            : 'No saved cows found for this farmer. Start capture to enroll the first cow.';
         },
         error: (error) => {
           this.searchingCattle = false;
@@ -448,7 +568,7 @@ export class AppComponent implements OnDestroy {
   selectRegisteredCattle(match: CattleMatch): void {
     this.farmerId = match.farmerId || this.farmerId;
     this.farmerName = match.farmerName || this.farmerName;
-    this.message = `Possible existing cattle selected: ${this.shortId(match.cattleId)}. The app will confirm after 5 muzzle photos.`;
+    this.message = `${match.cattleLabel || 'Cow'} selected for context. Muzzle photos will still confirm the exact cow before saving.`;
   }
 
   async startCamera(): Promise<void> {
@@ -548,7 +668,7 @@ export class AppComponent implements OnDestroy {
         if (this.muzzlePreviews.length >= 5 && this.autoCaptureOn) {
           this.toggleAutoCapture();
           if (!response.matchResolution) {
-            this.message = 'All 5 muzzle photos captured. Checking if this cattle is already saved.';
+            this.message = 'All 5 muzzle photos captured. Checking farmer cattle and all saved muzzle records.';
           }
           this.agentScreen = 'evidence';
         }
@@ -616,15 +736,18 @@ export class AppComponent implements OnDestroy {
 
     if (resolution.decision === 'matched_existing') {
       const visitCount = resolution.enrollment.sessions?.length || 1;
+      const bestMatch = resolution.topMatches?.[0];
+      const source = this.matchSourceLabel(bestMatch?.searchScope);
+      const owner = bestMatch?.farmerName ? ` under farmer ${bestMatch.farmerName}` : '';
+      const cow = bestMatch?.cattleLabel || this.shortId(resolution.matchedCattleId || resolution.enrollment.cattleId);
       this.loadCattleInventory();
-      this.message = `Same cattle found. Visit ${visitCount} is saved under the existing cattle record.`;
+      this.message = `Duplicate found in ${source}${owner} (${cow}). This capture is saved in its own separate duplicate folder.`;
       return;
     }
 
     this.loadCattleInventory();
-    this.message = 'No strong existing match found. A new cattle record is kept.';
+    this.message = 'No strong match found in selected farmer cattle or all saved muzzle records. A new cattle record is kept.';
   }
-
   private refreshMuzzlePreviewsFromEnrollment(enrollment: Enrollment): void {
     const session = enrollment.sessions?.find((item) => item.sessionId === enrollment.activeSessionId) || enrollment.sessions?.at(-1);
     if (!session?.images) return;
@@ -642,11 +765,14 @@ export class AppComponent implements OnDestroy {
     this.selectedAdminCattle = cattle;
   }
 
-  shortId(id?: string): string {
+  shortId(id?: string | null): string {
     if (!id) return 'NA';
     return id.length > 12 ? `${id.slice(0, 8)}...${id.slice(-4)}` : id;
   }
 
+  matchSourceLabel(scope?: 'farmer_cattle' | 'all_other_muzzle'): string {
+    return scope === 'farmer_cattle' ? 'selected farmer cattle records' : 'all saved muzzle records';
+  }
   openImage(title: string, url?: string | null): void {
     if (!url) return;
     this.imageViewer = { title, url: this.api.mediaUrl(url) };
@@ -726,9 +852,31 @@ export class AppComponent implements OnDestroy {
     });
   }
 
+  setAdminRegistryView(view: 'unique' | 'duplicates'): void {
+    this.adminRegistryView = view;
+    this.selectedCattleIds = [];
+    this.selectedAdminCattle = view === 'unique' ? this.uniqueCattleInventory[0] : this.duplicateCattleInventory[0];
+  }
+
+  isDuplicateEvidence(cattle?: CattleSummary | null): boolean {
+    return Boolean(cattle?.isDuplicateEvidence);
+  }
+
+  get uniqueCattleInventory(): CattleSummary[] {
+    return this.cattleInventory.filter((cattle) => !this.isDuplicateEvidence(cattle));
+  }
+
+  get duplicateCattleInventory(): CattleSummary[] {
+    return this.cattleInventory.filter((cattle) => this.isDuplicateEvidence(cattle));
+  }
+
+  get visibleCattleInventory(): CattleSummary[] {
+    return this.adminRegistryView === 'duplicates' ? this.duplicateCattleInventory : this.uniqueCattleInventory;
+  }
+
   get ownerRecordGroups(): Array<{ key: string; label: string; count: number; visits: number }> {
     const groups = new Map<string, { key: string; label: string; count: number; visits: number }>();
-    for (const cattle of this.cattleInventory) {
+    for (const cattle of this.uniqueCattleInventory) {
       const key = (cattle.farmerId || cattle.farmerName || 'unknown').trim().toLowerCase();
       const label = cattle.farmerName || cattle.farmerId || 'Unknown owner';
       const group = groups.get(key) || { key, label, count: 0, visits: 0 };
@@ -750,7 +898,15 @@ export class AppComponent implements OnDestroy {
   }
 
   get recentCattle(): CattleSummary[] {
-    return this.cattleInventory.slice(0, 5);
+    return this.uniqueCattleInventory.slice(0, 5);
+  }
+
+  get hasGps(): boolean {
+    return this.locationLat !== null && this.locationLon !== null;
+  }
+
+  get canStartExistingFarmerCapture(): boolean {
+    return this.hasGps && Boolean(this.selectedFarmerKey) && Boolean(this.farmerId.trim() || this.farmerName.trim());
   }
 
   get canComplete(): boolean {
@@ -810,7 +966,7 @@ export class AppComponent implements OnDestroy {
   get agentScreenTitle(): string {
     switch (this.agentScreen) {
       case 'farmer': return 'Owner Details';
-      case 'location': return 'Nearby Cattle';
+      case 'location': return 'Find Farmer';
       case 'muzzle': return 'Muzzle Photos';
       case 'evidence': return 'Other Photos';
       case 'review': return 'Check & Save';
@@ -819,9 +975,9 @@ export class AppComponent implements OnDestroy {
   }
   get agentScreenSubtitle(): string {
     switch (this.agentScreen) {
-      case 'farmer': return 'Enter owner ID before checking nearby cattle.';
-      case 'location': return 'Use GPS to find cattle already captured for this owner.';
-      case 'muzzle': return 'Take 5 clear muzzle photos. The app checks and saves the best crops.';
+      case 'farmer': return 'Add a new farmer or search an existing farmer by GPS/name.';
+      case 'location': return 'Find the farmer by name and GPS, then muzzle matching selects the correct cow.';
+      case 'muzzle': return 'Take 5 clear muzzle photos. The app checks farmer cattle and all saved muzzle records.';
       case 'evidence': return 'Add face, side, back and udder photos for the same cattle.';
       case 'review': return 'Check the record once, then save and return home.';
       default: return 'Start capture, continue pending work, or check recent cattle.';
@@ -858,6 +1014,13 @@ export class AppComponent implements OnDestroy {
     this.stopCamera();
     this.enrollment = undefined;
     this.cattleId = '';
+    this.selectedFarmerKey = '';
+    this.farmerMatches = [];
+    this.gpsFarmerMatches = [];
+    this.nameFarmerMatches = [];
+    this.searchingFarmers = false;
+    this.searchingGpsFarmers = false;
+    this.searchingNameFarmers = false;
     this.cattleMatches = [];
     this.muzzlePreviews = [];
     this.matchResolution = undefined;

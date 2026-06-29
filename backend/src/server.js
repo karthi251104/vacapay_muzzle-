@@ -307,12 +307,62 @@ app.post('/api/agents', requireAuth, requireAdmin, async (req, res, next) => {
 
 app.get('/api/farmers', async (req, res, next) => {
   try {
-    const q = String(req.query.q || '').trim().toLowerCase();
-    const rows = await readMetadata();
-    const farmers = rows
-      .filter((row) => !q || row.farmerName.toLowerCase().includes(q))
-      .map((row) => ({ farmerId: row.farmerId, farmerName: row.farmerName }))
-      .filter((row, index, arr) => arr.findIndex((item) => item.farmerId === row.farmerId) === index)
+    const q = normalizeSearchText(req.query.q);
+    const lat = Number(req.query.lat);
+    const lon = Number(req.query.lon);
+    const radiusKm = Number(req.query.radiusKm || 7);
+    const hasLocation = Number.isFinite(lat) && Number.isFinite(lon);
+    const rows = await readCleanMetadata();
+    const groups = new Map();
+
+    for (const row of rows) {
+      const farmerIdNorm = normalizeSearchText(row.farmerId);
+      const farmerNameNorm = normalizeSearchText(row.farmerName);
+      const textMatches = Boolean(q && (farmerIdNorm.includes(q) || farmerNameNorm.includes(q)));
+      const distanceKm = hasLocation && Number.isFinite(Number(row.locationLat)) && Number.isFinite(Number(row.locationLon))
+        ? haversineKm(lat, lon, Number(row.locationLat), Number(row.locationLon))
+        : null;
+      const withinRadius = distanceKm !== null && distanceKm <= radiusKm;
+
+      if (q && !textMatches && !withinRadius) continue;
+      if (!q && hasLocation && !withinRadius) continue;
+      if (!q && !hasLocation) continue;
+
+      const key = ownerGroupKey(row);
+      const group = groups.get(key) || {
+        key,
+        farmerId: row.farmerId || '',
+        farmerName: row.farmerName || '',
+        cattleCount: 0,
+        visitCount: 0,
+        imageCount: 0,
+        distanceKm: null,
+        withinRadius: false,
+        lastCaptureDate: null
+      };
+
+      group.cattleCount += 1;
+      group.visitCount += (row.sessions || []).length;
+      group.imageCount += (row.sessions || []).reduce((total, session) => total + Object.keys(session.images || {}).length, 0);
+      group.distanceKm = group.distanceKm === null ? distanceKm : (distanceKm === null ? group.distanceKm : Math.min(group.distanceKm, distanceKm));
+      group.withinRadius = group.withinRadius || withinRadius;
+      const lastSession = (row.sessions || []).at(-1);
+      const lastCaptureDate = lastSession?.captureDate || row.captureDateTime || null;
+      if (lastCaptureDate && (!group.lastCaptureDate || String(lastCaptureDate).localeCompare(String(group.lastCaptureDate)) > 0)) {
+        group.lastCaptureDate = lastCaptureDate;
+      }
+
+      groups.set(key, group);
+    }
+
+    const farmers = Array.from(groups.values())
+      .sort((a, b) => {
+        if (a.withinRadius !== b.withinRadius) return a.withinRadius ? -1 : 1;
+        if (a.distanceKm === null && b.distanceKm === null) return String(a.farmerName).localeCompare(String(b.farmerName));
+        if (a.distanceKm === null) return 1;
+        if (b.distanceKm === null) return -1;
+        return a.distanceKm - b.distanceKm;
+      })
       .slice(0, 10);
 
     res.json({ farmers });
@@ -323,21 +373,28 @@ app.get('/api/farmers', async (req, res, next) => {
 
 app.get('/api/cattle/search', async (req, res, next) => {
   try {
-    const farmerId = String(req.query.farmerId || '').trim().toLowerCase();
-    const farmerName = String(req.query.farmerName || '').trim().toLowerCase();
+    const farmerId = normalizeSearchText(req.query.farmerId);
+    const farmerName = normalizeSearchText(req.query.farmerName);
     const lat = Number(req.query.lat);
     const lon = Number(req.query.lon);
     const radiusKm = Number(req.query.radiusKm || 7);
     const hasLocation = Number.isFinite(lat) && Number.isFinite(lon);
-    const rows = (await readMetadata()).map(normalizeRecord).filter(Boolean);
+
+    if (!farmerId && !farmerName) {
+      res.status(400).json({ error: 'Farmer ID or farmer name is required to search registered cattle.' });
+      return;
+    }
+
+    const rows = await readCleanMetadata();
+
+    const ownerNumberMap = buildOwnerCattleNumberMap(rows);
 
     const cattle = rows
       .filter((row) => {
-        const rowFarmerId = String(row.farmerId || '').trim().toLowerCase();
-        const rowFarmerName = String(row.farmerName || '').trim().toLowerCase();
-        const idMatches = !farmerId || rowFarmerId === farmerId || rowFarmerId.includes(farmerId);
-        const nameMatches = !farmerName || rowFarmerName.includes(farmerName);
-        return idMatches && nameMatches;
+        const rowFarmerId = normalizeSearchText(row.farmerId);
+        const rowFarmerName = normalizeSearchText(row.farmerName);
+        if (farmerId) return rowFarmerId === farmerId;
+        return Boolean(farmerName && rowFarmerName.includes(farmerName));
       })
       .map((row) => {
         const distanceKm = hasLocation && Number.isFinite(Number(row.locationLat)) && Number.isFinite(Number(row.locationLon))
@@ -348,6 +405,8 @@ app.get('/api/cattle/search', async (req, res, next) => {
 
         return {
           cattleId: row.cattleId,
+          cattleNumber: ownerNumberMap.get(row.cattleId) || null,
+          cattleLabel: cattleDisplayLabel(ownerNumberMap.get(row.cattleId)),
           farmerId: row.farmerId,
           farmerName: row.farmerName,
           fieldOfficerName: row.fieldOfficerName,
@@ -357,10 +416,10 @@ app.get('/api/cattle/search', async (req, res, next) => {
           sessionCount: sessions.length,
           lastCaptureDate: lastSession?.captureDate || null,
           lastStatus: lastSession?.status || row.status || 'draft',
-          distanceKm
+          distanceKm,
+          withinRadius: distanceKm === null || distanceKm <= radiusKm
         };
       })
-      .filter((row) => row.distanceKm === null || row.distanceKm <= radiusKm)
       .sort((a, b) => {
         if (a.distanceKm === null && b.distanceKm === null) return a.farmerName.localeCompare(b.farmerName);
         if (a.distanceKm === null) return 1;
@@ -378,9 +437,10 @@ app.get('/api/cattle/search', async (req, res, next) => {
 
 app.get('/api/cattle', requireAuth, async (req, res, next) => {
   try {
-    const rows = (await readMetadata()).map(normalizeRecord).filter(Boolean);
+    const rows = await readCleanMetadata();
+    const ownerNumberMap = buildOwnerCattleNumberMap(rows);
     const cattle = rows
-      .map(toCattleSummary)
+      .map((row) => toCattleSummary(row, ownerNumberMap.get(row.cattleId)))
       .sort((a, b) => String(b.lastCaptureDate || '').localeCompare(String(a.lastCaptureDate || '')));
 
     res.json({
@@ -504,8 +564,17 @@ app.post('/api/cattle/merge', requireAuth, requireAdmin, async (req, res, next) 
 app.post('/api/enrollments', async (req, res, next) => {
   try {
     const now = new Date().toISOString();
-    const cattleId = String(req.body.cattleId || '').trim() || uuidv4();
+    const requestLat = Number(req.body.locationLat);
+    const requestLon = Number(req.body.locationLon);
+
+    if (!Number.isFinite(requestLat) || !Number.isFinite(requestLon)) {
+      res.status(400).json({ error: 'Use GPS first before starting cow capture.' });
+      return;
+    }
+
+    const requestedCattleId = String(req.body.cattleId || '').trim();
     const rows = await readMetadata();
+    const cattleId = requestedCattleId || uuidv4();
     const existingIndex = rows.findIndex((row) => row.cattleId === cattleId);
     const existing = existingIndex >= 0 ? normalizeRecord(rows[existingIndex]) : null;
     const rootFolder = path.join(dataDir, cattleId);
@@ -526,15 +595,15 @@ app.post('/api/enrollments', async (req, res, next) => {
     record.farmerName = req.body.farmerName || record.farmerName || '';
     record.fieldOfficerName = req.body.fieldOfficerName || record.fieldOfficerName || '';
     record.fieldOfficerId = req.body.fieldOfficerId || record.fieldOfficerId || '';
-    record.locationLat = req.body.locationLat ?? record.locationLat ?? null;
-    record.locationLon = req.body.locationLon ?? record.locationLon ?? null;
+    record.locationLat = requestLat;
+    record.locationLon = requestLon;
     record.matchRadiusKm = Number(req.body.matchRadiusKm || record.matchRadiusKm || 7);
     record.rootFolderLocation = rootFolder;
     record.folderLocation = session.folderLocation;
     record.captureDateTime = session.captureDateTime;
     record.uploadDateTime = now;
-    record.status = autoTarget ? 'repeat_visit_auto_folder' : 'draft';
-    record.autoSelectedExistingCattle = Boolean(autoTarget);
+    record.status = existing ? 'repeat_visit_manual_folder' : 'draft';
+    record.autoSelectedExistingCattle = false;
     record.activeSessionId = session.sessionId;
     session.fieldOfficerId = record.fieldOfficerId;
     session.fieldOfficerName = record.fieldOfficerName;
@@ -665,8 +734,13 @@ app.post('/api/enrollments/:cattleId/complete', async (req, res, next) => {
       return;
     }
 
-    row.status = 'ready_for_embedding';
-    session.status = 'ready_for_embedding';
+    if (session.matchResult?.duplicateSavedSeparately) {
+      row.status = 'duplicate_saved_separately';
+      session.status = 'duplicate_saved_separately';
+    } else {
+      row.status = 'ready_for_embedding';
+      session.status = 'ready_for_embedding';
+    }
     row.uploadDateTime = new Date().toISOString();
     await writeMetadata(rows);
     res.json({ enrollment: row });
@@ -779,12 +853,51 @@ async function readMetadata() {
   return JSON.parse(raw);
 }
 
+async function readCleanMetadata() {
+  const rows = (await readMetadata()).map(normalizeRecord).filter(Boolean);
+  const cleanRows = removeStaleMergedRows(rows);
+
+  if (cleanRows.length !== rows.length) {
+    await writeMetadata(cleanRows);
+  }
+
+  return cleanRows;
+}
+
+function removeStaleMergedRows(rows) {
+  const liveIds = new Set(rows.map((row) => row.cattleId).filter(Boolean));
+  return rows.filter((row) => !isStaleMergedRecord(row, liveIds));
+}
+
+function isStaleMergedRecord(row, liveIds) {
+  if (!row?.cattleId || row.status !== 'merged_into_existing') return false;
+  const sessions = row.sessions || [];
+  if (!sessions.length) return true;
+
+  return sessions.every((session) => {
+    const result = session.matchResult || {};
+    const matchedCattleId = result.matchedCattleId || session.matchedCattleId;
+    return session.status === 'muzzle_matched_existing'
+      && result.decision === 'matched_existing'
+      && matchedCattleId
+      && matchedCattleId !== row.cattleId
+      && liveIds.has(matchedCattleId);
+  });
+}
+
 async function writeMetadata(rows) {
   if (mongoDb) {
     const collection = mongoDb.collection('cattle');
-    if (!rows.length) return;
+    const cleanRows = rows.map(normalizeRecord).filter(Boolean);
+    const cattleIds = cleanRows.map((row) => row.cattleId).filter(Boolean);
 
-    await collection.bulkWrite(rows.map((row) => ({
+    if (!cleanRows.length) {
+      await collection.deleteMany({});
+      return;
+    }
+
+    await collection.deleteMany({ cattleId: { $nin: cattleIds } });
+    await collection.bulkWrite(cleanRows.map((row) => ({
       replaceOne: {
         filter: { cattleId: row.cattleId },
         replacement: addMongoGeoPoint(stripMongoId(row)),
@@ -836,9 +949,16 @@ async function readMatchAudits() {
 async function writeMatchAudits(audits) {
   if (mongoDb) {
     const collection = mongoDb.collection('match_audits');
-    if (!audits.length) return;
+    const cleanAudits = audits.filter(Boolean);
+    const auditIds = cleanAudits.map((audit) => audit.auditId).filter(Boolean);
 
-    await collection.bulkWrite(audits.map((audit) => ({
+    if (!cleanAudits.length) {
+      await collection.deleteMany({});
+      return;
+    }
+
+    await collection.deleteMany({ auditId: { $nin: auditIds } });
+    await collection.bulkWrite(cleanAudits.map((audit) => ({
       replaceOne: {
         filter: { auditId: audit.auditId },
         replacement: stripMongoId(audit),
@@ -1027,7 +1147,7 @@ async function saveImageReference({ cattleId, imageType, localPath, previewUrl }
 }
 
 async function resolveMuzzleMatch(cattleId) {
-  const rows = (await readMetadata()).map(normalizeRecord);
+  const rows = await readCleanMetadata();
   const queryIndex = rows.findIndex((item) => item?.cattleId === cattleId);
   const queryRow = rows[queryIndex];
 
@@ -1046,15 +1166,14 @@ async function resolveMuzzleMatch(cattleId) {
   const queryEmbedding = await ensureSessionEmbedding(queryRow, querySession);
   await upsertSessionVector(queryRow, querySession).catch(() => null);
 
+  const ownerNumberMap = buildOwnerCattleNumberMap(rows.filter(Boolean));
   const preparedCandidates = [];
 
   for (let index = 0; index < rows.length; index += 1) {
     const candidateRow = rows[index];
-    if (!candidateRow || candidateRow.cattleId === cattleId) continue;
-    if (!isSameFarmerCandidate(queryRow, candidateRow)) continue;
-
+    if (!candidateRow || candidateRow.cattleId === cattleId || isDuplicateEvidenceRecord(candidateRow)) continue;
+    const searchScope = isSameFarmerCandidate(queryRow, candidateRow) ? 'farmer_cattle' : 'all_other_muzzle';
     const distanceKm = distanceBetweenRowsKm(queryRow, candidateRow);
-    if (distanceKm !== null && distanceKm > Number(queryRow.matchRadiusKm || 7)) continue;
 
     for (const candidateSession of candidateRow.sessions || []) {
       const candidateEmbedding = await ensureSessionEmbedding(candidateRow, candidateSession).catch(() => null);
@@ -1063,6 +1182,9 @@ async function resolveMuzzleMatch(cattleId) {
 
       preparedCandidates.push({
         cattleId: candidateRow.cattleId,
+        cattleNumber: ownerNumberMap.get(candidateRow.cattleId) || null,
+        cattleLabel: cattleDisplayLabel(ownerNumberMap.get(candidateRow.cattleId)),
+        searchScope,
         sessionId: candidateSession.sessionId,
         farmerName: candidateRow.farmerName,
         fieldOfficerName: candidateRow.fieldOfficerName,
@@ -1082,32 +1204,54 @@ async function resolveMuzzleMatch(cattleId) {
   }).catch(() => []);
   const candidates = pineconeMatches.length ? pineconeMatches : preparedCandidates;
   candidates.sort((a, b) => b.score - a.score);
-  const topMatches = candidates.slice(0, 5).map(toPublicMatchResult);
-  const bestMatch = candidates[0] || null;
+  const bestFarmerMatch = candidates.find((candidate) => candidate.searchScope === 'farmer_cattle' && candidate.score >= EMBEDDING_MATCH_THRESHOLD) || null;
+  const bestGlobalMatch = candidates[0] || null;
+  const bestMatch = bestFarmerMatch || bestGlobalMatch;
+  const orderedMatches = bestFarmerMatch
+    ? [bestFarmerMatch, ...candidates.filter((candidate) => candidate !== bestFarmerMatch)]
+    : candidates;
+  const topMatches = orderedMatches.slice(0, 5).map(toPublicMatchResult);
   const isMatched = Boolean(bestMatch && bestMatch.score >= EMBEDDING_MATCH_THRESHOLD);
 
   if (isMatched) {
-    const matchedRow = await mergeSessionIntoExistingCattle({
-      rows,
-      queryIndex,
-      targetIndex: bestMatch.rowIndex,
-      topMatches
-    });
-    const matchResult = getActiveSession(matchedRow).matchResult;
+    const now = new Date().toISOString();
+    const duplicateOf = topMatches[0] || null;
+    const matchResult = {
+      resolved: true,
+      decision: 'matched_existing',
+      duplicateSavedSeparately: true,
+      confidence: bestMatch?.score || 0,
+      confidencePercent: Math.round((bestMatch?.score || 0) * 100),
+      threshold: EMBEDDING_MATCH_THRESHOLD,
+      thresholdPercent: Math.round(EMBEDDING_MATCH_THRESHOLD * 100),
+      matchedCattleId: bestMatch.cattleId,
+      duplicateOfCattleId: bestMatch.cattleId,
+      duplicateOfFarmerName: bestMatch.farmerName || '',
+      previousCattleId: queryRow.cattleId,
+      topMatches,
+      resolvedAt: now
+    };
+
+    querySession.matchResult = matchResult;
+    querySession.status = 'duplicate_saved_separately';
+    queryRow.status = 'duplicate_saved_separately';
+    queryRow.duplicateOfCattleId = duplicateOf?.cattleId || bestMatch.cattleId;
+    queryRow.duplicateOfFarmerName = duplicateOf?.farmerName || bestMatch.farmerName || '';
+    queryRow.uploadDateTime = now;
     await writeMetadata(rows.filter(Boolean));
     await storeMatchAudit({
-      cattleId,
-      finalCattleId: matchedRow.cattleId,
-      session: getActiveSession(matchedRow),
+      cattleId: queryRow.cattleId,
+      finalCattleId: queryRow.cattleId,
+      session: querySession,
       matchResult,
-      farmerName: matchedRow.farmerName,
-      fieldOfficerName: matchedRow.fieldOfficerName,
-      locationLat: matchedRow.locationLat,
-      locationLon: matchedRow.locationLon
+      farmerName: queryRow.farmerName,
+      fieldOfficerName: queryRow.fieldOfficerName,
+      locationLat: queryRow.locationLat,
+      locationLon: queryRow.locationLon
     });
     return {
       ...matchResult,
-      enrollment: matchedRow
+      enrollment: queryRow
     };
   }
 
@@ -1255,7 +1399,45 @@ const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
   }
   return value >>> 0;
 });
-function toCattleSummary(row) {
+function buildOwnerCattleNumberMap(rows) {
+  const groups = new Map();
+  for (const row of rows.map(normalizeRecord).filter(Boolean)) {
+    const key = ownerGroupKey(row);
+    const group = groups.get(key) || [];
+    group.push(row);
+    groups.set(key, group);
+  }
+
+  const numberMap = new Map();
+  for (const group of groups.values()) {
+    group
+      .sort((a, b) => String(firstCaptureDateTime(a) || '').localeCompare(String(firstCaptureDateTime(b) || '')) || String(a.cattleId).localeCompare(String(b.cattleId)))
+      .forEach((row, index) => numberMap.set(row.cattleId, index + 1));
+  }
+  return numberMap;
+}
+
+function ownerGroupKey(row) {
+  const farmerId = normalizeSearchText(row.farmerId);
+  if (farmerId) return `id:${farmerId}`;
+  const farmerName = normalizeSearchText(row.farmerName);
+  if (farmerName) return `name:${farmerName}`;
+  return 'unknown';
+}
+
+function isDuplicateEvidenceRecord(row) {
+  return row?.status === 'duplicate_saved_separately' || Boolean(row?.duplicateOfCattleId);
+}
+
+function firstCaptureDateTime(row) {
+  const sessions = row.sessions || [];
+  return sessions[0]?.captureDateTime || row.captureDateTime || '';
+}
+
+function cattleDisplayLabel(cattleNumber) {
+  return cattleNumber ? `Cattle ${cattleNumber}` : 'Cattle';
+}
+function toCattleSummary(row, cattleNumber = null) {
   const sessions = (row.sessions || []).map((session) => toSessionSummary(row, session));
   const lastSession = sessions.at(-1) || null;
   const imageCount = sessions.reduce((total, session) => total + session.imageCount, 0);
@@ -1263,6 +1445,8 @@ function toCattleSummary(row) {
 
   return {
     cattleId: row.cattleId,
+    cattleNumber: cattleNumber || null,
+    cattleLabel: cattleDisplayLabel(cattleNumber),
     farmerId: row.farmerId || '',
     farmerName: row.farmerName || '',
     fieldOfficerId: row.fieldOfficerId || '',
@@ -1270,6 +1454,9 @@ function toCattleSummary(row) {
     locationLat: row.locationLat ?? null,
     locationLon: row.locationLon ?? null,
     status: row.status || 'draft',
+    isDuplicateEvidence: isDuplicateEvidenceRecord(row),
+    duplicateOfCattleId: row.duplicateOfCattleId || row.sessions?.find((session) => session.matchResult?.duplicateOfCattleId)?.matchResult?.duplicateOfCattleId || null,
+    duplicateOfFarmerName: row.duplicateOfFarmerName || row.sessions?.find((session) => session.matchResult?.duplicateOfFarmerName)?.matchResult?.duplicateOfFarmerName || '',
     rootFolderLocation: row.rootFolderLocation || path.join(dataDir, row.cattleId),
     cloudinaryRootFolder: cloudinaryEnabled ? cloudinaryRootFolder : null,
     productionFolder: cloudinaryEnabled ? cloudinaryRootFolder : (row.rootFolderLocation || path.join(dataDir, row.cattleId)),
@@ -1303,6 +1490,9 @@ function toSessionSummary(row, session) {
     previewUrl: firstImage?.url || null,
     cloudinaryUrl: firstImage?.cloudinaryUrl || null,
     matchResult: session.matchResult || null,
+    duplicateSavedSeparately: Boolean(session.matchResult?.duplicateSavedSeparately),
+    duplicateOfCattleId: session.matchResult?.duplicateOfCattleId || null,
+    duplicateOfFarmerName: session.matchResult?.duplicateOfFarmerName || '',
     images: imageRefs
   };
 }
@@ -1327,45 +1517,24 @@ function imageSortRank(imageType) {
   return index >= 0 ? index : order.length;
 }
 
-function findSingleOwnerCattleForNewVisit(rows, { farmerId, farmerName, lat, lon, radiusKm }) {
-  const ownerId = String(farmerId || '').trim().toLowerCase();
-  const ownerName = String(farmerName || '').trim().toLowerCase();
-  const radius = Number(radiusKm || 7);
-  const queryLat = Number(lat);
-  const queryLon = Number(lon);
-  const hasLocation = Number.isFinite(queryLat) && Number.isFinite(queryLon);
-
-  if (!ownerId && !ownerName) return null;
-
-  const candidates = rows
-    .map(normalizeRecord)
-    .filter(Boolean)
-    .filter((row) => {
-      const rowOwnerId = String(row.farmerId || '').trim().toLowerCase();
-      const rowOwnerName = String(row.farmerName || '').trim().toLowerCase();
-      const idMatches = ownerId && rowOwnerId && rowOwnerId === ownerId;
-      const nameMatches = !ownerId && ownerName && rowOwnerName && rowOwnerName === ownerName;
-      if (!idMatches && !nameMatches) return false;
-
-      if (!hasLocation) return true;
-      const rowLat = Number(row.locationLat);
-      const rowLon = Number(row.locationLon);
-      if (!Number.isFinite(rowLat) || !Number.isFinite(rowLon)) return true;
-      return haversineKm(queryLat, queryLon, rowLat, rowLon) <= radius;
-    });
-
-  return candidates.length === 1 ? candidates[0] : null;
-}
-
 function buildCattleStats(cattle) {
   const farmerMap = new Map();
   let imageCount = 0;
   let sessionCount = 0;
   let repeatedCattleCount = 0;
+  let duplicateCaptureCount = 0;
+  let duplicateImageCount = 0;
 
   for (const cow of cattle) {
     imageCount += cow.imageCount;
     sessionCount += cow.sessionCount;
+
+    if (cow.isDuplicateEvidence) {
+      duplicateCaptureCount += 1;
+      duplicateImageCount += cow.imageCount;
+      continue;
+    }
+
     if (cow.sessionCount > 1) repeatedCattleCount += 1;
 
     const key = (cow.farmerName || cow.farmerId || 'Unknown farmer').trim() || 'Unknown farmer';
@@ -1392,8 +1561,14 @@ function buildCattleStats(cattle) {
     }))
     .sort((a, b) => b.sessionCount - a.sessionCount);
 
+  const uniqueCattleCount = cattle.filter((cow) => !cow.isDuplicateEvidence).length;
+
   return {
-    cattleCount: cattle.length,
+    cattleCount: uniqueCattleCount,
+    uniqueCattleCount,
+    duplicateCaptureCount,
+    duplicateImageCount,
+    totalRecordCount: cattle.length,
     farmerCount: farmers.length,
     sessionCount,
     imageCount,
@@ -1454,10 +1629,15 @@ function runAverageEmbedding(imagePaths) {
 }
 
 function isSameFarmerCandidate(queryRow, candidateRow) {
-  const queryFarmer = String(queryRow.farmerName || '').trim().toLowerCase();
-  const candidateFarmer = String(candidateRow.farmerName || '').trim().toLowerCase();
-  if (!queryFarmer || !candidateFarmer) return true;
-  return candidateFarmer.includes(queryFarmer) || queryFarmer.includes(candidateFarmer);
+  const queryFarmerId = normalizeSearchText(queryRow.farmerId);
+  const candidateFarmerId = normalizeSearchText(candidateRow.farmerId);
+  if (queryFarmerId || candidateFarmerId) {
+    return Boolean(queryFarmerId && candidateFarmerId && queryFarmerId === candidateFarmerId);
+  }
+
+  const queryFarmer = normalizeSearchText(queryRow.farmerName);
+  const candidateFarmer = normalizeSearchText(candidateRow.farmerName);
+  return Boolean(queryFarmer && candidateFarmer && queryFarmer === candidateFarmer);
 }
 
 function distanceBetweenRowsKm(a, b) {
@@ -1488,6 +1668,9 @@ function cosineSimilarity(a, b) {
 function toPublicMatchResult(match) {
   return {
     cattleId: match.cattleId,
+    cattleNumber: match.cattleNumber || null,
+    cattleLabel: match.cattleLabel || cattleDisplayLabel(match.cattleNumber),
+    searchScope: match.searchScope || 'all_other_muzzle',
     sessionId: match.sessionId,
     farmerName: match.farmerName,
     fieldOfficerName: match.fieldOfficerName,
@@ -1716,6 +1899,7 @@ async function upsertSessionVector(row, session) {
           cattleId: row.cattleId,
           sessionId: session.sessionId,
           farmerId: row.farmerId || '',
+          farmerIdNorm: normalizeSearchText(row.farmerId),
           farmerName: row.farmerName || '',
           farmerNameNorm: normalizeSearchText(row.farmerName),
           fieldOfficerName: row.fieldOfficerName || session.fieldOfficerName || '',
@@ -1750,14 +1934,11 @@ async function queryPineconeMatches({ queryRow, queryEmbedding, preparedCandidat
   const candidateByVectorId = new Map(
     preparedCandidates.map((candidate) => [pineconeVectorId(candidate.cattleId, candidate.sessionId), candidate])
   );
-  const farmerNameNorm = normalizeSearchText(queryRow.farmerName);
-  const filter = farmerNameNorm ? { farmerNameNorm: { $eq: farmerNameNorm } } : undefined;
   const payload = {
     vector: queryEmbedding,
     topK: Math.max(50, preparedCandidates.length + 5),
     includeMetadata: true,
-    namespace: PINECONE_NAMESPACE,
-    ...(filter ? { filter } : {})
+    namespace: PINECONE_NAMESPACE
   };
   const result = await pineconeFetch('/query', {
     method: 'POST',
