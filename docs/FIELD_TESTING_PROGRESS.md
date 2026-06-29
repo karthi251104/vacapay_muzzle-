@@ -286,7 +286,7 @@ It is saved separately for testing and review.
 
 It is not used as the main cow identity.
 
-## 14. Recommended Senior Demo
+## 14. Recommended Demo
 
 Use this sequence for the demo.
 
@@ -405,7 +405,7 @@ Frontend:
 
 Documentation:
 
-- `docs/SENIOR_DEMO_PROGRESS.md`
+- `docs/FIELD_TESTING_PROGRESS.md`
 
 ## 18. Known Notes
 
@@ -415,7 +415,7 @@ Documentation:
 - Duplicate behavior depends on the current embedding threshold.
 - Current threshold is 0.70 in backend health configuration.
 
-## 19. Short Explanation For Senior
+## 19. Short Explanation
 
 This app is now structured like a real field test dataset system.
 
