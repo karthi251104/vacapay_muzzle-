@@ -248,17 +248,30 @@ app.post('/api/reviews/matches/:auditId', requireAuth, requireAdmin, async (req,
       return;
     }
 
+    const action = String(req.body.action || '').trim();
+    const reviewNotes = String(req.body.reviewNotes || '').trim();
+    const correctCattleId = String(req.body.correctCattleId || '').trim() || null;
+    let correctedRecord = null;
+
+    if (action === 'move_out_as_registered') {
+      correctedRecord = await moveMatchedVisitOutAsRegistered(audits[index], {
+        reviewedBy: req.user,
+        reviewNotes
+      });
+    }
+
     audits[index] = {
       ...audits[index],
-      reviewStatus: String(req.body.reviewStatus || 'reviewed'),
-      correctCattleId: String(req.body.correctCattleId || '').trim() || null,
-      reviewNotes: String(req.body.reviewNotes || '').trim(),
+      reviewStatus: action === 'move_out_as_registered' ? 'wrong_moved_to_registered' : String(req.body.reviewStatus || 'reviewed'),
+      correctCattleId: correctCattleId || (action === 'move_out_as_registered' ? audits[index].finalCattleId : null),
+      reviewNotes,
       reviewedBy: req.user,
-      reviewedAt: new Date().toISOString()
+      reviewedAt: new Date().toISOString(),
+      correctionAction: action || null
     };
 
     await writeMatchAudits(audits);
-    res.json({ review: audits[index] });
+    res.json({ review: audits[index], correctedRecord: correctedRecord ? toCattleSummary(correctedRecord) : null });
   } catch (error) {
     next(error);
   }
@@ -1828,6 +1841,50 @@ async function uploadImageToCloudinary({ cattleId, sessionId, imageType, localPa
   };
 }
 
+async function moveMatchedVisitOutAsRegistered(audit, { reviewedBy, reviewNotes } = {}) {
+  const rows = (await readMetadata()).map(normalizeRecord).filter(Boolean);
+  const cattleId = audit.finalCattleId || audit.cattleId;
+  const row = rows.find((item) => item.cattleId === cattleId);
+
+  if (!row) {
+    throw new Error('Could not find the matched re-visit record to move out.');
+  }
+
+  const session = (row.sessions || []).find((item) => item.sessionId === audit.sessionId) || getActiveSession(row);
+  const now = new Date().toISOString();
+  const previousMatchResult = session?.matchResult || null;
+
+  delete row.duplicateOfCattleId;
+  delete row.duplicateOfFarmerName;
+  row.status = 'ready_for_embedding';
+  row.uploadDateTime = now;
+  row.adminCorrection = {
+    action: 'move_out_as_registered',
+    reviewedAt: now,
+    reviewedBy: reviewedBy?.userId || reviewedBy?.agentId || reviewedBy?.name || '',
+    reviewNotes: reviewNotes || '',
+    previousMatchedCattleId: audit.matchedCattleId || previousMatchResult?.matchedCattleId || null
+  };
+
+  if (session) {
+    session.status = 'ready_for_embedding';
+    session.matchResult = {
+      ...(previousMatchResult || {}),
+      resolved: true,
+      decision: 'new_cattle',
+      duplicateSavedSeparately: false,
+      matchedCattleId: null,
+      duplicateOfCattleId: null,
+      duplicateOfFarmerName: '',
+      adminCorrection: row.adminCorrection,
+      correctedAt: now
+    };
+    await upsertSessionVector(row, session).catch(() => null);
+  }
+
+  await writeMetadata(rows);
+  return row;
+}
 async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, farmerName, fieldOfficerName, locationLat, locationLon }) {
   const audits = await readMatchAudits();
   const auditId = `${finalCattleId || cattleId}__${session.sessionId}`;

@@ -331,7 +331,7 @@ export class ApiService {
   }
 
 
-  updateMatchReview(auditId: string, payload: { reviewStatus: string; correctCattleId?: string; reviewNotes?: string }): Observable<{ review: MatchReview }> {
+  updateMatchReview(auditId: string, payload: { reviewStatus: string; correctCattleId?: string; reviewNotes?: string; action?: 'move_out_as_registered' }): Observable<{ review: MatchReview; correctedRecord?: CattleSummary | null }> {
     return this.http.post<{ review: MatchReview }>(`${this.baseUrl}/reviews/matches/${auditId}`, payload, { headers: this.authHeaders() });
   }
 

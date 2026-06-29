@@ -387,7 +387,11 @@ export class AppComponent implements OnDestroy {
   applyReviewFilter(): void {
     this.matchReviews = this.showAllReviews
       ? this.allMatchReviews
-      : this.allMatchReviews.filter((review) => review.reviewStatus !== 'confirmed');
+      : this.allMatchReviews.filter((review) => !this.isClosedReview(review));
+  }
+
+  isClosedReview(review: MatchReview): boolean {
+    return ['confirmed', 'wrong_moved_to_registered'].includes(review.reviewStatus);
   }
 
   toggleReviewMode(): void {
@@ -400,13 +404,37 @@ export class AppComponent implements OnDestroy {
       .updateMatchReview(review.auditId, {
         reviewStatus: 'confirmed',
         correctCattleId: correctCattleId || review.matchedCattleId || review.finalCattleId,
-        reviewNotes: correctCattleId ? 'Corrected by admin.' : 'Confirmed by admin.'
+        reviewNotes: correctCattleId ? 'Expected cow corrected by admin.' : 'Photo review confirmed correct.'
       })
       .subscribe({
         next: ({ review: updated }) => {
           this.allMatchReviews = this.allMatchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
           this.applyReviewFilter();
           this.message = `Review saved for ${updated.finalCattleId}.`;
+        },
+        error: (error) => {
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
+  moveWrongMatchToRegistered(review: MatchReview): void {
+    const ok = window.confirm('Move this capture out of matched re-visits and keep it as a registered cattle record?');
+    if (!ok) return;
+
+    this.api
+      .updateMatchReview(review.auditId, {
+        reviewStatus: 'wrong_moved_to_registered',
+        correctCattleId: review.finalCattleId,
+        reviewNotes: 'Face/side photo review showed this automatic match was wrong. Moved out as registered cattle.',
+        action: 'move_out_as_registered'
+      })
+      .subscribe({
+        next: ({ review: updated }) => {
+          this.allMatchReviews = this.allMatchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
+          this.applyReviewFilter();
+          this.loadCattleInventory();
+          this.message = `Wrong match moved out. ${this.shortId(updated.finalCattleId)} is now registered cattle.`;
         },
         error: (error) => {
           this.message = this.errorMessage(error);

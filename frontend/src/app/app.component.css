@@ -597,6 +597,63 @@ select:focus {
   padding: 6px 9px;
 }
 
+
+.review-evidence {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.review-images {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+}
+
+.review-images button {
+  aspect-ratio: 1;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 62px;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+}
+
+.review-images img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.review-images span {
+  background: rgba(16, 32, 43, 0.84);
+  border-radius: 6px;
+  bottom: 4px;
+  color: #fff;
+  font-size: 0.58rem;
+  font-weight: 900;
+  left: 4px;
+  padding: 3px 5px;
+  position: absolute;
+}
+
+.review-actions {
+  align-self: stretch;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.danger-action {
+  background: #b34a3c;
+  color: #fff;
+}
+
+.danger-action:hover:not(:disabled) {
+  background: #973b30;
+}
+
 .field-results {
   display: grid;
   gap: 12px;

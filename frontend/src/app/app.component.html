@@ -301,12 +301,21 @@
           <p>{{ review.farmerName || 'NA' }} / {{ review.fieldOfficerName || 'NA' }}</p>
           <small>{{ review.decision === 'matched_existing' ? 'Matched re-visit saved separately' : 'New cattle registered' }} / {{ review.confidencePercent }}% / {{ reviewResultLabel(review) }}</small>
         </div>
-        <div class="review-tags">
-          <span *ngFor="let match of review.topMatches.slice(0, 5)" [class.expected]="expectedCattleId(review) === match.cattleId">{{ match.cattleId }} {{ match.confidencePercent }}%</span>
+        <div class="review-evidence">
+          <div class="review-tags">
+            <span *ngFor="let match of review.topMatches.slice(0, 5)" [class.expected]="expectedCattleId(review) === match.cattleId">{{ match.cattleId }} {{ match.confidencePercent }}%</span>
+          </div>
+          <div class="review-images" *ngIf="review.images.length">
+            <button type="button" *ngFor="let image of review.images" (click)="openImage(image.imageType, image.cloudinaryUrl || image.previewUrl)">
+              <img [src]="image.cloudinaryUrl || image.previewUrl" [alt]="image.imageType">
+              <span>{{ image.imageType }}</span>
+            </button>
+          </div>
         </div>
-        <div class="compact-actions">
-          <button type="button" (click)="confirmMatchReview(review)">Confirm</button>
-          <button type="button" class="ghost" *ngIf="review.topMatches[0]" (click)="confirmMatchReview(review, review.topMatches[0].cattleId)">Top 1</button>
+        <div class="compact-actions review-actions">
+          <button type="button" (click)="confirmMatchReview(review)">Correct</button>
+          <button type="button" class="ghost" *ngIf="review.topMatches[0]" (click)="confirmMatchReview(review, review.topMatches[0].cattleId)">Expected Top 1</button>
+          <button type="button" class="danger-action" *ngIf="review.decision === 'matched_existing'" (click)="moveWrongMatchToRegistered(review)">Wrong - make registered</button>
         </div>
       </article>
     </section>
