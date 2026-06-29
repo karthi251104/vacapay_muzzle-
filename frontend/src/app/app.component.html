@@ -65,8 +65,8 @@
   <header class="admin-hero page-enter">
     <div>
       <p class="eyebrow">Admin</p>
-      <h1>Testing Dataset Registry</h1>
-      <p>Unique cattle stay as the main dataset. Same-cattle captures are saved separately as duplicate evidence and linked to the original cow.</p>
+      <h1>Real Field Verification</h1>
+      <p>Registered cattle are kept as the main records. When the same cow is captured again, the new visit is saved separately and linked to the original cow.</p>
     </div>
     <div class="top-actions">
       <div class="user-chip">{{ currentUser?.name }}</div>
@@ -84,15 +84,15 @@
       <strong>{{ cattleStats?.farmerCount || 0 }}</strong>
     </article>
     <article>
-      <span>Unique Cattle</span>
+      <span>Registered Cattle</span>
       <strong>{{ cattleStats?.uniqueCattleCount || cattleStats?.cattleCount || 0 }}</strong>
     </article>
     <article>
-      <span>Duplicate Captures</span>
+      <span>Matched Re-visits</span>
       <strong>{{ cattleStats?.duplicateCaptureCount || 0 }}</strong>
     </article>
     <article>
-      <span>Total Records</span>
+      <span>Total Captures</span>
       <strong>{{ cattleStats?.totalRecordCount || 0 }}</strong>
     </article>
     <article>
@@ -140,9 +140,9 @@
     <section class="panel cattle-admin-panel">
       <div class="panel-title registry-title">
         <div>
-          <p class="eyebrow">Test Records</p>
-          <h2>{{ adminRegistryView === 'unique' ? 'Unique Cattle Database' : 'Duplicate Capture Evidence' }}</h2>
-          <p class="muted">{{ adminRegistryView === 'unique' ? 'Use this as the main 1-to-N cattle dataset.' : 'These are same-cattle captures saved in separate duplicate folders.' }}</p>
+          <p class="eyebrow">Field Records</p>
+          <h2>{{ adminRegistryView === 'unique' ? 'Registered Cattle' : 'Matched Re-visits' }}</h2>
+          <p class="muted">{{ adminRegistryView === 'unique' ? 'Main cattle records used for future field matching.' : 'Repeat captures that matched an already registered cow.' }}</p>
         </div>
         <div class="compact-actions">
           <button type="button" class="ghost" (click)="loadCattleInventory()">Refresh</button>
@@ -152,20 +152,20 @@
 
       <div class="segmented registry-tabs">
         <button type="button" [class.active]="adminRegistryView === 'unique'" (click)="setAdminRegistryView('unique')">
-          Unique Cattle <span>{{ uniqueCattleInventory.length }}</span>
+          Registered Cattle <span>{{ uniqueCattleInventory.length }}</span>
         </button>
         <button type="button" [class.active]="adminRegistryView === 'duplicates'" (click)="setAdminRegistryView('duplicates')">
-          Duplicate Captures <span>{{ duplicateCattleInventory.length }}</span>
+          Matched Re-visits <span>{{ duplicateCattleInventory.length }}</span>
         </button>
       </div>
 
       <div class="registry-note" *ngIf="adminRegistryView === 'unique'">
-        <strong>Main dataset</strong>
-        <span>Only real unique cattle are listed here. Same-cattle test captures are kept out of this list.</span>
+        <strong>Main cattle records</strong>
+        <span>These are the real cattle identities the field team will search against in future visits.</span>
       </div>
       <div class="registry-note duplicate-note" *ngIf="adminRegistryView === 'duplicates'">
-        <strong>Duplicate evidence folder</strong>
-        <span>Each row is a new capture that matched an existing cow. It is saved separately with the original cattle link.</span>
+        <strong>Matched repeat captures</strong>
+        <span>Each row is a repeat field capture linked to the original cattle record.</span>
       </div>
 
       <div class="registry-layout">
@@ -181,22 +181,22 @@
                 <strong>{{ cattle.farmerName || 'Unknown farmer' }}</strong>
                 <p>{{ cattle.cattleLabel || 'Cattle' }} / Owner ID: {{ cattle.farmerId || 'NA' }} / Officer: {{ cattle.fieldOfficerName || 'NA' }}</p>
                 <em *ngIf="selectedAdminCattle?.cattleId === cattle.cattleId">Selected</em>
-                <em class="record-kind" *ngIf="isDuplicateEvidence(cattle)">Duplicate Evidence</em>
+                <em class="record-kind" *ngIf="isDuplicateEvidence(cattle)">Matched Re-visit</em>
                 <small *ngIf="!isDuplicateEvidence(cattle)">{{ cattle.sessionCount }} visits / {{ cattle.imageCount }} photos / last {{ cattle.lastCaptureDate || 'No date' }}</small>
-                <small *ngIf="isDuplicateEvidence(cattle)">Duplicate of {{ cattle.duplicateOfFarmerName || shortId(cattle.duplicateOfCattleId) }} / {{ cattle.imageCount }} photos / last {{ cattle.lastCaptureDate || 'No date' }}</small>
+                <small *ngIf="isDuplicateEvidence(cattle)">Matched with {{ cattle.duplicateOfFarmerName || shortId(cattle.duplicateOfCattleId) }} / {{ cattle.imageCount }} photos / last {{ cattle.lastCaptureDate || 'No date' }}</small>
               </div>
             </button>
           </article>
 
           <div class="empty-state" *ngIf="!visibleCattleInventory.length">
-            {{ adminRegistryView === 'unique' ? 'No unique cattle records yet.' : 'No duplicate evidence records yet.' }}
+            {{ adminRegistryView === 'unique' ? 'No registered cattle records yet.' : 'No matched repeat captures yet.' }}
           </div>
         </div>
 
         <aside class="cattle-detail" *ngIf="selectedAdminCattle; else cattleEmpty">
           <div class="detail-head">
             <div>
-              <p class="eyebrow">{{ isDuplicateEvidence(selectedAdminCattle) ? 'Duplicate Evidence' : 'Unique Cattle' }}</p>
+              <p class="eyebrow">{{ isDuplicateEvidence(selectedAdminCattle) ? 'Matched Re-visit' : 'Registered Cattle' }}</p>
               <h3>{{ selectedAdminCattle.farmerName || 'Unknown farmer' }}</h3>
               <p class="simple-id">Cattle ID: {{ shortId(selectedAdminCattle.cattleId) }}</p>
             </div>
@@ -218,7 +218,7 @@
             </div>
             <p class="folder-text">{{ session.productionFolder }}</p>
             <div class="session-note" *ngIf="session.matchResult?.decision === 'matched_existing' || session.duplicateSavedSeparately">
-              <strong>Duplicate saved separately</strong>
+              <strong>Matched re-visit saved separately</strong>
               <small *ngIf="session.matchResult?.topMatches?.[0] as bestMatch">Top 1 found in {{ matchSourceLabel(bestMatch.searchScope) }} / {{ bestMatch.farmerName || 'unknown farmer' }} / {{ bestMatch.confidencePercent }}%</small>
               <small *ngIf="session.matchResult?.topMatches?.length">Top 5 checked: {{ session.matchResult?.topMatches?.length }} candidates</small>
             </div>
@@ -241,7 +241,7 @@
       <div class="panel-title">
         <div>
           <p class="eyebrow">Match Audit</p>
-          <h2>Top Match History</h2>
+          <h2>Muzzle Match History</h2>
         </div>
         <div class="compact-actions">
           <button type="button" class="ghost" (click)="toggleReviewMode()">{{ showAllReviews ? 'Open Only' : 'Show All' }}</button>
@@ -255,7 +255,7 @@
         <div>
           <strong>{{ review.finalCattleId }}</strong>
           <p>{{ review.farmerName || 'NA' }} / {{ review.fieldOfficerName || 'NA' }}</p>
-          <small>{{ review.decision === 'matched_existing' ? 'Duplicate saved separately' : 'New unique cattle kept' }} / {{ review.confidencePercent }}%</small>
+          <small>{{ review.decision === 'matched_existing' ? 'Matched re-visit saved separately' : 'New cattle registered' }} / {{ review.confidencePercent }}%</small>
         </div>
         <div class="review-tags">
           <span *ngFor="let match of review.topMatches.slice(0, 5)">{{ match.cattleId }} {{ match.confidencePercent }}%</span>
@@ -330,7 +330,7 @@
       </div>
       <div class="field-stats">
         <article><span>Farmers</span><strong>{{ cattleStats?.farmerCount || 0 }}</strong></article>
-        <article><span>Unique Cattle</span><strong>{{ cattleStats?.uniqueCattleCount || cattleStats?.cattleCount || 0 }}</strong></article>
+        <article><span>Registered Cattle</span><strong>{{ cattleStats?.uniqueCattleCount || cattleStats?.cattleCount || 0 }}</strong></article>
         <article><span>Captures</span><strong>{{ cattleStats?.sessionCount || 0 }}</strong></article>
         <article><span>Duplicates</span><strong>{{ cattleStats?.duplicateCaptureCount || 0 }}</strong></article>
       </div>
@@ -338,8 +338,8 @@
       <section class="already-list" *ngIf="recentCattle.length">
         <div class="panel-title">
           <div>
-            <p class="eyebrow">Unique Dataset</p>
-            <h2>Recent Unique Cattle</h2>
+            <p class="eyebrow">Registered Records</p>
+            <h2>Recent Registered Cattle</h2>
           </div>
           <button type="button" class="ghost" (click)="loadCattleInventory()">Refresh</button>
         </div>
