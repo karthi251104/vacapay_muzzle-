@@ -1,6 +1,6 @@
 # Vacapay Muzzle Field Testing Progress
 
-Date: 2026-06-29
+Date: 2026-06-30
 App: Vacapay cattle muzzle identification field test app
 Current purpose: Clean field-testing workflow for cattle muzzle recognition, duplicate detection, and dataset-style validation.
 
@@ -32,7 +32,7 @@ Reset completed for:
 - MongoDB `cattle` collection
 - MongoDB `match_audits` collection
 - Pinecone muzzle embeddings in namespace `vacapay`
-- Cloudinary cattle images under `vacapay/cattle`
+- Cloudinary cattle images are not shown after reset because metadata was cleared; remote cleanup can be done separately if storage cleanup is needed
 
 Kept safely:
 
@@ -53,7 +53,7 @@ Verified clean state:
 
 Cloudflare quick tunnel link at reset time:
 
-<https://jose-char-machine-pale.trycloudflare.com>
+<https://strong-thought-consistency-charge.trycloudflare.com>
 
 Note: This is a Cloudflare quick tunnel URL. It can change if the tunnel process restarts.
 
@@ -82,6 +82,8 @@ The admin uses the web dashboard to:
 - Inspect folders, visits, and photos
 - Download selected images
 - See top match audit results
+- Review real field ground truth and accuracy results
+- Move wrong automatic matches back into registered cattle
 
 ## 5. Updated Agent Flow
 
@@ -162,7 +164,55 @@ For each muzzle check, the backend prepares top match candidates:
 
 This helps compare the app behavior with previous offline testing where top-k accuracy was checked.
 
-## 8. Duplicate Handling
+## 8. Real Field-Test Scoring Logic
+
+The admin result dashboard now follows the same logic as the old offline folder test script.
+
+```text
+query_label in folder test = expected cow in field
+top_matches in folder test = app Top-1/Top-5 prediction
+admin confirmation = ground truth for real field
+```
+
+In real field testing, the app does not know the expected cow automatically. The admin sets that truth by reviewing the saved muzzle, face, and side images.
+
+Admin `Muzzle Match History` shows:
+
+- Registered Cattle
+- Repeat Visits
+- Reviewed Ground Truth
+- Correct Re-visits
+- Missed Matches
+- Wrong Matches
+- Top-1 Accuracy
+- Top-5 Accuracy
+- False Matches
+- Needs Expected Cow
+
+Officer-wise table shows:
+
+- Officer
+- Repeats
+- Reviewed
+- Correct
+- Missed
+- Wrong
+- Top-1
+- Top-5
+- Quality
+
+Rules used by the dashboard:
+
+- A good-score automatic match is saved as duplicate evidence.
+- If admin confirms it is correct, it counts as a correct re-visit.
+- If admin sees the automatic match is wrong, admin clicks `Wrong - make registered`.
+- That wrong capture is moved out of duplicate evidence and becomes a registered cattle record.
+- The result then counts as a wrong match / false match.
+- If the app saves a cow as new but admin marks an expected older cow from Top-1, it counts as a missed match.
+- First-time new cattle are not counted as missed repeat visits unless admin marks them as an expected older cow.
+- Top-5 candidate tags highlight the expected cow after admin confirmation.
+
+## 9. Duplicate Handling
 
 Old behavior was confusing because repeated captures could look like normal cattle visits or separate main records.
 
@@ -187,7 +237,7 @@ A duplicate evidence record includes:
 - Match source
 - Captured images
 
-## 9. Admin UI Changes
+## 10. Admin UI Changes
 
 Admin dashboard has been changed to a testing registry.
 
@@ -222,7 +272,7 @@ Each duplicate is stored separately and linked to the original cow.
 
 This avoids confusion in demos and testing.
 
-## 10. Agent UI Changes
+## 11. Agent UI Changes
 
 Agent home now clearly communicates the field process.
 
@@ -242,7 +292,7 @@ During matching, messages explain:
 - Whether the app checked all saved muzzle records
 - Whether the result was a new cow or duplicate evidence
 
-## 11. Backend Changes
+## 12. Backend Changes
 
 Important backend changes:
 
@@ -255,8 +305,10 @@ Important backend changes:
 - Duplicate evidence records are excluded as future canonical match candidates.
 - Stats separate unique cattle and duplicate captures.
 - Pinecone matching is no longer limited only to farmer filter.
+- Admin review API supports `move_out_as_registered` for wrong automatic matches.
+- Wrong automatic matches can be converted from duplicate evidence into registered cattle records.
 
-## 12. Frontend Changes
+## 13. Frontend Changes
 
 Important frontend changes:
 
@@ -267,8 +319,10 @@ Important frontend changes:
 - Match result text explains where the match came from.
 - Color theme changed to a cleaner blue/white testing-tool style.
 - Duplicate evidence is highlighted with a separate amber visual style.
+- Admin match history shows field-test result cards and officer-wise result table.
+- Admin can inspect evidence photos, confirm correct matches, mark expected Top-1, or move a wrong automatic match into registered cattle.
 
-## 13. Data Model Concept
+## 14. Data Model Concept
 
 The app now separates records into two ideas.
 
@@ -286,7 +340,7 @@ It is saved separately for testing and review.
 
 It is not used as the main cow identity.
 
-## 14. Recommended Demo
+## 15. Recommended Demo
 
 Use this sequence for the demo.
 
@@ -364,8 +418,11 @@ Show:
 - Duplicate Capture Evidence contains the repeated capture.
 - Duplicate record shows original matched cattle/farmer.
 - Match source tells whether it came from farmer cattle or all saved muzzle records.
+- Muzzle Match History shows Top-1/Top-5 candidates and field result metrics.
+- Admin reviews photos and marks the repeat as `Correct` if the automatic match is right.
+- If the automatic match is wrong, admin clicks `Wrong - make registered`; the capture moves into registered cattle and the dashboard counts it as wrong/false match.
 
-## 15. What This Proves
+## 16. What This Proves
 
 The demo proves:
 
@@ -377,20 +434,22 @@ The demo proves:
 - Duplicate captures are saved separately for testing.
 - Unique cattle dataset remains clean.
 - Top 1 and Top 5 matching information is available.
+- Admin ground truth can calculate real field accuracy.
+- Wrong automatic matches can be corrected without deleting the capture.
 
-## 16. Current Verification
+## 17. Current Verification
 
 Already verified after implementation:
 
 - Backend syntax check passed.
 - Frontend build passed.
 - Backend restarted successfully.
-- Cloudflare tunnel is running.
+- Cloudflare tunnel is running at the current quick tunnel link.
 - Health endpoint is OK.
 - Authenticated cattle API returns zero records after reset.
 - Pinecone namespace `vacapay` returns zero vectors after reset.
 
-## 17. Files Updated
+## 18. Files Updated
 
 Backend:
 
@@ -407,16 +466,17 @@ Documentation:
 
 - `docs/FIELD_TESTING_PROGRESS.md`
 
-## 18. Known Notes
+## 19. Known Notes
 
 - Cloudflare quick tunnel URLs are temporary and can change after restart.
 - The first enrolled cow after reset has no previous muzzle to compare against.
 - Matching becomes meaningful from the second capture onward.
 - Duplicate behavior depends on the current embedding threshold.
 - Current threshold is 0.70 in backend health configuration.
+- Cloudinary remote files may remain even after metadata reset unless a separate remote storage cleanup is run.
 
-## 19. Short Explanation
+## 20. Short Explanation
 
 This app is now structured like a real field test dataset system.
 
-The unique cattle database stores the main cattle identities. When a cow is captured again, the app checks both the selected farmer's cattle and the full muzzle database. If it finds the same cow, it saves the new capture separately as duplicate evidence instead of mixing it into the main record. This keeps the testing dataset clean and makes every duplicate event easy to inspect.
+The unique cattle database stores the main cattle identities. When a cow is captured again, the app checks both the selected farmer's cattle and the full muzzle database. If it finds the same cow, it saves the new capture separately as duplicate evidence instead of mixing it into the main record. Admin then reviews the saved evidence photos and sets the real field ground truth. Correct automatic matches count as correct re-visits. Wrong automatic matches can be moved back into registered cattle and count as wrong or false matches. This keeps the testing dataset clean and makes field accuracy measurable.

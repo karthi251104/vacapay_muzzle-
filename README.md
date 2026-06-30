@@ -46,6 +46,9 @@ docs/FIELD_TESTING_PROGRESS.md
 - Top 1 and Top 5 match result tracking.
 - Duplicate same-cattle captures saved separately as duplicate evidence.
 - Admin testing registry split into unique cattle database and duplicate capture evidence.
+- Admin field-test result dashboard using real field ground truth.
+- Admin can confirm correct matches or move wrong automatic matches back into registered cattle.
+- Officer-wise repeat visit accuracy and capture quality summary.
 - Admin cattle record browsing with image viewer.
 - Admin ZIP download for selected cattle records.
 
@@ -61,7 +64,48 @@ When an agent starts a new capture:
 - Match results are tagged as `farmer_cattle` or `all_other_muzzle`.
 - Top 1 and Top 5 candidates are stored for testing and review.
 - If DINOv2 score is at least 70%, the new capture is saved separately as duplicate evidence and linked to the matched original cattle.
+- Admin reviews the saved muzzle, face, and side photos to set the real field ground truth.
+- If the automatic match is correct, admin marks it `Correct`.
+- If the automatic match is wrong, admin uses `Wrong - make registered` so the capture moves out of duplicate evidence and becomes a normal registered cattle record.
 - If score is below 70%, the new cattle remains in the unique cattle database.
+
+
+## Admin Field-Test Result Logic
+
+The admin `Muzzle Match History` page now follows the same idea as the old folder test script:
+
+```text
+query_label in folder test = expected cow in field
+top_matches in folder test = app Top-1/Top-5 prediction
+admin confirmation = ground truth for real field
+```
+
+Admin result cards show:
+
+- Registered Cattle
+- Repeat Visits
+- Reviewed Ground Truth
+- Correct Re-visits
+- Missed Matches
+- Wrong Matches
+- Top-1 Accuracy
+- Top-5 Accuracy
+- False Matches
+- Needs Expected Cow
+
+The officer-wise table shows:
+
+- Officer
+- Repeats
+- Reviewed
+- Correct
+- Missed
+- Wrong
+- Top-1
+- Top-5
+- Quality
+
+First-time new cattle are not counted as missed repeat visits unless admin marks that capture as an expected older cow. Top-5 candidate tags highlight the expected cow after admin confirmation.
 
 ## Field Testing Progress
 
