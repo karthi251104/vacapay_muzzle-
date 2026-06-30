@@ -1216,8 +1216,9 @@ async function resolveMuzzleMatch(cattleId) {
     queryEmbedding,
     preparedCandidates
   }).catch(() => []);
-  const candidates = pineconeMatches.length ? pineconeMatches : preparedCandidates;
-  candidates.sort((a, b) => b.score - a.score);
+  const rawCandidates = pineconeMatches.length ? pineconeMatches : preparedCandidates;
+  rawCandidates.sort((a, b) => b.score - a.score);
+  const candidates = bestCandidatePerCattle(rawCandidates);
   const bestFarmerMatch = candidates.find((candidate) => candidate.searchScope === 'farmer_cattle' && candidate.score >= EMBEDDING_MATCH_THRESHOLD) || null;
   const bestGlobalMatch = candidates[0] || null;
   const bestMatch = bestFarmerMatch || bestGlobalMatch;
@@ -1694,6 +1695,16 @@ function cosineSimilarity(a, b) {
   return dot / Math.max(Math.sqrt(aNorm) * Math.sqrt(bNorm), 1e-12);
 }
 
+function bestCandidatePerCattle(candidates) {
+  const bestByCattle = new Map();
+  for (const candidate of candidates) {
+    const existing = bestByCattle.get(candidate.cattleId);
+    if (!existing || candidate.score > existing.score) {
+      bestByCattle.set(candidate.cattleId, candidate);
+    }
+  }
+  return Array.from(bestByCattle.values()).sort((a, b) => b.score - a.score);
+}
 function toPublicMatchResult(match) {
   return {
     cattleId: match.cattleId,

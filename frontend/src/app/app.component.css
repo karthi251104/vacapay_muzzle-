@@ -588,13 +588,20 @@ select:focus {
   gap: 7px;
 }
 
-.review-tags span {
+.review-tags button {
   background: var(--surface-soft);
+  border: 1px solid var(--line);
   border-radius: 999px;
   color: #314653;
   font-size: 0.72rem;
   font-weight: 800;
   padding: 6px 9px;
+  width: auto;
+}
+
+.review-tags button:hover:not(:disabled) {
+  border-color: var(--leaf);
+  box-shadow: 0 6px 14px rgba(23, 107, 135, 0.12);
 }
 
 
@@ -729,7 +736,7 @@ select:focus {
   background: var(--surface-soft);
 }
 
-.review-tags span.expected {
+.review-tags button.expected {
   background: var(--leaf-soft);
   color: var(--leaf-dark);
   box-shadow: inset 0 0 0 1px rgba(23, 107, 135, 0.18);

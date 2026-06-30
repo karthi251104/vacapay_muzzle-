@@ -303,7 +303,7 @@
         </div>
         <div class="review-evidence">
           <div class="review-tags">
-            <span *ngFor="let match of review.topMatches.slice(0, 5)" [class.expected]="expectedCattleId(review) === match.cattleId">{{ match.cattleId }} {{ match.confidencePercent }}%</span>
+            <button type="button" *ngFor="let match of metricTopMatches(review).slice(0, 5); let rank = index" [class.expected]="expectedCattleId(review) === match.cattleId" (click)="confirmMatchReview(review, match.cattleId)">#{{ rank + 1 }} {{ shortId(match.cattleId) }} {{ match.confidencePercent }}% / {{ matchSourceLabel(match.searchScope) }}</button>
           </div>
           <div class="review-images" *ngIf="review.images.length">
             <button type="button" *ngFor="let image of review.images" (click)="openImage(image.imageType, image.cloudinaryUrl || image.previewUrl)">
@@ -314,7 +314,7 @@
         </div>
         <div class="compact-actions review-actions">
           <button type="button" (click)="confirmMatchReview(review)">Correct</button>
-          <button type="button" class="ghost" *ngIf="review.topMatches[0]" (click)="confirmMatchReview(review, review.topMatches[0].cattleId)">Expected Top 1</button>
+          <button type="button" class="ghost" *ngIf="metricTopMatches(review)[0] as bestRanked" (click)="confirmMatchReview(review, bestRanked.cattleId)">Expected Rank 1</button>
           <button type="button" class="danger-action" *ngIf="review.decision === 'matched_existing'" (click)="moveWrongMatchToRegistered(review)">Wrong - make registered</button>
         </div>
       </article>

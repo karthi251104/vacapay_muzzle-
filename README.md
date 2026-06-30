@@ -4,7 +4,13 @@ Vacapay Muzzle is a mobile-first cattle muzzle field-testing app for agents and 
 
 ## Documentation
 
-Current project process, reset status, demo flow, duplicate evidence behavior, and implementation summary are in:
+Complete start-to-end workflow, backend image processing, Pinecone search, and field metric formulas are in:
+
+```text
+docs/COMPLETE_WORKFLOW_AND_EVALUATION.md
+```
+
+Current reset status, demo flow, duplicate evidence behavior, and implementation summary are in:
 
 ```text
 docs/FIELD_TESTING_PROGRESS.md
@@ -109,7 +115,13 @@ First-time new cattle are not counted as missed repeat visits unless admin marks
 
 ## Field Testing Progress
 
-For the current field-testing process, demo sequence, reset status, duplicate evidence behavior, and implementation summary, see:
+For the full process from farmer selection to admin metric calculation, see:
+
+```text
+docs/COMPLETE_WORKFLOW_AND_EVALUATION.md
+```
+
+For current reset status, demo sequence, duplicate evidence behavior, and implementation summary, see:
 
 ```text
 docs/FIELD_TESTING_PROGRESS.md

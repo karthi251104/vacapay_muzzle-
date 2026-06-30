@@ -4,6 +4,12 @@ Date: 2026-06-30
 App: Vacapay cattle muzzle identification field test app
 Current purpose: Clean field-testing workflow for cattle muzzle recognition, duplicate detection, and dataset-style validation.
 
+Complete workflow, backend process, Pinecone search, and metric formulas are documented in:
+
+```text
+docs/COMPLETE_WORKFLOW_AND_EVALUATION.md
+```
+
 ## 1. Project Goal
 
 The app is built to test whether cattle can be identified using muzzle images in real field conditions.
