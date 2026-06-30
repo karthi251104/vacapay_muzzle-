@@ -76,7 +76,7 @@ The admin `Muzzle Match History` page now follows the same idea as the old folde
 
 ```text
 query_label in folder test = expected cow in field
-top_matches in folder test = app Top-1/Top-5 prediction
+top_matches in folder test = app score-ranked Top-1/Top-5 prediction
 admin confirmation = ground truth for real field
 ```
 
@@ -105,7 +105,7 @@ The officer-wise table shows:
 - Top-5
 - Quality
 
-First-time new cattle are not counted as missed repeat visits unless admin marks that capture as an expected older cow. Top-5 candidate tags highlight the expected cow after admin confirmation.
+First-time new cattle are not counted as missed repeat visits unless admin marks that capture as an expected older cow. Field UI can prioritize selected-farmer matches for review, but Top-1/Top-5 accuracy is calculated from the raw score-ranked match list like the folder script. Top-5 candidate tags highlight the expected cow after admin confirmation.
 
 ## Field Testing Progress
 

@@ -170,7 +170,7 @@ The admin result dashboard now follows the same logic as the old offline folder 
 
 ```text
 query_label in folder test = expected cow in field
-top_matches in folder test = app Top-1/Top-5 prediction
+top_matches in folder test = app score-ranked Top-1/Top-5 prediction
 admin confirmation = ground truth for real field
 ```
 

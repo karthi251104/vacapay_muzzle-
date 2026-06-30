@@ -87,6 +87,7 @@ export interface MuzzleMatchResolution {
   matchedCattleId: string | null;
   previousCattleId?: string;
   topMatches: MuzzleMatchResult[];
+  rankedTopMatches?: MuzzleMatchResult[];
   resolvedAt: string;
   enrollment: Enrollment;
 }
@@ -262,6 +263,7 @@ export interface MatchReview {
   matchedCattleId: string | null;
   previousCattleId?: string | null;
   topMatches: MuzzleMatchResult[];
+  rankedTopMatches?: MuzzleMatchResult[];
   farmerName: string;
   fieldOfficerName: string;
   folderLocation: string;

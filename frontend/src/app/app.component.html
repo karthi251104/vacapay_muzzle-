@@ -265,7 +265,7 @@
 
         <div class="field-note">
           <strong>How this matches the folder test</strong>
-          <span>Expected cow is the ground truth label. Top matches are the model predictions. Confirm each repeat visit with the correct cattle ID to calculate real field accuracy.</span>
+          <span>Expected cow is the ground truth label. Accuracy uses the raw score-ranked Top-1/Top-5 predictions like the folder test; the visible list can still prioritize selected-farmer matches for field review.</span>
         </div>
 
         <div class="officer-results" *ngIf="officerFieldSummaries.length">

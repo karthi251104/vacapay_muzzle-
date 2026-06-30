@@ -1050,7 +1050,11 @@ export class AppComponent implements OnDestroy {
   isTopKCorrect(review: MatchReview, k: number): boolean {
     const expected = this.expectedCattleId(review);
     if (!expected) return false;
-    return review.topMatches.slice(0, k).some((match) => match.cattleId === expected);
+    return this.metricTopMatches(review).slice(0, k).some((match) => match.cattleId === expected);
+  }
+
+  metricTopMatches(review: MatchReview): MatchReview['topMatches'] {
+    return review.rankedTopMatches?.length ? review.rankedTopMatches : review.topMatches;
   }
 
   reviewResultLabel(review: MatchReview): string {

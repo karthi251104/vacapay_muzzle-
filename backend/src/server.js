@@ -1221,6 +1221,7 @@ async function resolveMuzzleMatch(cattleId) {
   const bestFarmerMatch = candidates.find((candidate) => candidate.searchScope === 'farmer_cattle' && candidate.score >= EMBEDDING_MATCH_THRESHOLD) || null;
   const bestGlobalMatch = candidates[0] || null;
   const bestMatch = bestFarmerMatch || bestGlobalMatch;
+  const rankedTopMatches = candidates.slice(0, 5).map(toPublicMatchResult);
   const orderedMatches = bestFarmerMatch
     ? [bestFarmerMatch, ...candidates.filter((candidate) => candidate !== bestFarmerMatch)]
     : candidates;
@@ -1243,6 +1244,7 @@ async function resolveMuzzleMatch(cattleId) {
       duplicateOfFarmerName: bestMatch.farmerName || '',
       previousCattleId: queryRow.cattleId,
       topMatches,
+      rankedTopMatches,
       resolvedAt: now
     };
 
@@ -1279,6 +1281,7 @@ async function resolveMuzzleMatch(cattleId) {
     thresholdPercent: Math.round(EMBEDDING_MATCH_THRESHOLD * 100),
     matchedCattleId: null,
     topMatches,
+    rankedTopMatches,
     resolvedAt: now
   };
 
@@ -1918,6 +1921,7 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
     matchedCattleId: matchResult.matchedCattleId,
     previousCattleId: matchResult.previousCattleId || null,
     topMatches: matchResult.topMatches || [],
+    rankedTopMatches: matchResult.rankedTopMatches || matchResult.topMatches || [],
     farmerName: farmerName || '',
     fieldOfficerName: fieldOfficerName || '',
     locationLat: locationLat ?? null,
