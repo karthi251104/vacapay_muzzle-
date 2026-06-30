@@ -412,12 +412,12 @@
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 1</p>
-          <h2>Add New Farmer</h2>
+          <h2>Add Farmer</h2>
         </div>
-        <span>Required</span>
+        <span>Auto ID</span>
       </div>
-      <label><span>Farmer ID</span><input name="farmerId" [(ngModel)]="farmerId" placeholder="OWNER-001"></label>
-      <label><span>Farmer Name</span><input name="farmerName" [(ngModel)]="farmerName" placeholder="Enter farmer name"></label>
+      <div class="generated-id-card"><span>Generated Farmer ID</span><strong>{{ farmerId }}</strong><small>Saved automatically when the first cow is registered</small></div>
+      <label><span>Farmer Name</span><input name="farmerName" [(ngModel)]="farmerName" placeholder="Enter farmer name" autocomplete="off"></label>
       <label><span>Field Officer</span><input name="fieldOfficerName" [(ngModel)]="fieldOfficerName" placeholder="Officer name"></label>
       <div class="location-card farmer-search-card">
         <label><span>Latitude</span><input name="newFarmerLat" type="number" [(ngModel)]="locationLat"></label>
@@ -429,7 +429,7 @@
         <span>{{ hasGps ? ((locationLat | number:'1.6-6') + ', ' + (locationLon | number:'1.6-6')) : 'Use GPS before creating farmer' }}</span>
       </div>
       <div class="action-row"><button type="button" class="ghost" (click)="useGps()">Use GPS</button></div>
-      <div class="action-row farmer-actions"><button type="button" class="primary-action" [disabled]="(!farmerId.trim() && !farmerName.trim()) || !hasGps" (click)="startNewFarmerCapture()">Start First Cow</button><button type="button" class="ghost" (click)="startExistingFarmerSearch()">Existing Farmer Search</button></div>
+      <div class="action-row farmer-actions"><button type="button" class="primary-action" [disabled]="!farmerName.trim() || !hasGps" (click)="startNewFarmerCapture()">Start First Cow Under Farmer</button><button type="button" class="ghost" (click)="startExistingFarmerSearch()">Search Existing Farmer</button></div>
     </form>
 
     <section class="screen-card page-enter" *ngIf="agentScreen === 'location'">
@@ -481,7 +481,7 @@
         </button>
       </div>
 
-      <div class="gps-status ready" *ngIf="selectedFarmerKey"><strong>Selected farmer</strong><span>{{ farmerName || farmerId }}</span></div><button type="button" class="primary-action big" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">Start Cow For Selected Farmer</button>
+      <div class="gps-status ready selected-farmer-card" *ngIf="selectedFarmerKey"><strong>Selected farmer</strong><span>{{ farmerName || farmerId }} / {{ farmerId || 'Auto ID' }}</span><small>New capture will be saved under this farmer, then muzzle matching checks this farmer and all saved muzzles.</small></div><button type="button" class="primary-action big" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">Add Cow Under Selected Farmer</button>
     </section>
 
     <section class="screen-card page-enter" *ngIf="agentScreen === 'muzzle'">
@@ -580,7 +580,7 @@
         <img *ngFor="let item of requiredImages" [src]="item.previewUrl" [alt]="item.label" [hidden]="!item.previewUrl">
       </div>
 
-      <button type="button" class="primary-action big" [disabled]="!canComplete" (click)="completeEnrollment()">Save Record</button>
+      <button type="button" class="primary-action big" [disabled]="!canComplete" (click)="completeEnrollment()">Save Record & Continue Same Farmer</button>
     </section>
   </section>
 

@@ -604,8 +604,8 @@ app.post('/api/enrollments', async (req, res, next) => {
       sessions: []
     };
 
-    record.farmerId = req.body.farmerId || record.farmerId || '';
-    record.farmerName = req.body.farmerName || record.farmerName || '';
+    record.farmerId = String(req.body.farmerId || record.farmerId || '').trim() || nextFarmerId(rows);
+    record.farmerName = String(req.body.farmerName || record.farmerName || '').trim();
     record.fieldOfficerName = req.body.fieldOfficerName || record.fieldOfficerName || '';
     record.fieldOfficerId = req.body.fieldOfficerId || record.fieldOfficerId || '';
     record.locationLat = requestLat;
@@ -1430,6 +1430,18 @@ function buildOwnerCattleNumberMap(rows) {
   return numberMap;
 }
 
+function nextFarmerId(rows) {
+  const usedNumbers = rows
+    .map((row) => /^FARM-(\d+)$/i.exec(String(row?.farmerId || '').trim())?.[1])
+    .filter(Boolean)
+    .map((value) => Number(value));
+  const next = usedNumbers.length ? Math.max(...usedNumbers) + 1 : uniqueFarmerCount(rows) + 1;
+  return `FARM-${String(next).padStart(4, '0')}`;
+}
+
+function uniqueFarmerCount(rows) {
+  return new Set(rows.map(ownerGroupKey).filter(Boolean)).size;
+}
 function ownerGroupKey(row) {
   const farmerId = normalizeSearchText(row.farmerId);
   if (farmerId) return `id:${farmerId}`;

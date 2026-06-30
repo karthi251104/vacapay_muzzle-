@@ -1937,6 +1937,45 @@ select:focus {
   }
 }
 
+
+.generated-id-card {
+  background: linear-gradient(135deg, #e8f5f1, #f7fbfd);
+  border: 1px solid #b8dce6;
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 13px 14px;
+}
+
+.generated-id-card span,
+.selected-farmer-card small {
+  color: var(--quiet);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.generated-id-card strong {
+  color: var(--leaf-dark);
+  font-size: 1.35rem;
+  letter-spacing: 0;
+}
+
+.generated-id-card small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.selected-farmer-card {
+  gap: 6px;
+}
+
+.selected-farmer-card small {
+  color: inherit;
+  line-height: 1.35;
+  opacity: 0.78;
+  text-transform: none;
+}
 .gps-status {
   background: #fff7e1;
   border: 1px solid #e6cf92;

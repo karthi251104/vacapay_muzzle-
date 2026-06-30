@@ -290,8 +290,9 @@ export class AppComponent implements OnDestroy {
 
   startNewFarmerMode(): void {
     this.resetCaptureState(true);
+    this.farmerId = this.generateFarmerId();
     this.agentScreen = 'farmer';
-    this.message = 'Add farmer details, then start the first cow capture.';
+    this.message = 'Farmer ID generated. Enter farmer name, save GPS, then start the first cow.';
   }
 
   startExistingFarmerSearch(): void {
@@ -305,9 +306,13 @@ export class AppComponent implements OnDestroy {
   }
 
   startNewFarmerCapture(): void {
-    if (!this.farmerId.trim() && !this.farmerName.trim()) {
-      this.message = 'Enter farmer ID or farmer name before adding a new farmer.';
+    if (!this.farmerName.trim()) {
+      this.message = 'Enter farmer name before adding a new farmer.';
       return;
+    }
+
+    if (!this.farmerId.trim()) {
+      this.farmerId = this.generateFarmerId();
     }
 
     if (!this.hasGps) {
@@ -326,14 +331,20 @@ export class AppComponent implements OnDestroy {
     this.resetCaptureState(false);
     this.farmerId = cattle.farmerId || '';
     this.farmerName = cattle.farmerName || '';
-    this.message = 'Owner details loaded. Start a fresh capture for this cattle.';
-    this.agentScreen = 'farmer';
+    this.selectedFarmerKey = [this.farmerId, this.farmerName].join(':');
+    this.agentScreen = 'location';
+    this.message = 'Farmer loaded. Add the next cow under this farmer or choose another farmer.';
+    this.findRegisteredCattle();
   }
 
   continueToLocation(): void {
-    if (!this.farmerId.trim() && !this.farmerName.trim()) {
-      this.message = 'Farmer ID or farmer name is required before GPS check.';
+    if (!this.farmerName.trim()) {
+      this.message = 'Farmer name is required before GPS check.';
       return;
+    }
+
+    if (!this.farmerId.trim()) {
+      this.farmerId = this.generateFarmerId();
     }
 
     this.agentScreen = 'location';
@@ -466,8 +477,12 @@ export class AppComponent implements OnDestroy {
   }
 
   createEnrollment(): void {
-    if (!this.farmerId.trim() && !this.farmerName.trim()) {
-      this.message = 'Farmer ID or farmer name is required before starting capture.';
+    if (!this.farmerId.trim()) {
+      this.farmerId = this.generateFarmerId();
+    }
+
+    if (!this.farmerName.trim()) {
+      this.message = 'Farmer name is required before starting capture.';
       return;
     }
 
@@ -777,13 +792,20 @@ export class AppComponent implements OnDestroy {
   completeEnrollment(): void {
     if (!this.enrollment) return;
 
+    const savedFarmerId = this.farmerId || this.enrollment.farmerId || '';
+    const savedFarmerName = this.farmerName || this.enrollment.farmerName || '';
+
     this.api.complete(this.enrollment.cattleId).subscribe({
       next: ({ enrollment }) => {
         this.enrollment = enrollment;
         this.loadCattleInventory();
         this.resetCaptureState(false);
-        this.agentScreen = 'home';
-        this.message = 'Capture session complete. Returned home for the next cattle.';
+        this.farmerId = savedFarmerId;
+        this.farmerName = savedFarmerName;
+        this.selectedFarmerKey = `${savedFarmerId}:${savedFarmerName}`;
+        this.agentScreen = 'location';
+        this.findRegisteredCattle();
+        this.message = 'Cow saved. Same farmer is selected, so you can start the next cow under this farmer.';
       },
       error: (error) => {
         this.message = this.errorMessage(error);
@@ -1162,6 +1184,16 @@ export class AppComponent implements OnDestroy {
     return Array.from({ length: 5 - this.muzzlePreviews.length }, (_, index) => this.muzzlePreviews.length + index + 1);
   }
 
+
+  private generateFarmerId(): string {
+    const usedNumbers = this.cattleInventory
+      .map((cattle) => cattle.farmerId || '')
+      .map((id) => /^FARM-(\d+)$/i.exec(id.trim())?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map((value) => Number(value));
+    const next = usedNumbers.length ? Math.max(...usedNumbers) + 1 : (this.cattleStats?.farmerCount || 0) + 1;
+    return `FARM-${String(next).padStart(4, '0')}`;
+  }
   private frameBlob(): Promise<Blob> {
     const video = this.video!.nativeElement;
     const canvas = this.canvas!.nativeElement;
