@@ -604,7 +604,8 @@ app.post('/api/enrollments', async (req, res, next) => {
       sessions: []
     };
 
-    record.farmerId = String(req.body.farmerId || record.farmerId || '').trim() || nextFarmerId(rows);
+    const isNewFarmer = req.body.newFarmer === true || req.body.newFarmer === 'true';
+    record.farmerId = isNewFarmer && !existing ? nextFarmerId(rows) : (String(req.body.farmerId || record.farmerId || '').trim() || nextFarmerId(rows));
     record.farmerName = String(req.body.farmerName || record.farmerName || '').trim();
     record.fieldOfficerName = req.body.fieldOfficerName || record.fieldOfficerName || '';
     record.fieldOfficerId = req.body.fieldOfficerId || record.fieldOfficerId || '';

@@ -339,7 +339,7 @@ export class ApiService {
     return this.http.post<{ agent: AppUser }>(`${this.baseUrl}/agents`, payload, { headers: this.authHeaders() });
   }
 
-  createEnrollment(payload: Partial<Enrollment> & { matchRadiusKm?: number }): Observable<{ enrollment: Enrollment }> {
+  createEnrollment(payload: Partial<Enrollment> & { matchRadiusKm?: number; newFarmer?: boolean }): Observable<{ enrollment: Enrollment }> {
     return this.http.post<{ enrollment: Enrollment }>(`${this.baseUrl}/enrollments`, payload);
   }
 

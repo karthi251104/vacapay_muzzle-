@@ -491,7 +491,8 @@ export class AppComponent implements OnDestroy {
       return;
     }
 
-    this.message = 'Starting capture session...';
+    const newFarmer = !this.selectedFarmerKey;
+    this.message = newFarmer ? 'Creating farmer and starting first cow...' : 'Starting capture session...';
     this.api
       .createEnrollment({
         farmerId: this.farmerId.trim(),
@@ -500,12 +501,16 @@ export class AppComponent implements OnDestroy {
         fieldOfficerId: this.currentUser?.agentId,
         locationLat: this.locationLat,
         locationLon: this.locationLon,
-        matchRadiusKm: this.radiusKm
+        matchRadiusKm: this.radiusKm,
+        newFarmer
       })
       .subscribe({
         next: ({ enrollment }) => {
           this.enrollment = enrollment;
           this.cattleId = enrollment.cattleId;
+          this.farmerId = enrollment.farmerId || this.farmerId;
+          this.farmerName = enrollment.farmerName || this.farmerName;
+          this.selectedFarmerKey = [this.farmerId, this.farmerName].join(':');
           this.muzzlePreviews = [];
           this.matchResolution = undefined;
           this.requiredImages.forEach((item) => {
