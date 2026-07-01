@@ -1,0 +1,25 @@
+{
+  "selected_class": "class_000012",
+  "confidence": "high",
+  "reason": "The query muzzle and class_000012 share an identical pattern of a central vertical groove flanked by radiating V-shaped ridges, including a highly distinctive bright white bead on the left side of the groove.",
+  "match_boxes": [
+    {
+      "label": "query matching pattern",
+      "box": [
+        80,
+        200,
+        150,
+        150
+      ]
+    },
+    {
+      "label": "candidate matching pattern",
+      "box": [
+        610,
+        180,
+        110,
+        110
+      ]
+    }
+  ]
+}

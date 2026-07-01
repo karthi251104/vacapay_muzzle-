@@ -1,0 +1,25 @@
+{
+  "selected_class": "class_000028",
+  "confidence": "high",
+  "reason": "The query muzzle and class_000028 share an identical ridge pattern radiating outwards from a central groove, including a distinctive small yellowish speck near the upper-middle section and matching white spots along the lower ridges.",
+  "match_boxes": [
+    {
+      "label": "query matching pattern",
+      "box": [
+        183,
+        253,
+        12,
+        12
+      ]
+    },
+    {
+      "label": "candidate matching pattern",
+      "box": [
+        473,
+        546,
+        8,
+        8
+      ]
+    }
+  ]
+}

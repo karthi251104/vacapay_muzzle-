@@ -1,0 +1,36 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"selected_class\": \"class_000025\",\n  \"confidence\": \"high\",\n  \"reason\": \"The candidate class_000025 is an identical match to the query muzzle, displaying the exact same distribution of dark beads on a light pinkish background in the lower-center, as well as the matching white hair/bristle patterns on the left.\",\n  \"match_boxes\": [\n    {\n      \"label\": \"query matching pattern\",\n      \"box\": [120, 280, 180, 180]\n    },\n    {\n      \"label\": \"candidate matching pattern\",\n      \"box\": [640, 570, 100, 110]\n    }\n  ]\n}",
+            "thoughtSignature": "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"
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 1332,
+    "candidatesTokenCount": 181,
+    "totalTokenCount": 2575,
+    "promptTokensDetails": [
+      {
+        "modality": "IMAGE",
+        "tokenCount": 1075
+      },
+      {
+        "modality": "TEXT",
+        "tokenCount": 257
+      }
+    ],
+    "thoughtsTokenCount": 1062,
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-3.5-flash",
+  "responseId": "lxBFavP2IrmqjuMPz5qCOA"
+}

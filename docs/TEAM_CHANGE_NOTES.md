@@ -124,6 +124,30 @@ Small test result:
 
 This is a better stress test than the first Top-5 demo because the model cannot use rank labels as hints.
 
+### Gemini Shuffled Top-5 Follow-up
+
+A Gemini dashboard was created after the request to use Gemini Flash and reduce candidates from 10 to 5:
+
+```text
+groq-muzzle-dashboard/site_gemini_shuffled_top5
+```
+
+This version:
+
+- uses 5 candidate muzzle images
+- randomly samples the wrong candidate classes
+- randomly shuffles candidate order
+- removes Top-1 / Top-2 labels from the collage
+- shows only class names on candidate images
+- uses Gemini 3.5 Flash first, then Gemini 2.5 Flash as fallback
+
+Small test result:
+
+- 5 samples tested
+- Gemini 3.5 Flash correctly selected the query class for 5 out of 5 samples
+
+This is the closest version to the latest requested LLM verification experiment.
+
 ## 7. Current Limitation
 
 The local full DINOv2 all-image evaluation did not complete on this Windows machine because PyTorch needs the Microsoft Visual C++ runtime to load correctly.

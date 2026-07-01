@@ -1,0 +1,25 @@
+{
+  "selected_class": "class_000009",
+  "confidence": "high",
+  "reason": "The query muzzle and class_000009 share an identical pattern of horizontal wavy ridges on the left side and a distinctive oval ring-like ridge structure on the right side.",
+  "match_boxes": [
+    {
+      "label": "query matching pattern",
+      "box": [
+        240,
+        200,
+        100,
+        120
+      ]
+    },
+    {
+      "label": "candidate matching pattern",
+      "box": [
+        710,
+        500,
+        60,
+        90
+      ]
+    }
+  ]
+}
