@@ -374,10 +374,11 @@ export class ApiService {
     return this.http.get<{ cattle: CattleMatch[] }>(`${this.baseUrl}/cattle/search?${query.toString()}`);
   }
 
-  captureMuzzle(cattleId: string, file: Blob, slot: number): Observable<MuzzleCaptureResponse> {
+  captureMuzzle(cattleId: string, file: Blob, slot: number, clientProcessed = false): Observable<MuzzleCaptureResponse> {
     const formData = new FormData();
     formData.append('image', file, `muzzle${slot}.jpg`);
     formData.append('slot', String(slot));
+    if (clientProcessed) formData.append('clientProcessed', 'true');
     return this.http.post<MuzzleCaptureResponse>(`${this.baseUrl}/enrollments/${cattleId}/muzzle`, formData);
   }
 

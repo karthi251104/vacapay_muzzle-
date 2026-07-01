@@ -18,7 +18,7 @@
       <div class="phone-top"></div>
       <div class="phone-hero">
         <span>Live Session</span>
-        <strong>5/5</strong>
+        <strong>3/3</strong>
       </div>
       <div class="phone-scan">
         <div class="mini-box">Muzzle 92%</div>
@@ -66,7 +66,7 @@
     <div>
       <p class="eyebrow">Admin</p>
       <h1>Real Field Verification</h1>
-      <p>Registered cattle are kept as the main records. When the same cow is captured again, the new visit is saved separately and linked to the original cow.</p>
+      <p>Cattle enrolment records are the searchable cattle identities. Cattle search records are kept separately for field testing and accuracy review.</p>
     </div>
     <div class="top-actions">
       <div class="user-chip">{{ currentUser?.name }}</div>
@@ -88,7 +88,7 @@
       <strong>{{ cattleStats?.uniqueCattleCount || cattleStats?.cattleCount || 0 }}</strong>
     </article>
     <article>
-      <span>Matched Re-visits</span>
+      <span>Cattle Searches</span>
       <strong>{{ cattleStats?.duplicateCaptureCount || 0 }}</strong>
     </article>
     <article>
@@ -141,8 +141,8 @@
       <div class="panel-title registry-title">
         <div>
           <p class="eyebrow">Field Records</p>
-          <h2>{{ adminRegistryView === 'unique' ? 'Registered Cattle' : 'Matched Re-visits' }}</h2>
-          <p class="muted">{{ adminRegistryView === 'unique' ? 'Main cattle records used for future field matching.' : 'Repeat captures that matched an already registered cow.' }}</p>
+          <h2>{{ adminRegistryView === 'unique' ? 'Cattle Enrolment' : 'Cattle Search Records' }}</h2>
+          <p class="muted">{{ adminRegistryView === 'unique' ? 'Enrolled cattle identities used for future search.' : 'Cattle search attempts saved for testing and review.' }}</p>
         </div>
         <div class="compact-actions">
           <button type="button" class="ghost" (click)="loadCattleInventory()">Refresh</button>
@@ -152,20 +152,20 @@
 
       <div class="segmented registry-tabs">
         <button type="button" [class.active]="adminRegistryView === 'unique'" (click)="setAdminRegistryView('unique')">
-          Registered Cattle <span>{{ uniqueCattleInventory.length }}</span>
+          Cattle Enrolment <span>{{ uniqueCattleInventory.length }}</span>
         </button>
         <button type="button" [class.active]="adminRegistryView === 'duplicates'" (click)="setAdminRegistryView('duplicates')">
-          Matched Re-visits <span>{{ duplicateCattleInventory.length }}</span>
+          Cattle Searches <span>{{ duplicateCattleInventory.length }}</span>
         </button>
       </div>
 
       <div class="registry-note" *ngIf="adminRegistryView === 'unique'">
-        <strong>Main cattle records</strong>
-        <span>These are the real cattle identities the field team will search against in future visits.</span>
+        <strong>Cattle enrolment records</strong>
+        <span>These are the real cattle identities the field team searches against.</span>
       </div>
       <div class="registry-note duplicate-note" *ngIf="adminRegistryView === 'duplicates'">
-        <strong>Matched repeat captures</strong>
-        <span>Each row is a repeat field capture linked to the original cattle record.</span>
+        <strong>Cattle search records</strong>
+        <span>Each row is a cattle search attempt with its match/no-match result.</span>
       </div>
 
       <div class="registry-layout">
@@ -181,26 +181,26 @@
                 <strong>{{ cattle.farmerName || 'Unknown farmer' }}</strong>
                 <p>{{ cattle.cattleLabel || 'Cattle' }} / Owner ID: {{ cattle.farmerId || 'NA' }} / Officer: {{ cattle.fieldOfficerName || 'NA' }}</p>
                 <em *ngIf="selectedAdminCattle?.cattleId === cattle.cattleId">Selected</em>
-                <em class="record-kind" *ngIf="isDuplicateEvidence(cattle)">Matched Re-visit</em>
-                <small *ngIf="!isDuplicateEvidence(cattle)">{{ cattle.sessionCount }} visits / {{ cattle.imageCount }} photos / last {{ cattle.lastCaptureDate || 'No date' }}</small>
+                <em class="record-kind" *ngIf="isDuplicateEvidence(cattle)">Cattle Search</em>
+                <small *ngIf="!isDuplicateEvidence(cattle)">{{ cattle.sessionCount }} captures / {{ cattle.imageCount }} photos / last {{ cattle.lastCaptureDate || 'No date' }}</small>
                 <small *ngIf="isDuplicateEvidence(cattle)">Matched with {{ cattle.duplicateOfFarmerName || shortId(cattle.duplicateOfCattleId) }} / {{ cattle.imageCount }} photos / last {{ cattle.lastCaptureDate || 'No date' }}</small>
               </div>
             </button>
           </article>
 
           <div class="empty-state" *ngIf="!visibleCattleInventory.length">
-            {{ adminRegistryView === 'unique' ? 'No registered cattle records yet.' : 'No matched repeat captures yet.' }}
+            {{ adminRegistryView === 'unique' ? 'No registered cattle records yet.' : 'No cattle search records yet.' }}
           </div>
         </div>
 
         <aside class="cattle-detail" *ngIf="selectedAdminCattle; else cattleEmpty">
           <div class="detail-head">
             <div>
-              <p class="eyebrow">{{ isDuplicateEvidence(selectedAdminCattle) ? 'Matched Re-visit' : 'Registered Cattle' }}</p>
+              <p class="eyebrow">{{ isDuplicateEvidence(selectedAdminCattle) ? 'Cattle Search' : 'Registered Cattle' }}</p>
               <h3>{{ selectedAdminCattle.farmerName || 'Unknown farmer' }}</h3>
               <p class="simple-id">Cattle ID: {{ shortId(selectedAdminCattle.cattleId) }}</p>
             </div>
-            <span>{{ selectedAdminCattle.sessionCount }} visits</span>
+            <span>{{ selectedAdminCattle.sessionCount }} captures</span>
           </div>
           <div class="duplicate-source" *ngIf="isDuplicateEvidence(selectedAdminCattle)">
             <strong>Matched original cattle</strong>
@@ -211,14 +211,14 @@
           <article class="session-card" *ngFor="let session of selectedAdminCattle.sessions">
             <div class="session-head">
               <div>
-                <strong>Visit {{ selectedAdminCattle.sessions.indexOf(session) + 1 }}</strong>
+                <strong>Capture {{ selectedAdminCattle.sessions.indexOf(session) + 1 }}</strong>
                 <p>{{ session.captureDate }} / {{ session.imageCount }} photos</p>
               </div>
-              <span>{{ session.imageCount }}/12</span>
+              <span>{{ session.imageCount }}/{{ totalImageCount }}</span>
             </div>
             <p class="folder-text">{{ session.productionFolder }}</p>
             <div class="session-note" *ngIf="session.matchResult?.decision === 'matched_existing' || session.duplicateSavedSeparately">
-              <strong>Matched re-visit saved separately</strong>
+              <strong>Cattle search matched existing cattle</strong>
               <small *ngIf="session.matchResult?.topMatches?.[0] as bestMatch">Top 1 found in {{ matchSourceLabel(bestMatch.searchScope) }} / {{ bestMatch.farmerName || 'unknown farmer' }} / {{ bestMatch.confidencePercent }}%</small>
               <small *ngIf="session.matchResult?.topMatches?.length">Top 5 checked: {{ session.matchResult?.topMatches?.length }} candidates</small>
             </div>
@@ -252,26 +252,27 @@
       <section class="field-results" *ngIf="allMatchReviews.length">
         <div class="field-result-grid">
           <article><span>Registered Cattle</span><strong>{{ fieldTestMetrics.registeredCattle }}</strong></article>
-          <article><span>Repeat Visits</span><strong>{{ fieldTestMetrics.repeatVisits }}</strong></article>
-          <article><span>Reviewed Ground Truth</span><strong>{{ fieldTestMetrics.reviewedVisits }}</strong></article>
-          <article><span>Correct Re-visits</span><strong>{{ fieldTestMetrics.correctMatches }}</strong></article>
+          <article><span>Cattle Searches</span><strong>{{ fieldTestMetrics.cattleSearches }}</strong></article>
+          <article><span>Reviewed Searches</span><strong>{{ fieldTestMetrics.reviewedSearches }}</strong></article>
+          <article><span>Correct Matches</span><strong>{{ fieldTestMetrics.correctMatches }}</strong></article>
+          <article><span>Correct No Cattle Found</span><strong>{{ fieldTestMetrics.correctNoCattleFound }}</strong></article>
           <article><span>Missed Matches</span><strong>{{ fieldTestMetrics.missedMatches }}</strong></article>
           <article><span>Wrong Matches</span><strong>{{ fieldTestMetrics.wrongMatches }}</strong></article>
           <article><span>Top-1 Accuracy</span><strong>{{ fieldTestMetrics.top1Accuracy }}%</strong></article>
           <article><span>Top-5 Accuracy</span><strong>{{ fieldTestMetrics.top5Accuracy }}%</strong></article>
           <article><span>False Matches</span><strong>{{ fieldTestMetrics.falseMatchCount }}</strong></article>
-          <article><span>Needs Expected Cow</span><strong>{{ fieldTestMetrics.pendingTruth }}</strong></article>
+          <article><span>Needs Ground Truth</span><strong>{{ fieldTestMetrics.pendingTruth }}</strong></article>
         </div>
 
         <div class="field-note">
           <strong>How this matches the folder test</strong>
-          <span>Expected cow is the ground truth label. Accuracy uses the raw score-ranked Top-1/Top-5 predictions like the folder test; the visible list can still prioritize selected-farmer matches for field review.</span>
+          <span>Ground truth is the expected cattle identity, or the captured cattle itself when the correct answer is no cattle found. Accuracy uses the raw score-ranked Top-1/Top-5 predictions like the folder test.</span>
         </div>
 
         <div class="officer-results" *ngIf="officerFieldSummaries.length">
           <div class="officer-row officer-head">
             <span>Officer</span>
-            <span>Repeats</span>
+            <span>Searches</span>
             <span>Reviewed</span>
             <span>Correct</span>
             <span>Missed</span>
@@ -282,8 +283,8 @@
           </div>
           <div class="officer-row" *ngFor="let officer of officerFieldSummaries">
             <strong>{{ officer.officer }}</strong>
-            <span>{{ officer.repeatVisits }}</span>
-            <span>{{ officer.reviewedVisits }}</span>
+            <span>{{ officer.cattleSearches }}</span>
+            <span>{{ officer.reviewedSearches }}</span>
             <span>{{ officer.correctMatches }}</span>
             <span>{{ officer.missedMatches }}</span>
             <span>{{ officer.wrongMatches }}</span>
@@ -299,7 +300,7 @@
         <div>
           <strong>{{ review.finalCattleId }}</strong>
           <p>{{ review.farmerName || 'NA' }} / {{ review.fieldOfficerName || 'NA' }}</p>
-          <small>{{ review.decision === 'matched_existing' ? 'Matched re-visit saved separately' : 'New cattle registered' }} / {{ review.confidencePercent }}% / {{ reviewResultLabel(review) }}</small>
+          <small>{{ review.decision === 'matched_existing' ? 'Cattle search matched existing cattle' : 'No cattle found / new cattle' }} / {{ review.confidencePercent }}% / {{ reviewResultLabel(review) }}</small>
         </div>
         <div class="review-evidence">
           <div class="review-tags">
@@ -313,7 +314,8 @@
           </div>
         </div>
         <div class="compact-actions review-actions">
-          <button type="button" (click)="confirmMatchReview(review)">Correct</button>
+          <button type="button" *ngIf="review.decision === 'matched_existing'" (click)="confirmMatchReview(review)">Correct Match</button>
+          <button type="button" *ngIf="review.decision === 'new_cattle'" (click)="confirmNoCattleFound(review)">Correct No Cattle Found</button>
           <button type="button" class="ghost" *ngIf="metricTopMatches(review)[0] as bestRanked" (click)="confirmMatchReview(review, bestRanked.cattleId)">Expected Rank 1</button>
           <button type="button" class="danger-action" *ngIf="review.decision === 'matched_existing'" (click)="moveWrongMatchToRegistered(review)">Wrong - make registered</button>
         </div>
@@ -342,7 +344,7 @@
     </div>
     <div class="progress-ring" [style.--progress]="progressPercent + '%'">
       <strong>{{ progressPercent }}%</strong>
-      <span>{{ totalCapturedImages }}/12</span>
+      <span>{{ totalCapturedImages }}/{{ totalImageCount }}</span>
     </div>
   </section>
 
@@ -385,7 +387,7 @@
         <article><span>Farmers</span><strong>{{ cattleStats?.farmerCount || 0 }}</strong></article>
         <article><span>Registered Cattle</span><strong>{{ cattleStats?.uniqueCattleCount || cattleStats?.cattleCount || 0 }}</strong></article>
         <article><span>Captures</span><strong>{{ cattleStats?.sessionCount || 0 }}</strong></article>
-        <article><span>Duplicates</span><strong>{{ cattleStats?.duplicateCaptureCount || 0 }}</strong></article>
+        <article><span>Cattle Searches</span><strong>{{ allMatchReviews.length || cattleStats?.duplicateCaptureCount || 0 }}</strong></article>
       </div>
 
       <section class="already-list" *ngIf="recentCattle.length">
@@ -460,7 +462,7 @@
           <button type="button" class="candidate-card" *ngFor="let farmer of gpsFarmerMatches" (click)="selectFarmer(farmer)">
             <strong>{{ farmer.farmerName || 'Unknown farmer' }}</strong>
             <span>{{ farmer.farmerId || 'No farmer ID' }}</span>
-            <small>{{ farmer.distanceKm === null ? 'No GPS' : (farmer.distanceKm | number:'1.1-1') + ' km' }} / {{ farmer.cattleCount }} cows / {{ farmer.visitCount }} visits</small>
+            <small>{{ farmer.distanceKm === null ? 'No GPS' : (farmer.distanceKm | number:'1.1-1') + ' km' }} / {{ farmer.cattleCount }} cows / {{ farmer.visitCount }} captures</small>
           </button>
         </div>
 
@@ -469,7 +471,7 @@
           <button type="button" class="candidate-card" *ngFor="let farmer of nameFarmerMatches" (click)="selectFarmer(farmer)">
             <strong>{{ farmer.farmerName || 'Unknown farmer' }}</strong>
             <span>{{ farmer.farmerId || 'No farmer ID' }}</span>
-            <small>{{ farmer.distanceKm === null ? 'Name match' : (farmer.distanceKm | number:'1.1-1') + ' km' }} / {{ farmer.cattleCount }} cows / {{ farmer.visitCount }} visits</small>
+            <small>{{ farmer.distanceKm === null ? 'Name match' : (farmer.distanceKm | number:'1.1-1') + ' km' }} / {{ farmer.cattleCount }} cows / {{ farmer.visitCount }} captures</small>
           </button>
         </div>
       </div>
@@ -477,7 +479,7 @@
         <button type="button" class="candidate-card" *ngFor="let match of cattleMatches" (click)="selectRegisteredCattle(match)">
           <strong>{{ match.cattleLabel || 'Cow' }}</strong>
           <span>{{ match.farmerName || 'Unknown farmer' }}</span>
-          <small>{{ match.distanceKm === null ? 'No GPS' : (match.distanceKm | number:'1.1-1') + ' km' }} / {{ match.sessionCount }} visits / saved cow</small>
+          <small>{{ match.distanceKm === null ? 'No GPS' : (match.distanceKm | number:'1.1-1') + ' km' }} / {{ match.sessionCount }} captures / saved cow</small>
         </button>
       </div>
 
@@ -490,7 +492,7 @@
           <p class="eyebrow">Step 3</p>
           <h2>Muzzle Photos</h2>
         </div>
-        <span>{{ muzzlePreviews.length }}/5</span>
+        <span>{{ muzzlePreviews.length }}/{{ muzzleImageCount }}</span>
       </div>
 
       <div class="camera-screen" [class.detecting]="isDetecting" [class.live]="cameraOn">
@@ -515,7 +517,7 @@
 
       <div class="action-row">
         <button type="button" class="ghost" (click)="cameraOn ? stopCamera() : startCamera()">{{ cameraOn ? 'Stop Camera' : 'Start Camera' }}</button>
-        <button type="button" [disabled]="!cameraOn || muzzlePreviews.length >= 5" (click)="toggleAutoCapture()">{{ autoCaptureOn ? 'Pause Auto' : 'Auto Capture' }}</button>
+        <button type="button" [disabled]="!cameraOn || muzzlePreviews.length >= muzzleImageCount" (click)="toggleAutoCapture()">{{ autoCaptureOn ? 'Pause Auto' : 'Auto Capture' }}</button>
       </div>
 
       <div class="model-grid">
@@ -563,20 +565,20 @@
       <div class="review-summary">
         <article><span>Farmer ID</span><strong>{{ farmerId || enrollment?.farmerId || 'NA' }}</strong></article>
         <article><span>Farmer</span><strong>{{ farmerName || enrollment?.farmerName || 'NA' }}</strong></article>
-        <article><span>Images</span><strong>{{ totalCapturedImages }}/12</strong></article>
+        <article><span>Images</span><strong>{{ totalCapturedImages }}/{{ totalImageCount }}</strong></article>
         <article><span>Folder</span><strong>{{ enrollment?.folderLocation || 'Not created' }}</strong></article>
       </div>
 
       <div class="match-result" *ngIf="matchResolution">
-        <strong>{{ matchResolution.decision === 'matched_existing' ? 'Duplicate found' : 'New cattle saved' }}</strong>
+        <strong>{{ matchResolution.decision === 'matched_existing' ? 'Cattle found' : 'No cattle found' }}</strong>
         <ng-container *ngIf="matchResolution.topMatches[0] as bestMatch">
-          <p *ngIf="matchResolution.decision === 'matched_existing'">Found in {{ matchSourceLabel(bestMatch.searchScope) }} under {{ bestMatch.farmerName || 'unknown farmer' }} / {{ bestMatch.cattleLabel || shortId(bestMatch.cattleId) }}. This capture is saved in a separate duplicate folder.</p>
+          <p *ngIf="matchResolution.decision === 'matched_existing'">Found in {{ matchSourceLabel(bestMatch.searchScope) }} under {{ bestMatch.farmerName || 'unknown farmer' }} / {{ bestMatch.cattleLabel || shortId(bestMatch.cattleId) }}. This cattle search is saved separately for testing.</p>
           <p class="result-source">Best match {{ bestMatch.confidencePercent }}% / {{ matchSourceLabel(bestMatch.searchScope) }}</p>
         </ng-container>
-        <p *ngIf="matchResolution.decision === 'new_cattle'">No strong match was found in selected farmer cattle or all saved muzzle records, so this remains a new cattle record.</p>
+        <p *ngIf="matchResolution.decision === 'new_cattle'">No enrolled cattle was found in selected farmer cattle or all saved muzzle records. If this cow is new, this is a correct no-cattle-found result.</p>
       </div>
       <div class="final-gallery">
-        <img *ngFor="let preview of muzzlePreviews.slice(0, 5)" [src]="preview" alt="Muzzle preview">
+        <img *ngFor="let preview of muzzlePreviews.slice(0, muzzleImageCount)" [src]="preview" alt="Muzzle preview">
         <img *ngFor="let item of requiredImages" [src]="item.previewUrl" [alt]="item.label" [hidden]="!item.previewUrl">
       </div>
 

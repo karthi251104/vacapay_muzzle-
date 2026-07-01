@@ -1,0 +1,44 @@
+{
+  "note": "Gemini-only sample. DINOv2 embedding run was blocked by missing Windows VC++ runtime for PyTorch.",
+  "query": {
+    "classId": "class_000009",
+    "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000009\\image_4.jpg"
+  },
+  "candidates": [
+    {
+      "rank": 1,
+      "classId": "class_000009",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000009\\image_5.jpg",
+      "expectedSameClass": true
+    },
+    {
+      "rank": 2,
+      "classId": "class_000012",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000012\\image_10.jpg",
+      "expectedSameClass": false
+    },
+    {
+      "rank": 3,
+      "classId": "class_000015",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000015\\image_10.jpg",
+      "expectedSameClass": false
+    },
+    {
+      "rank": 4,
+      "classId": "class_000025",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000025\\image_1.jpg",
+      "expectedSameClass": false
+    },
+    {
+      "rank": 5,
+      "classId": "class_000028",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000028\\image_10.jpg",
+      "expectedSameClass": false
+    }
+  ],
+  "collage": "F:\\vacapay\\vacapay muzzle\\experiments\\llm_muzzle_verification\\results_gemini_test_folder_sample\\collage.jpg",
+  "geminiError": {
+    "status": 401,
+    "body": "{\n  \"error\": {\n    \"code\": 401,\n    \"message\": \"Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential. See https://developers.google.com/identity/sign-in/web/devconsole-project.\",\n    \"status\": \"UNAUTHENTICATED\",\n    \"details\": [\n      {\n        \"@type\": \"type.googleapis.com/google.rpc.ErrorInfo\",\n        \"reason\": \"ACCESS_TOKEN_TYPE_UNSUPPORTED\",\n        \"metadata\": {\n          \"method\": \"google.ai.generativelanguage.v1beta.GenerativeService.GenerateContent\",\n          \"service\": \"generativelanguage.googleapis.com\"\n        }\n      }\n    ]\n  }\n}\n"
+  }
+}

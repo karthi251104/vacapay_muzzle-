@@ -32,6 +32,7 @@ const MODEL_PATH = process.env.MODEL_PATH || path.join(rootDir, 'best_v4.pt');
 const DINOV2_MODEL_PATH = process.env.DINOV2_MODEL_PATH || path.join(__dirname, '..', 'dinov2_triplet_v2_best.pt');
 const YOLO_IMGSZ = Number(process.env.YOLO_IMGSZ || 640);
 const MUZZLE_CONF = Number(process.env.MUZZLE_CONF || 0.55);
+const MUZZLE_IMAGE_COUNT = Math.max(1, Number(process.env.MUZZLE_IMAGE_COUNT || 3));
 const EMBEDDING_MATCH_THRESHOLD = Number(process.env.EMBEDDING_MATCH_THRESHOLD || 0.70);
 const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || '';
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || '';
@@ -44,13 +45,11 @@ const mongoEnabled = Boolean(MONGODB_URI);
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY || '';
 const PINECONE_INDEX_HOST = normalizePineconeHost(process.env.PINECONE_INDEX_HOST || '');
 const PINECONE_NAMESPACE = process.env.PINECONE_NAMESPACE || 'vacapay';
+const PINECONE_ENROLMENT_NAMESPACE = process.env.PINECONE_ENROLMENT_NAMESPACE || `${PINECONE_NAMESPACE}-cattle-enrolment`;
+const PINECONE_SEARCH_NAMESPACE = process.env.PINECONE_SEARCH_NAMESPACE || `${PINECONE_NAMESPACE}-cattle-search`;
 const pineconeEnabled = Boolean(PINECONE_API_KEY && PINECONE_INDEX_HOST);
-const REQUIRED_IMAGES = [
-  'muzzle1.jpg',
-  'muzzle2.jpg',
-  'muzzle3.jpg',
-  'muzzle4.jpg',
-  'muzzle5.jpg',
+const MUZZLE_IMAGE_FILES = Array.from({ length: MUZZLE_IMAGE_COUNT }, (_, index) => `muzzle${index + 1}.jpg`);
+const SUPPORT_IMAGE_FILES = [
   'face1.jpg',
   'face2.jpg',
   'face3.jpg',
@@ -59,6 +58,7 @@ const REQUIRED_IMAGES = [
   'back.jpg',
   'udder.jpg'
 ];
+const REQUIRED_IMAGES = [...MUZZLE_IMAGE_FILES, ...SUPPORT_IMAGE_FILES];
 const sessions = new Map();
 let mongoClient = null;
 let mongoDb = null;
@@ -85,6 +85,7 @@ app.get('/api/health', (_req, res) => {
     dinov2ModelPath: DINOV2_MODEL_PATH,
     embeddingMatchThreshold: EMBEDDING_MATCH_THRESHOLD,
     yoloImageSize: YOLO_IMGSZ,
+    muzzleImageCount: MUZZLE_IMAGE_COUNT,
     storage: dataDir,
     cloudinary: {
       enabled: cloudinaryEnabled,
@@ -97,7 +98,9 @@ app.get('/api/health', (_req, res) => {
     },
     pinecone: {
       enabled: pineconeEnabled,
-      namespace: PINECONE_NAMESPACE,
+      namespace: PINECONE_ENROLMENT_NAMESPACE,
+      cattleEnrolmentNamespace: PINECONE_ENROLMENT_NAMESPACE,
+      cattleSearchNamespace: PINECONE_SEARCH_NAMESPACE,
       indexHost: pineconeEnabled ? PINECONE_INDEX_HOST : null
     }
   });
@@ -121,7 +124,7 @@ app.get('/api/pinecone/status', async (_req, res) => {
     res.json({
       ok: true,
       enabled: true,
-      namespace: PINECONE_NAMESPACE,
+      namespace: PINECONE_ENROLMENT_NAMESPACE,
       indexHost: PINECONE_INDEX_HOST,
       dimension: result.dimension,
       totalVectorCount: result.totalVectorCount,
@@ -131,7 +134,7 @@ app.get('/api/pinecone/status', async (_req, res) => {
     res.status(500).json({
       ok: false,
       enabled: true,
-      namespace: PINECONE_NAMESPACE,
+      namespace: PINECONE_ENROLMENT_NAMESPACE,
       indexHost: PINECONE_INDEX_HOST,
       error: error.message || 'Pinecone status check failed.'
     });
@@ -516,7 +519,7 @@ app.post('/api/cattle/merge', requireAuth, requireAdmin, async (req, res, next) 
     const uniqueSourceIds = [...new Set(sourceCattleIds)].filter((id) => id && id !== targetCattleId);
 
     if (!targetCattleId || !uniqueSourceIds.length) {
-      res.status(400).json({ error: 'Select one main cattle and at least one duplicate cattle.' });
+      res.status(400).json({ error: 'Select one main cattle and at least one cattle/search record to merge.' });
       return;
     }
 
@@ -555,7 +558,7 @@ app.post('/api/cattle/merge', requireAuth, requireAdmin, async (req, res, next) 
     }
 
     if (!mergedIds.length) {
-      res.status(404).json({ error: 'No duplicate records were found to merge.' });
+      res.status(404).json({ error: 'No cattle/search records were found to merge.' });
       return;
     }
 
@@ -605,7 +608,7 @@ app.post('/api/enrollments', async (req, res, next) => {
     };
 
     const isNewFarmer = req.body.newFarmer === true || req.body.newFarmer === 'true';
-    record.farmerId = isNewFarmer && !existing ? nextFarmerId(rows) : (String(req.body.farmerId || record.farmerId || '').trim() || nextFarmerId(rows));
+    record.farmerId = isNewFarmer && !existing ? generateUniqueFarmerId(rows) : (String(req.body.farmerId || record.farmerId || '').trim() || generateUniqueFarmerId(rows));
     record.farmerName = String(req.body.farmerName || record.farmerName || '').trim();
     record.fieldOfficerName = req.body.fieldOfficerName || record.fieldOfficerName || '';
     record.fieldOfficerId = req.body.fieldOfficerId || record.fieldOfficerId || '';
@@ -616,7 +619,7 @@ app.post('/api/enrollments', async (req, res, next) => {
     record.folderLocation = session.folderLocation;
     record.captureDateTime = session.captureDateTime;
     record.uploadDateTime = now;
-    record.status = existing ? 'repeat_visit_manual_folder' : 'draft';
+    record.status = existing ? 'cattle_search_manual_folder' : 'draft';
     record.autoSelectedExistingCattle = false;
     record.activeSessionId = session.sessionId;
     session.fieldOfficerId = record.fieldOfficerId;
@@ -643,19 +646,23 @@ app.post('/api/enrollments/:cattleId/muzzle', upload.single('image'), async (req
 
     const { folder, mediaPrefix } = await getActiveCaptureFolder(req.params.cattleId);
     const requestedSlot = Number(req.body.slot || 0);
-    const slot = requestedSlot > 0 ? requestedSlot : (await nextSlot(folder, 'muzzle', 5));
+    const slot = requestedSlot > 0 ? requestedSlot : (await nextSlot(folder, 'muzzle', MUZZLE_IMAGE_COUNT));
     const fileName = `muzzle${slot}.jpg`;
 
-    if (slot > 5) {
-      res.status(409).json({ error: 'All 5 muzzle images are already captured.' });
+    if (slot > MUZZLE_IMAGE_COUNT) {
+      res.status(409).json({ error: `All ${MUZZLE_IMAGE_COUNT} muzzle images are already captured.` });
       return;
     }
 
-    const result = await runYoloCrop({
-      inputPath: req.file.path,
-      outputDir: folder,
-      outputName: fileName
-    });
+    const clientProcessed = ['true', '1', 'yes'].includes(String(req.body.clientProcessed || req.body.preprocessed || '').toLowerCase());
+    const outPath = path.join(folder, fileName);
+    const result = clientProcessed
+      ? await saveClientProcessedMuzzle(req.file.path, outPath)
+      : await runYoloCrop({
+          inputPath: req.file.path,
+          outputDir: folder,
+          outputName: fileName
+        });
 
     if (!result.detected) {
       await fs.unlink(req.file.path).catch(() => {});
@@ -668,10 +675,10 @@ app.post('/api/enrollments/:cattleId/muzzle', upload.single('image'), async (req
     const imageRef = await saveImageReference({
       cattleId: req.params.cattleId,
       imageType: `muzzle${slot}`,
-      localPath: path.join(folder, fileName),
+      localPath: outPath,
       previewUrl
     });
-    const matchResolution = slot === 5 ? await resolveMuzzleMatch(req.params.cattleId) : null;
+    const matchResolution = slot === MUZZLE_IMAGE_COUNT ? await resolveMuzzleMatch(req.params.cattleId) : null;
 
     res.json({
       slot,
@@ -1121,6 +1128,19 @@ async function getActiveCaptureFolder(cattleId) {
   };
 }
 
+async function saveClientProcessedMuzzle(inputPath, outPath) {
+  await fs.copyFile(inputPath, outPath);
+  return {
+    detected: true,
+    confidence: 1,
+    bbox: [],
+    imageSize: [],
+    claheApplied: true,
+    clientProcessed: true,
+    imgsz: null
+  };
+}
+
 async function saveImageReference({ cattleId, imageType, localPath, previewUrl }) {
   const rows = await readMetadata();
   const rowIndex = rows.findIndex((item) => item.cattleId === cattleId);
@@ -1178,7 +1198,6 @@ async function resolveMuzzleMatch(cattleId) {
   }
 
   const queryEmbedding = await ensureSessionEmbedding(queryRow, querySession);
-  await upsertSessionVector(queryRow, querySession).catch(() => null);
 
   const ownerNumberMap = buildOwnerCattleNumberMap(rows.filter(Boolean));
   const preparedCandidates = [];
@@ -1192,7 +1211,7 @@ async function resolveMuzzleMatch(cattleId) {
     for (const candidateSession of candidateRow.sessions || []) {
       const candidateEmbedding = await ensureSessionEmbedding(candidateRow, candidateSession).catch(() => null);
       if (!candidateEmbedding) continue;
-      await upsertSessionVector(candidateRow, candidateSession).catch(() => null);
+      await upsertSessionVector(candidateRow, candidateSession, { namespace: PINECONE_ENROLMENT_NAMESPACE, workflow: 'cattle_enrolment' }).catch(() => null);
 
       preparedCandidates.push({
         cattleId: candidateRow.cattleId,
@@ -1255,6 +1274,7 @@ async function resolveMuzzleMatch(cattleId) {
     queryRow.duplicateOfCattleId = duplicateOf?.cattleId || bestMatch.cattleId;
     queryRow.duplicateOfFarmerName = duplicateOf?.farmerName || bestMatch.farmerName || '';
     queryRow.uploadDateTime = now;
+    await upsertSessionVector(queryRow, querySession, { namespace: PINECONE_SEARCH_NAMESPACE, workflow: 'cattle_search' }).catch(() => null);
     await writeMetadata(rows.filter(Boolean));
     await storeMatchAudit({
       cattleId: queryRow.cattleId,
@@ -1290,6 +1310,7 @@ async function resolveMuzzleMatch(cattleId) {
   querySession.status = 'muzzle_no_match_new_cattle';
   queryRow.status = 'muzzle_no_match_new_cattle';
   queryRow.uploadDateTime = now;
+  await upsertSessionVector(queryRow, querySession, { namespace: PINECONE_ENROLMENT_NAMESPACE, workflow: 'cattle_enrolment' }).catch(() => null);
   await writeMetadata(rows.filter(Boolean));
   await storeMatchAudit({
     cattleId: queryRow.cattleId,
@@ -1435,17 +1456,15 @@ function buildOwnerCattleNumberMap(rows) {
   return numberMap;
 }
 
-function nextFarmerId(rows) {
-  const usedNumbers = rows
-    .map((row) => /^FARM-(\d+)$/i.exec(String(row?.farmerId || '').trim())?.[1])
-    .filter(Boolean)
-    .map((value) => Number(value));
-  const next = usedNumbers.length ? Math.max(...usedNumbers) + 1 : uniqueFarmerCount(rows) + 1;
-  return `FARM-${String(next).padStart(4, '0')}`;
-}
+function generateUniqueFarmerId(rows) {
+  const existingIds = new Set(rows.map((row) => normalizeSearchText(row?.farmerId)).filter(Boolean));
 
-function uniqueFarmerCount(rows) {
-  return new Set(rows.map(ownerGroupKey).filter(Boolean)).size;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const candidate = `FARM-${uuidv4().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+    if (!existingIds.has(normalizeSearchText(candidate))) return candidate;
+  }
+
+  return `FARM-${Date.now().toString(36).toUpperCase()}-${randomBytes(2).toString('hex').toUpperCase()}`;
 }
 function ownerGroupKey(row) {
   const farmerId = normalizeSearchText(row.farmerId);
@@ -1542,7 +1561,16 @@ function toImageSummary(ref) {
 }
 
 function imageSortRank(imageType) {
-  const order = ['muzzle1', 'muzzle2', 'muzzle3', 'muzzle4', 'muzzle5', 'face1', 'face2', 'face3', 'leftside', 'rightside', 'back', 'udder'];
+  const order = [
+    ...Array.from({ length: MUZZLE_IMAGE_COUNT }, (_, index) => `muzzle${index + 1}`),
+    'face1',
+    'face2',
+    'face3',
+    'leftside',
+    'rightside',
+    'back',
+    'udder'
+  ];
   const index = order.indexOf(imageType);
   return index >= 0 ? index : order.length;
 }
@@ -1631,7 +1659,7 @@ async function ensureSessionEmbedding(row, session) {
 
 async function muzzleImagePaths(session) {
   const files = [];
-  for (let slot = 1; slot <= 5; slot += 1) {
+  for (let slot = 1; slot <= MUZZLE_IMAGE_COUNT; slot += 1) {
     files.push(path.join(session.folderLocation, `muzzle${slot}.jpg`));
   }
 
@@ -1641,7 +1669,7 @@ async function muzzleImagePaths(session) {
   }
 
   if (missing.length) {
-    throw new Error(`Need 5 muzzle crops before DINOv2 matching. Missing: ${missing.join(', ')}`);
+    throw new Error(`Need ${MUZZLE_IMAGE_COUNT} muzzle crops before DINOv2 matching. Missing: ${missing.join(', ')}`);
   }
 
   return files;
@@ -1874,7 +1902,7 @@ async function moveMatchedVisitOutAsRegistered(audit, { reviewedBy, reviewNotes 
   const row = rows.find((item) => item.cattleId === cattleId);
 
   if (!row) {
-    throw new Error('Could not find the matched re-visit record to move out.');
+    throw new Error('Could not find the cattle search record to move out.');
   }
 
   const session = (row.sessions || []).find((item) => item.sessionId === audit.sessionId) || getActiveSession(row);
@@ -1969,7 +1997,7 @@ function buildSessionImageLookup(rows) {
   return lookup;
 }
 
-async function upsertSessionVector(row, session) {
+async function upsertSessionVector(row, session, { namespace = PINECONE_ENROLMENT_NAMESPACE, workflow = 'cattle_enrolment' } = {}) {
   if (!pineconeEnabled || !session.embedding?.average?.length) {
     return null;
   }
@@ -1991,11 +2019,12 @@ async function upsertSessionVector(row, session) {
           locationLat: Number(row.locationLat) || 0,
           locationLon: Number(row.locationLon) || 0,
           captureDate: session.captureDate || '',
-          folderLocation: session.folderLocation || ''
+          folderLocation: session.folderLocation || '',
+          workflow
         }
       }
     ],
-    namespace: PINECONE_NAMESPACE
+    namespace
   };
 
   await pineconeFetch('/vectors/upsert', {
@@ -2005,7 +2034,8 @@ async function upsertSessionVector(row, session) {
 
   session.embedding.pinecone = {
     vectorId,
-    namespace: PINECONE_NAMESPACE,
+    namespace,
+    workflow,
     upsertedAt: new Date().toISOString()
   };
   return session.embedding.pinecone;
@@ -2023,7 +2053,7 @@ async function queryPineconeMatches({ queryRow, queryEmbedding, preparedCandidat
     vector: queryEmbedding,
     topK: Math.max(50, preparedCandidates.length + 5),
     includeMetadata: true,
-    namespace: PINECONE_NAMESPACE
+    namespace: PINECONE_ENROLMENT_NAMESPACE
   };
   const result = await pineconeFetch('/query', {
     method: 'POST',
