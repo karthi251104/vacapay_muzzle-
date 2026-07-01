@@ -140,11 +140,14 @@ This version:
 - removes Top-1 / Top-2 labels from the collage
 - shows only class names on candidate images
 - uses Gemini 3.5 Flash first, then Gemini 2.5 Flash as fallback
+- fits the full cropped muzzle image inside each tile instead of center-cropping the thumbnail
+- sends Gemini exact visible image bounds so returned box coordinates stay inside the real muzzle image area
 
 Small test result:
 
 - 5 samples tested
-- Gemini 3.5 Flash correctly selected the query class for 5 out of 5 samples
+- Gemini Flash correctly selected the query class for 5 out of 5 samples
+- returned query and candidate box coordinates passed visible-image-bound validation for all 5 samples
 
 This is the closest version to the latest requested LLM verification experiment.
 

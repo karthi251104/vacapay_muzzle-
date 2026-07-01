@@ -1,25 +1,30 @@
 {
   "selected_class": "class_000025",
   "confidence": "high",
-  "reason": "The candidate class_000025 is an identical match to the query muzzle, displaying the exact same distribution of dark beads on a light pinkish background in the lower-center, as well as the matching white hair/bristle patterns on the left.",
+  "reason": "The query muzzle and class_000025 share the exact same distinctive pattern of a light pinkish central-lower region with sparse hairs, surrounded by a dark bluish-grey texture with prominent circular white beads.",
   "match_boxes": [
     {
       "label": "query matching pattern",
       "box": [
+        145,
         120,
-        280,
-        180,
-        180
+        190,
+        230
       ]
     },
     {
       "label": "candidate matching pattern",
       "box": [
-        640,
-        570,
-        100,
-        110
+        835,
+        360,
+        110,
+        140
       ]
     }
-  ]
+  ],
+  "coordinate_status": {
+    "queryBoxInsideImage": true,
+    "candidateBoxInsideImage": true,
+    "valid": true
+  }
 }

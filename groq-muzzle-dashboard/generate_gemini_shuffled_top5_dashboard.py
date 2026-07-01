@@ -40,14 +40,17 @@ def class_images(class_dir: Path, count: int) -> list[Path]:
     return images[:count]
 
 
-def draw_cover(canvas: Image.Image, path: Path, box: tuple[int, int, int, int]) -> None:
+def draw_fit(canvas: Image.Image, path: Path, box: tuple[int, int, int, int], label_height: int = 36) -> dict[str, int]:
     x, y, w, h = box
+    image_area_h = h - label_height
     image = Image.open(path).convert("RGB")
-    ratio = max(w / image.width, h / image.height)
+    ratio = min(w / image.width, image_area_h / image.height)
     resized = image.resize((int(image.width * ratio), int(image.height * ratio)), Image.Resampling.LANCZOS)
-    left = (resized.width - w) // 2
-    top = (resized.height - h) // 2
-    canvas.paste(resized.crop((left, top, left + w, top + h)), (x, y))
+    paste_x = x + (w - resized.width) // 2
+    paste_y = y + (image_area_h - resized.height) // 2
+    ImageDraw.Draw(canvas).rectangle((x, y, x + w, y + image_area_h), fill=(246, 240, 229))
+    canvas.paste(resized, (paste_x, paste_y))
+    return {"x": paste_x, "y": paste_y, "width": resized.width, "height": resized.height}
 
 
 def make_collage(sample: dict[str, Any], collage_path: Path) -> dict[str, Any]:
@@ -74,11 +77,11 @@ def make_collage(sample: dict[str, Any], collage_path: Path) -> dict[str, Any]:
     tile_map: dict[str, Any] = {"width": width, "height": height, "tiles": {}}
     for key, label, path, box in layout:
         x, y, w, h = box
-        draw_cover(canvas, Path(path), box)
+        visible_image = draw_fit(canvas, Path(path), box)
         draw.rectangle((x, y + h - 36, x + w, y + h), fill=(31, 33, 28))
         draw.text((x + 10, y + h - 27), label, fill="white", font=label_font)
         draw.rectangle((x, y, x + w, y + h), outline=(47, 116, 75) if key == "query" else (191, 174, 145), width=4)
-        tile_map["tiles"][key] = {"x": x, "y": y, "width": w, "height": h, "label": label, "path": str(path)}
+        tile_map["tiles"][key] = {"x": x, "y": y, "width": w, "height": h, "visibleImage": visible_image, "label": label, "path": str(path)}
     canvas.save(collage_path, quality=94)
     return tile_map
 
@@ -95,12 +98,47 @@ def extract_json(text: str) -> dict[str, Any]:
     return json.loads(text)
 
 
-def ask_gemini(collage_path: Path, candidate_labels: list[str]) -> dict[str, Any]:
+def visible_bounds_text(layout: dict[str, Any]) -> str:
+    lines = []
+    for key, tile in layout["tiles"].items():
+        bounds = tile["visibleImage"]
+        lines.append(f"{tile['label']}: x={bounds['x']}, y={bounds['y']}, width={bounds['width']}, height={bounds['height']}")
+    return "\n".join(lines)
+
+
+def box_inside(box: list[Any], bounds: dict[str, int]) -> bool:
+    if len(box) != 4:
+        return False
+    try:
+        x, y, w, h = [int(float(value)) for value in box]
+    except (TypeError, ValueError):
+        return False
+    return (
+        x >= bounds["x"]
+        and y >= bounds["y"]
+        and w > 0
+        and h > 0
+        and x + w <= bounds["x"] + bounds["width"]
+        and y + h <= bounds["y"] + bounds["height"]
+    )
+
+
+def coordinate_status(parsed: dict[str, Any], layout: dict[str, Any]) -> dict[str, Any]:
+    selected_class = parsed.get("selected_class")
+    selected_tile = next((tile for tile in layout["tiles"].values() if tile["label"] == selected_class), None)
+    boxes = parsed.get("match_boxes", []) or []
+    query_ok = bool(boxes) and box_inside(boxes[0].get("box", []), layout["tiles"]["query"]["visibleImage"])
+    candidate_ok = len(boxes) > 1 and selected_tile is not None and box_inside(boxes[1].get("box", []), selected_tile["visibleImage"])
+    return {"queryBoxInsideImage": query_ok, "candidateBoxInsideImage": candidate_ok, "valid": query_ok and candidate_ok}
+
+
+def ask_gemini(collage_path: Path, candidate_labels: list[str], layout: dict[str, Any]) -> dict[str, Any]:
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set")
     image_b64 = base64.b64encode(collage_path.read_bytes()).decode("ascii")
     labels = ", ".join(candidate_labels)
+    bounds = visible_bounds_text(layout)
     prompt = f"""
 You are verifying cattle muzzle identity from one labelled collage.
 The collage has one QUERY MUZZLE and 5 candidate muzzle images.
@@ -108,6 +146,9 @@ The candidate labels are class names only: {labels}.
 The candidates are randomly shuffled, so do not assume any rank order.
 Choose which candidate class visually matches the query muzzle best.
 Focus on muzzle texture ridges, dark/light skin pattern, central groove shape, and repeated local patterns.
+The full cropped muzzle images are visible inside each tile with padding. Do not assume the image fills the entire tile.
+Visible muzzle image bounds:
+{bounds}
 Return only JSON:
 {{
   "selected_class": "class_000000",
@@ -118,7 +159,17 @@ Return only JSON:
     {{"label": "candidate matching pattern", "box": [x, y, width, height]}}
   ]
 }}
-Coordinates must use full collage pixel coordinates. The collage size is 1300x760.
+Coordinate rules:
+- Use absolute pixel coordinates in the full collage image, not normalized values.
+- The collage origin is top-left: x=0, y=0.
+- The collage size is 1300x760.
+- Boxes must be integers in [x, y, width, height] format.
+- Boxes must be inside the visible muzzle image area, not on the text label.
+- Query box must be inside the QUERY MUZZLE visible image bounds listed above.
+- Candidate box must be inside the selected candidate class visible image bounds listed above.
+- First box should mark the query pattern.
+- Second box should mark the matching candidate pattern.
+- If exact tiny pattern coordinates are uncertain, return a larger box around the visible matching region.
 """.strip()
     payload = {
         "contents": [
@@ -297,8 +348,9 @@ def main() -> None:
         layout = make_collage(sample, collage_path)
         try:
             labels = [candidate["classId"] for candidate in sample["candidates"]]
-            gemini = ask_gemini(collage_path, labels)
+            gemini = ask_gemini(collage_path, labels, layout)
             parsed = gemini["parsed"]
+            parsed["coordinate_status"] = coordinate_status(parsed, layout)
             (sample_dir / "gemini_raw.json").write_text(json.dumps(gemini["raw"], indent=2), encoding="utf-8")
             (sample_dir / "gemini_result.json").write_text(json.dumps(parsed, indent=2), encoding="utf-8")
             plot_boxes(collage_path, boxed_path, parsed)

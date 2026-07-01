@@ -4,8 +4,7 @@
       "content": {
         "parts": [
           {
-            "text": "{\n  \"selected_class\": \"class_000015\",\n  \"confidence\": \"high\",\n  \"reason\": \"The query muzzle and class_000015 share the exact same brown skin color, distinctive vertical branching ridge patterns, and identical small yellowish debris specks on the left-center of the ridge.\",\n  \"match_boxes\": [\n    {\n      \"label\": \"query matching pattern\",\n      \"box\": [140, 220, 90, 130]\n    },\n    {\n      \"label\": \"candidate matching pattern\",\n      \"box\": [435, 200, 55, 80]\n    }\n  ]\n}",
-            "thoughtSignature": "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"
+            "text": "{\n  \"selected_class\": \"class_000015\",\n  \"confidence\": \"high\",\n  \"reason\": \"The query muzzle and class_000015 share an identical central groove shape that branches upwards, along with very similar radiating, wavy texture ridges and overall skin pattern.\",\n  \"match_boxes\": [\n    {\n      \"label\": \"query matching pattern\",\n      \"box\": [\n        180,\n        150,\n        150,\n        200\n      ]\n    },\n    {\n      \"label\": \"candidate matching pattern\",\n      \"box\": [\n        570,\n        120,\n        100,\n        140\n      ]\n    }\n  ]\n}"
           }
         ],
         "role": "model"
@@ -15,22 +14,22 @@
     }
   ],
   "usageMetadata": {
-    "promptTokenCount": 1332,
-    "candidatesTokenCount": 166,
-    "totalTokenCount": 2893,
+    "promptTokenCount": 883,
+    "candidatesTokenCount": 177,
+    "totalTokenCount": 1860,
     "promptTokensDetails": [
       {
-        "modality": "IMAGE",
-        "tokenCount": 1075
+        "modality": "TEXT",
+        "tokenCount": 625
       },
       {
-        "modality": "TEXT",
-        "tokenCount": 257
+        "modality": "IMAGE",
+        "tokenCount": 258
       }
     ],
-    "thoughtsTokenCount": 1395,
+    "thoughtsTokenCount": 800,
     "serviceTier": "standard"
   },
-  "modelVersion": "gemini-3.5-flash",
-  "responseId": "ixBFauTUNrmqjuMPz5qCOA"
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "6RVFasqTHYjOjuMP55uV6Ac"
 }
