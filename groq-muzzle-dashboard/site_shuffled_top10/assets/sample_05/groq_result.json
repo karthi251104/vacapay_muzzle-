@@ -1,0 +1,25 @@
+{
+  "selected_class": "class_000041",
+  "confidence": "high",
+  "reason": "muzzle texture ridges and skin pattern match",
+  "match_boxes": [
+    {
+      "label": "query matching pattern",
+      "box": [
+        0,
+        0,
+        300,
+        300
+      ]
+    },
+    {
+      "label": "candidate matching pattern",
+      "box": [
+        300,
+        50,
+        550,
+        300
+      ]
+    }
+  ]
+}

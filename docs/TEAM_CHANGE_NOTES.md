@@ -101,6 +101,29 @@ Small test result:
 
 Important: this is a small controlled LLM verification demo. The final real experiment should use Top-5 candidates produced by the DINOv2 embedding model, then send those Top-5 collages to Groq/Gemini for verification.
 
+### Shuffled Top-10 Follow-up
+
+A second dashboard was created after the request to remove rank hints:
+
+```text
+groq-muzzle-dashboard/site_shuffled_top10
+```
+
+This version:
+
+- uses 10 candidate muzzle images
+- randomly shuffles the candidate order
+- removes Top-1 / Top-2 labels from the collage
+- shows only class names on candidate images
+- asks Groq to select the matching class
+
+Small test result:
+
+- 5 samples tested
+- Groq correctly selected the query class for 3 out of 5 samples
+
+This is a better stress test than the first Top-5 demo because the model cannot use rank labels as hints.
+
 ## 7. Current Limitation
 
 The local full DINOv2 all-image evaluation did not complete on this Windows machine because PyTorch needs the Microsoft Visual C++ runtime to load correctly.
@@ -115,4 +138,3 @@ test query image
 -> Groq/Gemini verification
 -> dashboard metrics
 ```
-

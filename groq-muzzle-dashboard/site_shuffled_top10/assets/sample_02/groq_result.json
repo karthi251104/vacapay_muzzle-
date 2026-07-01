@@ -1,0 +1,25 @@
+{
+  "selected_class": "class_000012",
+  "confidence": "high",
+  "reason": "muzzle texture and pattern match",
+  "match_boxes": [
+    {
+      "label": "query matching pattern",
+      "box": [
+        0,
+        0,
+        200,
+        200
+      ]
+    },
+    {
+      "label": "candidate matching pattern",
+      "box": [
+        300,
+        50,
+        500,
+        250
+      ]
+    }
+  ]
+}
