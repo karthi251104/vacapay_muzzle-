@@ -486,7 +486,7 @@
       <div class="gps-status ready selected-farmer-card" *ngIf="selectedFarmerKey"><strong>Selected farmer</strong><span>{{ farmerName || farmerId }} / {{ farmerId || 'Auto ID' }}</span><small>New capture will be saved under this farmer, then muzzle matching checks this farmer and all saved muzzles.</small></div><button type="button" class="primary-action big" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">Add Cow Under Selected Farmer</button>
     </section>
 
-    <section class="screen-card page-enter" *ngIf="agentScreen === 'muzzle'">
+    <section class="screen-card camera-card page-enter" *ngIf="agentScreen === 'muzzle'">
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 3</p>
@@ -515,7 +515,7 @@
       </div>
       <canvas #canvas hidden></canvas>
 
-      <div class="action-row">
+      <div class="action-row camera-actions">
         <button type="button" class="ghost" (click)="cameraOn ? stopCamera() : startCamera()">{{ cameraOn ? 'Stop Camera' : 'Start Camera' }}</button>
         <button type="button" [disabled]="!cameraOn || muzzlePreviews.length >= muzzleImageCount" (click)="toggleAutoCapture()">{{ autoCaptureOn ? 'Pause Auto' : 'Auto Capture' }}</button>
       </div>

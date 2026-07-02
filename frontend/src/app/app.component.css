@@ -1234,6 +1234,25 @@ select:focus {
   justify-content: flex-start;
 }
 
+.camera-card {
+  padding-bottom: calc(118px + env(safe-area-inset-bottom));
+}
+
+.camera-actions {
+  background: rgba(250, 252, 248, 0.96);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  bottom: calc(82px + env(safe-area-inset-bottom));
+  box-shadow: 0 12px 28px rgba(33, 55, 44, 0.14);
+  padding: 10px;
+  position: sticky;
+  z-index: 35;
+}
+
+.camera-actions button {
+  min-height: 52px;
+}
+
 .match-list {
   display: grid;
   gap: 10px;

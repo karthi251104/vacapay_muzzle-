@@ -695,32 +695,71 @@ export class AppComponent implements OnDestroy {
     }
 
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      await this.openCamera({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
       });
-
-      if (this.video?.nativeElement) {
-        this.video.nativeElement.srcObject = this.stream;
-        await this.video.nativeElement.play();
-      }
-
-      this.cameraOn = true;
       this.message = 'Camera ready. Start auto capture when muzzle is visible.';
     } catch (error) {
-      const cameraError = error instanceof DOMException ? error.name : '';
-      if (cameraError === 'NotAllowedError') {
-        this.message = 'Camera permission denied. Allow camera permission in browser site settings.';
-        return;
+      if (this.shouldRetryCameraWithBasicConstraint(error)) {
+        try {
+          await this.openCamera({ video: true, audio: false });
+          this.message = 'Camera ready. Browser used the default camera because back camera settings were rejected.';
+          return;
+        } catch (retryError) {
+          this.message = this.cameraErrorMessage(retryError);
+          return;
+        }
       }
 
-      if (cameraError === 'NotFoundError') {
-        this.message = 'No camera was found on this device.';
-        return;
-      }
-
-      this.message = 'Camera could not start. Use HTTPS and allow camera permission.';
+      this.message = this.cameraErrorMessage(error);
     }
+  }
+
+  private async openCamera(constraints: MediaStreamConstraints): Promise<void> {
+    this.stopCamera();
+    this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+    if (this.video?.nativeElement) {
+      this.video.nativeElement.srcObject = this.stream;
+      this.video.nativeElement.muted = true;
+      this.video.nativeElement.playsInline = true;
+      await this.video.nativeElement.play();
+    }
+
+    this.cameraOn = true;
+  }
+
+  private shouldRetryCameraWithBasicConstraint(error: unknown): boolean {
+    const cameraError = error instanceof DOMException ? error.name : '';
+    return ['OverconstrainedError', 'NotReadableError', 'AbortError'].includes(cameraError);
+  }
+
+  private cameraErrorMessage(error: unknown): string {
+    const cameraError = error instanceof DOMException ? error.name : error instanceof Error ? error.name : 'CameraError';
+    const detail = error instanceof Error && error.message ? ` (${error.message})` : '';
+
+    if (cameraError === 'NotAllowedError' || cameraError === 'PermissionDeniedError') {
+      return `Camera permission is blocked by Chrome${detail}. Tap the site controls icon near the address bar, allow Camera, then press Start Camera again.`;
+    }
+
+    if (cameraError === 'NotFoundError' || cameraError === 'DevicesNotFoundError') {
+      return `No camera was found on this device${detail}.`;
+    }
+
+    if (cameraError === 'NotReadableError' || cameraError === 'TrackStartError') {
+      return `Camera is busy or Android blocked access${detail}. Close other camera apps/browser tabs and try again.`;
+    }
+
+    if (cameraError === 'SecurityError') {
+      return `Camera blocked by browser security${detail}. Use the HTTPS Cloudflare link and allow camera for this site.`;
+    }
+
+    if (cameraError === 'OverconstrainedError') {
+      return `This phone rejected the requested back-camera settings${detail}. Try again; the app will use the default camera fallback.`;
+    }
+
+    return `Camera could not start: ${cameraError}${detail}. Use HTTPS and allow camera permission.`;
   }
 
   stopCamera(): void {
