@@ -151,6 +151,34 @@ Small test result:
 
 This is the closest version to the latest requested LLM verification experiment.
 
+### Gemini Shuffled Top-20 Single-Cattle Stress Test
+
+A final one-sample stress-test dashboard was created after the request to test one query against 20 shuffled candidates:
+
+```text
+groq-muzzle-dashboard/site_gemini_shuffled_top20_single
+```
+
+This version:
+
+- uses 1 query cattle only
+- uses 20 candidate muzzle images in one collage
+- includes 1 correct same-cattle candidate and 19 random different cattle classes
+- randomly shuffles all 20 candidates
+- labels candidates only with class names
+- fits the full cropped muzzle image inside each tile
+- validates returned box coordinates against the visible image bounds
+
+Small test result:
+
+- Query class: class_000009
+- Gemini selected: class_000009
+- Result: correct
+- Box coordinate validation: passed
+- Model used: Gemini 3.5 Flash
+
+This is the hardest current LLM verification demo because it removes rank hints and increases the candidate count to 20.
+
 ## 7. Current Limitation
 
 The local full DINOv2 all-image evaluation did not complete on this Windows machine because PyTorch needs the Microsoft Visual C++ runtime to load correctly.

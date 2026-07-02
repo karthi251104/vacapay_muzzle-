@@ -1,0 +1,30 @@
+{
+  "selected_class": "class_000009",
+  "confidence": "high",
+  "reason": "The query muzzle and class_000009 share a highly distinctive central groove pattern with diagonal ridges spreading outwards to the left and a darker patch on the right side.",
+  "match_boxes": [
+    {
+      "label": "query matching pattern",
+      "box": [
+        210,
+        190,
+        110,
+        130
+      ]
+    },
+    {
+      "label": "candidate matching pattern",
+      "box": [
+        630,
+        550,
+        90,
+        110
+      ]
+    }
+  ],
+  "coordinate_status": {
+    "queryBoxInsideImage": true,
+    "candidateBoxInsideImage": true,
+    "valid": true
+  }
+}
