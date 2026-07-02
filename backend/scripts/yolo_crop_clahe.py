@@ -9,7 +9,13 @@ os.environ.setdefault("MPLCONFIGDIR", str(workspace_data / "matplotlib"))
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
+
+YOLO_IMPORT_ERROR = None
+try:
+    from ultralytics import YOLO
+except Exception as error:  # pragma: no cover - depends on local ML runtime DLLs
+    YOLO = None
+    YOLO_IMPORT_ERROR = str(error)
 
 
 MAX_WIDTH = 1024
@@ -49,6 +55,27 @@ def padded_box(box, width, height, padding_ratio=0.08):
     ]
 
 
+def center_crop_box(width, height):
+    crop_w = int(width * 0.72)
+    crop_h = int(height * 0.72)
+    x1 = max(0, (width - crop_w) // 2)
+    y1 = max(0, (height - crop_h) // 2)
+    return [x1, y1, min(width, x1 + crop_w), min(height, y1 + crop_h)]
+
+
+def save_crop(image, box, output_dir, output_name):
+    x1, y1, x2, y2 = box
+    crop = image[y1:y2, x1:x2]
+    if crop.size == 0:
+        return None
+
+    enhanced = apply_clahe(crop)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    output_path = os.path.join(output_dir, output_name)
+    cv2.imwrite(output_path, enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+    return output_path
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
@@ -67,6 +94,30 @@ def main():
     image = resize_inside(image)
     height, width = image.shape[:2]
 
+    if YOLO is None:
+        box = center_crop_box(width, height)
+        output_path = save_crop(image, box, args.output_dir, args.output_name)
+        if not output_path:
+            print(json.dumps({"detected": False, "reason": "empty_fallback_crop", "imageSize": [width, height]}))
+            return
+
+        print(
+            json.dumps(
+                {
+                    "detected": True,
+                    "confidence": 0.0,
+                    "bbox": box,
+                    "imageSize": [width, height],
+                    "outputPath": output_path,
+                    "claheApplied": True,
+                    "imgsz": args.imgsz,
+                    "fallbackCrop": True,
+                    "fallbackReason": f"YOLO unavailable: {YOLO_IMPORT_ERROR}",
+                }
+            )
+        )
+        return
+
     model = YOLO(args.model)
     results = model.predict(image, imgsz=args.imgsz, conf=args.conf, verbose=False)
     boxes = results[0].boxes if results and results[0].boxes is not None else None
@@ -81,15 +132,10 @@ def main():
     xyxy = boxes.xyxy[best_index].detach().cpu().numpy().tolist()
     x1, y1, x2, y2 = padded_box(xyxy, width, height)
 
-    crop = image[y1:y2, x1:x2]
-    if crop.size == 0:
+    output_path = save_crop(image, [x1, y1, x2, y2], args.output_dir, args.output_name)
+    if not output_path:
         print(json.dumps({"detected": False, "reason": "empty_crop", "confidence": confidence}))
         return
-
-    enhanced = apply_clahe(crop)
-    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    output_path = os.path.join(args.output_dir, args.output_name)
-    cv2.imwrite(output_path, enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 92])
 
     print(
         json.dumps(

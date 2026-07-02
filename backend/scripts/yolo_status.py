@@ -14,7 +14,21 @@ def main():
     args = parser.parse_args()
 
     import cv2
-    from ultralytics import YOLO
+    try:
+        from ultralytics import YOLO
+    except Exception as error:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "modelPath": args.model,
+                    "opencvVersion": cv2.__version__,
+                    "fallbackCropAvailable": True,
+                    "error": f"YOLO unavailable: {error}",
+                }
+            )
+        )
+        return
 
     model = YOLO(args.model)
     print(
