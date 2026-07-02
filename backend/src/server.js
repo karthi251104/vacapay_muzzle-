@@ -328,7 +328,7 @@ app.get('/api/farmers', async (req, res, next) => {
     const lon = Number(req.query.lon);
     const radiusKm = Number(req.query.radiusKm || 7);
     const hasLocation = Number.isFinite(lat) && Number.isFinite(lon);
-    const rows = await readCleanMetadata();
+    const rows = (await readCleanMetadata()).filter(isVisibleInventoryRecord);
     const groups = new Map();
 
     for (const row of rows) {
@@ -401,7 +401,7 @@ app.get('/api/cattle/search', async (req, res, next) => {
       return;
     }
 
-    const rows = await readCleanMetadata();
+    const rows = (await readCleanMetadata()).filter(isVisibleInventoryRecord);
 
     const ownerNumberMap = buildOwnerCattleNumberMap(rows);
 
@@ -453,7 +453,7 @@ app.get('/api/cattle/search', async (req, res, next) => {
 
 app.get('/api/cattle', requireAuth, async (req, res, next) => {
   try {
-    const rows = await readCleanMetadata();
+    const rows = (await readCleanMetadata()).filter(isVisibleInventoryRecord);
     const ownerNumberMap = buildOwnerCattleNumberMap(rows);
     const cattle = rows
       .map((row) => toCattleSummary(row, ownerNumberMap.get(row.cattleId)))
@@ -1204,7 +1204,7 @@ async function resolveMuzzleMatch(cattleId) {
 
   for (let index = 0; index < rows.length; index += 1) {
     const candidateRow = rows[index];
-    if (!candidateRow || candidateRow.cattleId === cattleId || isDuplicateEvidenceRecord(candidateRow)) continue;
+    if (!candidateRow || candidateRow.cattleId === cattleId || isDuplicateEvidenceRecord(candidateRow) || !isSearchableCattleRecord(candidateRow)) continue;
     const searchScope = isSameFarmerCandidate(queryRow, candidateRow) ? 'farmer_cattle' : 'all_other_muzzle';
     const distanceKm = distanceBetweenRowsKm(queryRow, candidateRow);
 
@@ -1476,6 +1476,26 @@ function ownerGroupKey(row) {
 
 function isDuplicateEvidenceRecord(row) {
   return row?.status === 'duplicate_saved_separately' || Boolean(row?.duplicateOfCattleId);
+}
+
+function sessionHasRequiredImages(session) {
+  const imageNames = new Set(Object.values(session?.images || {}).map((image) => image.fileName).filter(Boolean));
+  return REQUIRED_IMAGES.every((fileName) => imageNames.has(fileName));
+}
+
+function hasCompletedSession(row) {
+  return (row?.sessions || []).some((session) => sessionHasRequiredImages(session));
+}
+
+function isVisibleInventoryRecord(row) {
+  if (!row?.cattleId) return false;
+  if (row.status === 'draft' || row.status === 'cattle_search_manual_folder') return false;
+  if (isDuplicateEvidenceRecord(row)) return hasCompletedSession(row);
+  return hasCompletedSession(row) && row.status === 'ready_for_embedding';
+}
+
+function isSearchableCattleRecord(row) {
+  return isVisibleInventoryRecord(row) && !isDuplicateEvidenceRecord(row);
 }
 
 function firstCaptureDateTime(row) {
