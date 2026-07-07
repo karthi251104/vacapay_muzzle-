@@ -11,7 +11,7 @@
     <div class="auth-headline">
       <p class="eyebrow">Field Agent App</p>
       <h2>Simple cattle capture for field teams.</h2>
-      <p>Capture owner details, GPS, muzzle photos and supporting photos in a guided mobile flow.</p>
+      <p>Capture farmer details, GPS, muzzle photos and supporting photos in a guided mobile flow.</p>
     </div>
 
     <div class="preview-phone float-card">
@@ -179,7 +179,7 @@
               <img *ngIf="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" [src]="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" alt="Cattle preview">
               <div>
                 <strong>{{ cattle.farmerName || 'Unknown farmer' }}</strong>
-                <p>{{ cattle.cattleLabel || 'Cattle' }} / Owner ID: {{ cattle.farmerId || 'NA' }} / Officer: {{ cattle.fieldOfficerName || 'NA' }}</p>
+                <p>{{ cattle.cattleLabel || 'Cattle' }} / Farmer ID: {{ cattle.farmerId || 'NA' }} / Officer: {{ cattle.fieldOfficerName || 'NA' }}</p>
                 <em *ngIf="selectedAdminCattle?.cattleId === cattle.cattleId">Selected</em>
                 <em class="record-kind" *ngIf="isDuplicateEvidence(cattle)">Cattle Search</em>
                 <small *ngIf="!isDuplicateEvidence(cattle)">{{ cattle.sessionCount }} captures / {{ cattle.imageCount }} photos / last {{ cattle.lastCaptureDate || 'No date' }}</small>
@@ -203,7 +203,7 @@
             <span>{{ selectedAdminCattle.sessionCount }} captures</span>
           </div>
           <div class="duplicate-source" *ngIf="isDuplicateEvidence(selectedAdminCattle)">
-            <strong>Matched original cattle</strong>
+            <strong>Matched registered cattle</strong>
             <span>{{ selectedAdminCattle.duplicateOfFarmerName || 'Unknown farmer' }} / {{ shortId(selectedAdminCattle.duplicateOfCattleId) }}</span>
           </div>
           <p class="folder-text">Folder: {{ selectedAdminCattle.productionFolder }}</p>
@@ -368,19 +368,19 @@
     <section class="screen-card home-screen page-enter" *ngIf="agentScreen === 'home'">
       <div class="home-copy">
         <p class="eyebrow">Field Work</p>
-        <h2>Start with farmer.</h2>
-        <p>Add a new farmer, or find an existing farmer by GPS/name. Then capture muzzle photos and the app checks farmer cattle plus all saved muzzles.</p>
+        <h2>Choose workflow.</h2>
+        <p>Use Cattle Enrolment for registered cattle. Use Cattle Search when checking whether a cow is already enrolled or should return no cattle found.</p>
       </div>
       <div class="choice-grid">
         <button type="button" class="choice-card primary-choice" (click)="startNewFarmerMode()">
-          <span>New</span>
-          <strong>Add Farmer</strong>
-          <small>Save GPS and enroll first cow</small>
+          <span>01</span>
+          <strong>Cattle Enrolment</strong>
+          <small>Add/search farmer, then register cow</small>
         </button>
-        <button type="button" class="choice-card" (click)="startExistingFarmerSearch()">
-          <span>Existing</span>
-          <strong>Search Farmer</strong>
-          <small>List nearby farmers or search by name</small>
+        <button type="button" class="choice-card" (click)="startCattleSearchFlow()">
+          <span>02</span>
+          <strong>Cattle Search</strong>
+          <small>Find farmer, capture muzzle, get match/no match</small>
         </button>
       </div>
       <div class="field-stats">
@@ -402,7 +402,7 @@
           <img *ngIf="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" [src]="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" alt="Cattle preview">
           <div>
             <strong>{{ cattle.cattleLabel || 'Cattle' }} - {{ cattle.farmerName || 'Unknown farmer' }}</strong>
-            <p>Owner ID: {{ cattle.farmerId || 'NA' }}</p>
+            <p>Farmer ID: {{ cattle.farmerId || 'NA' }}</p>
             <small>{{ cattle.sessionCount }} captures / last {{ cattle.lastCaptureDate || 'NA' }}</small>
           </div>
         </button>
@@ -431,14 +431,14 @@
         <span>{{ hasGps ? ((locationLat | number:'1.6-6') + ', ' + (locationLon | number:'1.6-6')) : 'Use GPS before creating farmer' }}</span>
       </div>
       <div class="action-row"><button type="button" class="ghost" (click)="useGps()">Use GPS</button></div>
-      <div class="action-row farmer-actions"><button type="button" class="primary-action" [disabled]="!farmerName.trim() || !hasGps" (click)="startNewFarmerCapture()">Start First Cow Under Farmer</button><button type="button" class="ghost" (click)="startExistingFarmerSearch()">Search Existing Farmer</button></div>
+      <div class="action-row farmer-actions"><button type="button" class="primary-action" [disabled]="!farmerName.trim() || !hasGps" (click)="startNewFarmerCapture()">Start First Cow Enrolment</button><button type="button" class="ghost" (click)="findExistingFarmerForEnrollment()">Find Existing Farmer For Enrolment</button></div>
     </form>
 
     <section class="screen-card page-enter" *ngIf="agentScreen === 'location'">
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 2</p>
-          <h2>Find Existing Farmer</h2>
+          <h2>{{ captureWorkflow === 'cattle_search' ? 'Cattle Search Farmer' : 'Enrolment Farmer' }}</h2>
         </div>
         <span>{{ radiusKm }} km</span>
       </div>
@@ -483,7 +483,7 @@
         </button>
       </div>
 
-      <div class="gps-status ready selected-farmer-card" *ngIf="selectedFarmerKey"><strong>Selected farmer</strong><span>{{ farmerName || farmerId }} / {{ farmerId || 'Auto ID' }}</span><small>New capture will be saved under this farmer, then muzzle matching checks this farmer and all saved muzzles.</small></div><button type="button" class="primary-action big" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">Add Cow Under Selected Farmer</button>
+      <div class="gps-status ready selected-farmer-card" *ngIf="selectedFarmerKey"><strong>Selected farmer</strong><span>{{ farmerName || farmerId }} / {{ farmerId || 'Auto ID' }}</span><small>{{ captureWorkflow === 'cattle_search' ? 'Cattle search first checks this farmer cattle, then all registered cattle records.' : 'Cattle enrolment saves this cow as a registered cattle identity.' }}</small></div><button type="button" class="primary-action big" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">{{ captureWorkflow === 'cattle_search' ? 'Start Cattle Search' : 'Enroll Cow Under Selected Farmer' }}</button>
     </section>
 
     <section class="screen-card camera-card page-enter" *ngIf="agentScreen === 'muzzle'">

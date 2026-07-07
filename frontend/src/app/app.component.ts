@@ -88,6 +88,7 @@ export class AppComponent implements OnDestroy {
 
   enrollment?: Enrollment;
   cattleId = '';
+  captureWorkflow: 'cattle_enrolment' | 'cattle_search' = 'cattle_enrolment';
   farmerId = '';
   farmerName = '';
   fieldOfficerName = '';
@@ -295,15 +296,28 @@ export class AppComponent implements OnDestroy {
 
   startNewFarmerMode(): void {
     this.resetCaptureState(true);
+    this.captureWorkflow = 'cattle_enrolment';
     this.farmerId = this.generateFarmerId();
     this.agentScreen = 'farmer';
     this.message = 'Farmer ID generated. Enter farmer name, save GPS, then start the first cow.';
   }
 
   startExistingFarmerSearch(): void {
+    this.startCattleSearchFlow();
+  }
+
+  startCattleSearchFlow(): void {
     this.resetCaptureState(true);
+    this.captureWorkflow = 'cattle_search';
     this.agentScreen = 'location';
-    this.message = 'Use GPS first, then search and select an existing farmer.';
+    this.message = 'Cattle search selected. Use GPS/name, select farmer, then capture muzzle photos.';
+  }
+
+  findExistingFarmerForEnrollment(): void {
+    this.resetCaptureState(false);
+    this.captureWorkflow = 'cattle_enrolment';
+    this.agentScreen = 'location';
+    this.message = 'Cattle enrolment selected. Search and select a farmer, then enroll the cow under that farmer.';
   }
 
   startNewEnrollment(): void {
@@ -311,6 +325,7 @@ export class AppComponent implements OnDestroy {
   }
 
   startNewFarmerCapture(): void {
+    this.captureWorkflow = 'cattle_enrolment';
     if (!this.farmerName.trim()) {
       this.message = 'Enter farmer name before adding a new farmer.';
       return;
@@ -334,11 +349,12 @@ export class AppComponent implements OnDestroy {
   }
   startFromRecent(cattle: CattleSummary): void {
     this.resetCaptureState(false);
+    this.captureWorkflow = 'cattle_enrolment';
     this.farmerId = cattle.farmerId || '';
     this.farmerName = cattle.farmerName || '';
     this.selectedFarmerKey = [this.farmerId, this.farmerName].join(':');
     this.agentScreen = 'location';
-    this.message = 'Farmer loaded. Add the next cow under this farmer or choose another farmer.';
+    this.message = 'Farmer loaded for cattle enrolment. Add the next cow under this farmer or choose another farmer.';
     this.findRegisteredCattle();
   }
 
@@ -353,7 +369,7 @@ export class AppComponent implements OnDestroy {
     }
 
     this.agentScreen = 'location';
-    this.message = 'Use GPS or name search. Select the farmer, then capture muzzle for the cow.';
+    this.message = 'Use GPS or name search. Select the farmer, then capture muzzle photos.';
   }
 
   loadAgents(): void {
@@ -516,7 +532,10 @@ export class AppComponent implements OnDestroy {
     }
 
     const newFarmer = !this.selectedFarmerKey;
-    this.message = newFarmer ? 'Creating farmer and starting first cow...' : 'Starting capture session...';
+    const isSearch = this.captureWorkflow === 'cattle_search';
+    this.message = isSearch
+      ? 'Starting cattle search capture...'
+      : (newFarmer ? 'Creating farmer and starting first cow enrolment...' : 'Starting cattle enrolment capture...');
     this.api
       .createEnrollment({
         farmerId: this.farmerId.trim(),
@@ -526,7 +545,8 @@ export class AppComponent implements OnDestroy {
         locationLat: this.locationLat,
         locationLon: this.locationLon,
         matchRadiusKm: this.radiusKm,
-        newFarmer
+        newFarmer,
+        workflow: this.captureWorkflow
       })
       .subscribe({
         next: ({ enrollment }) => {
@@ -542,9 +562,9 @@ export class AppComponent implements OnDestroy {
             item.uploading = false;
           });
           this.agentScreen = 'muzzle';
-          this.message = enrollment.autoSelectedExistingCattle
-            ? 'Existing cattle folder found. This cattle search will save under today date.'
-            : 'Capture session ready. Take muzzle photos. The app will search farmer cattle and all saved muzzle records.';
+          this.message = this.captureWorkflow === 'cattle_search'
+            ? 'Cattle search ready. Capture 3 clear muzzle photos.'
+            : 'Cattle enrolment ready. Capture 3 clear muzzle photos.';
           this.loadCattleInventory();
         },
         error: (error) => {
@@ -952,13 +972,13 @@ export class AppComponent implements OnDestroy {
   }
   mergeSelectedIntoMainCattle(): void {
     if (!this.selectedAdminCattle) {
-      this.message = 'Select the correct main cattle row first.';
+      this.message = 'Select the correct registered cattle row first.';
       return;
     }
 
     const sourceCattleIds = this.selectedCattleIds.filter((id) => id !== this.selectedAdminCattle?.cattleId);
     if (!sourceCattleIds.length) {
-      this.message = 'Tick cattle search or extra cattle rows to merge into the selected main record.';
+      this.message = 'Tick cattle search or extra cattle rows to merge into the selected registered cattle record.';
       return;
     }
 
@@ -970,7 +990,7 @@ export class AppComponent implements OnDestroy {
       next: ({ target, mergedCattleIds }) => {
         this.selectedCattleIds = [];
         this.selectedAdminCattle = target;
-        this.message = `Merged ${mergedCattleIds.length} selected record(s). Main cattle now has ${target.sessionCount} captures.`;
+        this.message = `Merged ${mergedCattleIds.length} selected record(s). Registered cattle now has ${target.sessionCount} captures.`;
         this.loadCattleInventory();
       },
       error: (error) => {
@@ -1148,14 +1168,14 @@ export class AppComponent implements OnDestroy {
     if (scorePercent >= 70) return 'Medium';
     return 'Needs work';
   }
-  get ownerRecordGroups(): Array<{ key: string; label: string; count: number; visits: number }> {
-    const groups = new Map<string, { key: string; label: string; count: number; visits: number }>();
+  get ownerRecordGroups(): Array<{ key: string; label: string; count: number; captures: number }> {
+    const groups = new Map<string, { key: string; label: string; count: number; captures: number }>();
     for (const cattle of this.uniqueCattleInventory) {
       const key = (cattle.farmerId || cattle.farmerName || 'unknown').trim().toLowerCase();
-      const label = cattle.farmerName || cattle.farmerId || 'Unknown owner';
-      const group = groups.get(key) || { key, label, count: 0, visits: 0 };
+      const label = cattle.farmerName || cattle.farmerId || 'Unknown farmer';
+      const group = groups.get(key) || { key, label, count: 0, captures: 0 };
       group.count += 1;
-      group.visits += cattle.sessionCount;
+      group.captures += cattle.sessionCount;
       groups.set(key, group);
     }
     return Array.from(groups.values()).filter((group) => group.count > 1).sort((a, b) => b.count - a.count);
