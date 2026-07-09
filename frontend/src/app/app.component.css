@@ -723,8 +723,8 @@ select:focus {
   border-top: 1px solid var(--line);
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(160px, 1.5fr) repeat(8, minmax(72px, 1fr));
-  min-width: 880px;
+  grid-template-columns: minmax(160px, 1.5fr) repeat(9, minmax(78px, 1fr));
+  min-width: 980px;
   padding: 10px 12px;
 }
 
@@ -1884,7 +1884,7 @@ select:focus {
 .search-results-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .choice-card {
@@ -1903,6 +1903,11 @@ select:focus {
 .choice-card.primary-choice {
   background: var(--leaf);
   color: #fff;
+}
+
+.choice-card.search-choice {
+  background: #e9f6fa;
+  border-color: #b8dce6;
 }
 
 .choice-card span {
@@ -1933,6 +1938,33 @@ select:focus {
 
 .choice-card.primary-choice small {
   color: rgba(255,255,255,0.78);
+}
+
+.flow-warning {
+  align-items: start;
+  background: #fff7df;
+  border: 1px solid #e7c87b;
+  border-radius: 8px;
+  color: #4a3a12;
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 12px 14px;
+}
+
+.flow-warning.search-mode {
+  background: #e9f6fa;
+  border-color: #b8dce6;
+  color: var(--leaf-dark);
+}
+
+.flow-warning strong {
+  font-size: 0.9rem;
+}
+
+.flow-warning span {
+  font-size: 0.86rem;
+  line-height: 1.35;
 }
 
 .farmer-search-card {

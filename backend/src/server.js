@@ -6,11 +6,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { Buffer } from 'node:buffer';
-import { pbkdf2Sync, randomBytes, timingSafeEqual } from 'node:crypto';
+import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
-import { MongoClient } from 'mongodb';
-import { v4 as uuidv4 } from 'uuid';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,7 +39,8 @@ const CLOUDINARY_ROOT_FOLDER = process.env.CLOUDINARY_ROOT_FOLDER || 'vacapay';
 const cloudinaryEnabled = Boolean(CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET);
 const MONGODB_URI = process.env.MONGODB_URI || '';
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || 'vacapay';
-const mongoEnabled = Boolean(MONGODB_URI);
+const DISABLE_MONGO = ['true', '1', 'yes'].includes(String(process.env.DISABLE_MONGO || '').toLowerCase());
+const mongoEnabled = Boolean(MONGODB_URI) && !DISABLE_MONGO;
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY || '';
 const PINECONE_INDEX_HOST = normalizePineconeHost(process.env.PINECONE_INDEX_HOST || '');
 const PINECONE_NAMESPACE = process.env.PINECONE_NAMESPACE || 'vacapay';
@@ -62,6 +61,7 @@ const REQUIRED_IMAGES = [...MUZZLE_IMAGE_FILES, ...SUPPORT_IMAGE_FILES];
 const sessions = new Map();
 let mongoClient = null;
 let mongoDb = null;
+let MongoClientCtor = null;
 
 if (cloudinaryEnabled) {
   cloudinary.config({
@@ -76,7 +76,9 @@ app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use('/media', express.static(dataDir));
 
+console.log(`Starting storage setup. Mongo ${mongoEnabled ? 'enabled' : 'disabled'}. Data: ${dataDir}`);
 await ensureStorage();
+console.log('Storage setup complete.');
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -153,7 +155,7 @@ app.get('/api/yolo/status', async (_req, res) => {
     res.status(500).json({
       ok: false,
       modelPath: MODEL_PATH,
-      error: error.message || 'YOLO status check failed.'
+      error: publicErrorMessage(error)
     });
   }
 });
@@ -173,7 +175,7 @@ app.get('/api/embedding/status', async (_req, res) => {
       ok: false,
       modelPath: DINOV2_MODEL_PATH,
       threshold: EMBEDDING_MATCH_THRESHOLD,
-      error: error.message || 'Embedding status check failed.'
+      error: publicErrorMessage(error)
     });
   }
 });
@@ -190,7 +192,7 @@ app.post('/api/auth/login', async (req, res, next) => {
       return;
     }
 
-    const token = uuidv4();
+    const token = randomUUID();
     const publicUser = toPublicUser(user);
     sessions.set(token, publicUser);
     res.json({ token, user: publicUser });
@@ -303,7 +305,7 @@ app.post('/api/agents', requireAuth, requireAdmin, async (req, res, next) => {
     }
 
     const user = {
-      userId: uuidv4(),
+      userId: randomUUID(),
       role: 'agent',
       name: agentName,
       phone,
@@ -328,7 +330,7 @@ app.get('/api/farmers', async (req, res, next) => {
     const lon = Number(req.query.lon);
     const radiusKm = Number(req.query.radiusKm || 7);
     const hasLocation = Number.isFinite(lat) && Number.isFinite(lon);
-    const rows = (await readCleanMetadata()).filter(isVisibleInventoryRecord);
+    const rows = (await readCleanMetadata()).filter(isRegisteredInventoryRecord);
     const groups = new Map();
 
     for (const row of rows) {
@@ -401,7 +403,7 @@ app.get('/api/cattle/search', async (req, res, next) => {
       return;
     }
 
-    const rows = (await readCleanMetadata()).filter(isVisibleInventoryRecord);
+    const rows = (await readCleanMetadata()).filter(isRegisteredInventoryRecord);
 
     const ownerNumberMap = buildOwnerCattleNumberMap(rows);
 
@@ -409,6 +411,7 @@ app.get('/api/cattle/search', async (req, res, next) => {
       .filter((row) => {
         const rowFarmerId = normalizeSearchText(row.farmerId);
         const rowFarmerName = normalizeSearchText(row.farmerName);
+        if (farmerId && farmerName) return rowFarmerId === farmerId || rowFarmerName.includes(farmerName);
         if (farmerId) return rowFarmerId === farmerId;
         return Boolean(farmerName && rowFarmerName.includes(farmerName));
       })
@@ -590,9 +593,10 @@ app.post('/api/enrollments', async (req, res, next) => {
 
     const requestedCattleId = String(req.body.cattleId || '').trim();
     const rows = await readMetadata();
-    const cattleId = requestedCattleId || uuidv4();
+    const cattleId = requestedCattleId || randomUUID();
     const existingIndex = rows.findIndex((row) => row.cattleId === cattleId);
     const existing = existingIndex >= 0 ? normalizeRecord(rows[existingIndex]) : null;
+    const workflow = normalizeWorkflow(req.body.workflow, existing ? 'cattle_search' : 'cattle_enrolment');
     const rootFolder = path.join(dataDir, cattleId);
     const session = await createCaptureSession({ cattleId, captureDateTime: req.body.captureDateTime || now });
 
@@ -619,9 +623,11 @@ app.post('/api/enrollments', async (req, res, next) => {
     record.folderLocation = session.folderLocation;
     record.captureDateTime = session.captureDateTime;
     record.uploadDateTime = now;
-    record.status = existing ? 'cattle_search_manual_folder' : 'draft';
+    record.workflow = workflow;
+    record.status = workflow === 'cattle_search' ? 'cattle_search_draft' : (existing ? 'cattle_search_manual_folder' : 'draft');
     record.autoSelectedExistingCattle = false;
     record.activeSessionId = session.sessionId;
+    session.workflow = workflow;
     session.fieldOfficerId = record.fieldOfficerId;
     session.fieldOfficerName = record.fieldOfficerName;
     record.sessions = [...(record.sessions || []), session];
@@ -755,12 +761,23 @@ app.post('/api/enrollments/:cattleId/complete', async (req, res, next) => {
       return;
     }
 
+    const workflow = normalizeWorkflow(row.workflow || session.workflow, 'cattle_enrolment');
+
     if (session.matchResult?.duplicateSavedSeparately) {
       row.status = 'duplicate_saved_separately';
       session.status = 'duplicate_saved_separately';
+      row.workflow = row.workflow || 'cattle_search';
+      session.workflow = session.workflow || row.workflow;
+    } else if (workflow === 'cattle_search') {
+      row.status = 'cattle_search_no_match';
+      session.status = 'cattle_search_no_match';
+      row.workflow = 'cattle_search';
+      session.workflow = 'cattle_search';
     } else {
       row.status = 'ready_for_embedding';
       session.status = 'ready_for_embedding';
+      row.workflow = 'cattle_enrolment';
+      session.workflow = 'cattle_enrolment';
     }
     row.uploadDateTime = new Date().toISOString();
     await writeMetadata(rows);
@@ -779,7 +796,13 @@ app.post('/api/enrollments/:cattleId/resolve-muzzle-match', async (req, res, nex
   }
 });
 
-app.use(express.static(frontendDistDir));
+app.use(express.static(frontendDistDir, {
+  setHeaders(res, filePath) {
+    if (/\.(?:html|js|css)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+  }
+}));
 
 app.get('*', async (_req, res, next) => {
   try {
@@ -792,7 +815,7 @@ app.get('*', async (_req, res, next) => {
 
 app.use((error, _req, res, _next) => {
   console.error(error);
-  res.status(500).json({ error: error.message || 'Unexpected server error.' });
+  res.status(500).json({ error: publicErrorMessage(error) });
 });
 
 app.listen(PORT, () => {
@@ -803,7 +826,8 @@ async function ensureStorage() {
   await fs.mkdir(uploadDir, { recursive: true });
 
   if (mongoEnabled) {
-    mongoClient = new MongoClient(MONGODB_URI);
+    MongoClientCtor ||= (await import('mongodb')).MongoClient;
+    mongoClient = new MongoClientCtor(MONGODB_URI, { serverSelectionTimeoutMS: 7000, connectTimeoutMS: 7000 });
     await mongoClient.connect();
     mongoDb = mongoClient.db(MONGODB_DB_NAME);
     await mongoDb.collection('cattle').createIndex({ cattleId: 1 }, { unique: true });
@@ -994,7 +1018,7 @@ async function writeMatchAudits(audits) {
 
 function createDefaultAdmin() {
   return {
-    userId: uuidv4(),
+    userId: randomUUID(),
     role: 'admin',
     name: 'Demo Admin',
     phone: 'admin',
@@ -1190,6 +1214,9 @@ async function resolveMuzzleMatch(cattleId) {
   }
 
   const querySession = getActiveSession(queryRow);
+  const queryWorkflow = normalizeWorkflow(queryRow.workflow || querySession.workflow, 'cattle_enrolment');
+  queryRow.workflow = queryWorkflow;
+  querySession.workflow = queryWorkflow;
   if (querySession.matchResult?.resolved) {
     return {
       ...querySession.matchResult,
@@ -1199,7 +1226,7 @@ async function resolveMuzzleMatch(cattleId) {
 
   const queryEmbedding = await ensureSessionEmbedding(queryRow, querySession);
 
-  const ownerNumberMap = buildOwnerCattleNumberMap(rows.filter(Boolean));
+  const ownerNumberMap = buildOwnerCattleNumberMap(rows.filter((row) => row && !isDuplicateEvidenceRecord(row) && isSearchableCattleRecord(row)));
   const preparedCandidates = [];
 
   for (let index = 0; index < rows.length; index += 1) {
@@ -1241,7 +1268,7 @@ async function resolveMuzzleMatch(cattleId) {
   const bestFarmerMatch = candidates.find((candidate) => candidate.searchScope === 'farmer_cattle' && candidate.score >= EMBEDDING_MATCH_THRESHOLD) || null;
   const bestGlobalMatch = candidates[0] || null;
   const bestMatch = bestFarmerMatch || bestGlobalMatch;
-  const rankedTopMatches = candidates.slice(0, 5).map(toPublicMatchResult);
+  const rankedTopMatches = candidates.slice(0, 20).map(toPublicMatchResult);
   const orderedMatches = bestFarmerMatch
     ? [bestFarmerMatch, ...candidates.filter((candidate) => candidate !== bestFarmerMatch)]
     : candidates;
@@ -1254,6 +1281,7 @@ async function resolveMuzzleMatch(cattleId) {
     const matchResult = {
       resolved: true,
       decision: 'matched_existing',
+      workflow: 'cattle_search',
       duplicateSavedSeparately: true,
       confidence: bestMatch?.score || 0,
       confidencePercent: Math.round((bestMatch?.score || 0) * 100),
@@ -1271,6 +1299,8 @@ async function resolveMuzzleMatch(cattleId) {
     querySession.matchResult = matchResult;
     querySession.status = 'duplicate_saved_separately';
     queryRow.status = 'duplicate_saved_separately';
+    queryRow.workflow = 'cattle_search';
+    querySession.workflow = 'cattle_search';
     queryRow.duplicateOfCattleId = duplicateOf?.cattleId || bestMatch.cattleId;
     queryRow.duplicateOfFarmerName = duplicateOf?.farmerName || bestMatch.farmerName || '';
     queryRow.uploadDateTime = now;
@@ -1296,6 +1326,7 @@ async function resolveMuzzleMatch(cattleId) {
   const matchResult = {
     resolved: true,
     decision: 'new_cattle',
+    workflow: queryWorkflow,
     confidence: bestMatch?.score || 0,
     confidencePercent: Math.round((bestMatch?.score || 0) * 100),
     threshold: EMBEDDING_MATCH_THRESHOLD,
@@ -1307,10 +1338,13 @@ async function resolveMuzzleMatch(cattleId) {
   };
 
   querySession.matchResult = matchResult;
-  querySession.status = 'muzzle_no_match_new_cattle';
-  queryRow.status = 'muzzle_no_match_new_cattle';
+  querySession.status = queryWorkflow === 'cattle_search' ? 'cattle_search_no_match' : 'muzzle_no_match_new_cattle';
+  queryRow.status = queryWorkflow === 'cattle_search' ? 'cattle_search_no_match' : 'muzzle_no_match_new_cattle';
   queryRow.uploadDateTime = now;
-  await upsertSessionVector(queryRow, querySession, { namespace: PINECONE_ENROLMENT_NAMESPACE, workflow: 'cattle_enrolment' }).catch(() => null);
+  await upsertSessionVector(queryRow, querySession, {
+    namespace: queryWorkflow === 'cattle_search' ? PINECONE_SEARCH_NAMESPACE : PINECONE_ENROLMENT_NAMESPACE,
+    workflow: queryWorkflow
+  }).catch(() => null);
   await writeMetadata(rows.filter(Boolean));
   await storeMatchAudit({
     cattleId: queryRow.cattleId,
@@ -1460,7 +1494,7 @@ function generateUniqueFarmerId(rows) {
   const existingIds = new Set(rows.map((row) => normalizeSearchText(row?.farmerId)).filter(Boolean));
 
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    const candidate = `FARM-${uuidv4().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+    const candidate = `FARM-${randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase()}`;
     if (!existingIds.has(normalizeSearchText(candidate))) return candidate;
   }
 
@@ -1475,12 +1509,25 @@ function ownerGroupKey(row) {
 }
 
 function isDuplicateEvidenceRecord(row) {
-  return row?.status === 'duplicate_saved_separately' || Boolean(row?.duplicateOfCattleId);
+  return isCattleSearchRecord(row) || row?.status === 'duplicate_saved_separately' || Boolean(row?.duplicateOfCattleId);
+}
+
+function isCattleSearchRecord(row) {
+  return row?.workflow === 'cattle_search' || String(row?.status || '').startsWith('cattle_search_');
 }
 
 function sessionHasRequiredImages(session) {
   const imageNames = new Set(Object.values(session?.images || {}).map((image) => image.fileName).filter(Boolean));
   return REQUIRED_IMAGES.every((fileName) => imageNames.has(fileName));
+}
+
+function sessionHasMuzzleImages(session) {
+  const imageNames = new Set(Object.values(session?.images || {}).map((image) => image.fileName).filter(Boolean));
+  return MUZZLE_IMAGE_FILES.every((fileName) => imageNames.has(fileName));
+}
+
+function hasSearchableMuzzleSession(row) {
+  return (row?.sessions || []).some((session) => sessionHasMuzzleImages(session) && session.embedding?.average?.length);
 }
 
 function hasCompletedSession(row) {
@@ -1489,13 +1536,19 @@ function hasCompletedSession(row) {
 
 function isVisibleInventoryRecord(row) {
   if (!row?.cattleId) return false;
-  if (row.status === 'draft' || row.status === 'cattle_search_manual_folder') return false;
+  if (row.status === 'draft' || row.status === 'cattle_search_draft' || row.status === 'cattle_search_manual_folder') return false;
   if (isDuplicateEvidenceRecord(row)) return hasCompletedSession(row);
   return hasCompletedSession(row) && row.status === 'ready_for_embedding';
 }
 
-function isSearchableCattleRecord(row) {
+function isRegisteredInventoryRecord(row) {
   return isVisibleInventoryRecord(row) && !isDuplicateEvidenceRecord(row);
+}
+
+function isSearchableCattleRecord(row) {
+  if (!row?.cattleId || isDuplicateEvidenceRecord(row)) return false;
+  if (row.status === 'draft' || row.status === 'cattle_search_draft' || row.status === 'cattle_search_manual_folder') return false;
+  return hasSearchableMuzzleSession(row);
 }
 
 function firstCaptureDateTime(row) {
@@ -1520,6 +1573,7 @@ function toCattleSummary(row, cattleNumber = null) {
     farmerName: row.farmerName || '',
     fieldOfficerId: row.fieldOfficerId || '',
     fieldOfficerName: row.fieldOfficerName || '',
+    workflow: row.workflow || (isCattleSearchRecord(row) ? 'cattle_search' : 'cattle_enrolment'),
     locationLat: row.locationLat ?? null,
     locationLon: row.locationLon ?? null,
     status: row.status || 'draft',
@@ -1551,6 +1605,7 @@ function toSessionSummary(row, session) {
     captureDate: session.captureDate,
     captureDateTime: session.captureDateTime,
     uploadDateTime: session.uploadDateTime,
+    workflow: session.workflow || row.workflow || (isCattleSearchRecord(row) ? 'cattle_search' : 'cattle_enrolment'),
     status: session.status || 'draft',
     folderLocation: session.folderLocation,
     cloudinaryFolder: cloudinaryEnabled ? cloudinaryFolder : null,
@@ -1971,6 +2026,7 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
     auditId,
     cattleId,
     finalCattleId,
+    workflow: matchResult.workflow || session.workflow || 'cattle_search',
     sessionId: session.sessionId,
     decision: matchResult.decision,
     confidence,
@@ -2150,6 +2206,10 @@ function normalizeRecord(row) {
   return row;
 }
 
+function normalizeWorkflow(value, fallback = 'cattle_enrolment') {
+  return value === 'cattle_search' ? 'cattle_search' : fallback;
+}
+
 function getActiveSession(row) {
   const session = row.sessions.find((item) => item.sessionId === row.activeSessionId) || row.sessions.at(-1);
   if (!session) throw new Error('No active capture session found.');
@@ -2235,7 +2295,7 @@ function runPythonJson(args) {
     child.on('error', reject);
     child.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(stderr || `YOLO crop process exited with code ${code}`));
+        reject(new Error(cleanPythonError(stderr || `Python process exited with code ${code}`)));
         return;
       }
 
@@ -2247,8 +2307,23 @@ function runPythonJson(args) {
           .at(-1);
         resolve(JSON.parse(jsonLine || stdout));
       } catch (error) {
-        reject(new Error(`Invalid YOLO output: ${stdout || error.message}`));
+        reject(new Error(`Invalid Python JSON output: ${stdout || error.message}`));
       }
     });
   });
+}
+
+function cleanPythonError(message = '') {
+  const text = String(message || '').trim();
+  if (text.includes('Microsoft Visual C++ Redistributable is not installed') || text.includes('torch\\lib\\c10.dll')) {
+    return 'Embedding model runtime is not ready: PyTorch cannot load c10.dll. Install Microsoft Visual C++ Redistributable x64, then restart the backend.';
+  }
+
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lastErrorLine = [...lines].reverse().find((line) => /^[A-Za-z]+Error:/.test(line) || line.startsWith('OSError:'));
+  return lastErrorLine || lines.at(-1) || 'Python process failed.';
+}
+
+function publicErrorMessage(error) {
+  return cleanPythonError(error?.message || 'Unexpected server error.');
 }

@@ -254,19 +254,20 @@
           <article><span>Registered Cattle</span><strong>{{ fieldTestMetrics.registeredCattle }}</strong></article>
           <article><span>Cattle Searches</span><strong>{{ fieldTestMetrics.cattleSearches }}</strong></article>
           <article><span>Reviewed Searches</span><strong>{{ fieldTestMetrics.reviewedSearches }}</strong></article>
-          <article><span>Correct Matches</span><strong>{{ fieldTestMetrics.correctMatches }}</strong></article>
-          <article><span>Correct No Cattle Found</span><strong>{{ fieldTestMetrics.correctNoCattleFound }}</strong></article>
-          <article><span>Missed Matches</span><strong>{{ fieldTestMetrics.missedMatches }}</strong></article>
-          <article><span>Wrong Matches</span><strong>{{ fieldTestMetrics.wrongMatches }}</strong></article>
+          <article><span>Cattle Found Results</span><strong>{{ fieldTestMetrics.cattleFoundResults }}</strong></article>
+          <article><span>Found Correct</span><strong>{{ fieldTestMetrics.cattleFoundCorrect }}</strong></article>
+          <article><span>Found Incorrect</span><strong>{{ fieldTestMetrics.cattleFoundIncorrect }}</strong></article>
+          <article><span>No Cattle Found Results</span><strong>{{ fieldTestMetrics.noCattleFoundResults }}</strong></article>
+          <article><span>No Found Correct</span><strong>{{ fieldTestMetrics.noCattleFoundCorrect }}</strong></article>
+          <article><span>No Found Incorrect</span><strong>{{ fieldTestMetrics.noCattleFoundIncorrect }}</strong></article>
           <article><span>Top-1 Accuracy</span><strong>{{ fieldTestMetrics.top1Accuracy }}%</strong></article>
           <article><span>Top-5 Accuracy</span><strong>{{ fieldTestMetrics.top5Accuracy }}%</strong></article>
-          <article><span>False Matches</span><strong>{{ fieldTestMetrics.falseMatchCount }}</strong></article>
-          <article><span>Needs Ground Truth</span><strong>{{ fieldTestMetrics.pendingTruth }}</strong></article>
+          <article><span>Pending Review</span><strong>{{ fieldTestMetrics.pendingReview }}</strong></article>
         </div>
 
         <div class="field-note">
-          <strong>How this matches the folder test</strong>
-          <span>Ground truth is the expected cattle identity, or the captured cattle itself when the correct answer is no cattle found. Accuracy uses the raw score-ranked Top-1/Top-5 predictions like the folder test.</span>
+          <strong>How admin review works</strong>
+          <span>For every cattle search, admin checks the captured muzzle and candidate list, then marks whether the app's cattle-found or no-cattle-found result was correct.</span>
         </div>
 
         <div class="officer-results" *ngIf="officerFieldSummaries.length">
@@ -274,9 +275,10 @@
             <span>Officer</span>
             <span>Searches</span>
             <span>Reviewed</span>
-            <span>Correct</span>
-            <span>Missed</span>
-            <span>Wrong</span>
+            <span>Found OK</span>
+            <span>Found Wrong</span>
+            <span>No Found OK</span>
+            <span>No Found Wrong</span>
             <span>Top-1</span>
             <span>Top-5</span>
             <span>Quality</span>
@@ -285,9 +287,10 @@
             <strong>{{ officer.officer }}</strong>
             <span>{{ officer.cattleSearches }}</span>
             <span>{{ officer.reviewedSearches }}</span>
-            <span>{{ officer.correctMatches }}</span>
-            <span>{{ officer.missedMatches }}</span>
-            <span>{{ officer.wrongMatches }}</span>
+            <span>{{ officer.cattleFoundCorrect }}</span>
+            <span>{{ officer.cattleFoundIncorrect }}</span>
+            <span>{{ officer.noCattleFoundCorrect }}</span>
+            <span>{{ officer.noCattleFoundIncorrect }}</span>
             <span>{{ officer.top1Accuracy }}%</span>
             <span>{{ officer.top5Accuracy }}%</span>
             <span>{{ officer.captureQuality }}</span>
@@ -300,11 +303,11 @@
         <div>
           <strong>{{ review.finalCattleId }}</strong>
           <p>{{ review.farmerName || 'NA' }} / {{ review.fieldOfficerName || 'NA' }}</p>
-          <small>{{ review.decision === 'matched_existing' ? 'Cattle search matched existing cattle' : 'No cattle found / new cattle' }} / {{ review.confidencePercent }}% / {{ reviewResultLabel(review) }}</small>
+          <small>{{ review.decision === 'matched_existing' ? 'App result: Cattle found' : 'App result: No cattle found' }} / {{ review.confidencePercent }}% / {{ reviewResultLabel(review) }}</small>
         </div>
         <div class="review-evidence">
           <div class="review-tags">
-            <button type="button" *ngFor="let match of metricTopMatches(review).slice(0, 5); let rank = index" [class.expected]="expectedCattleId(review) === match.cattleId" (click)="confirmMatchReview(review, match.cattleId)">#{{ rank + 1 }} {{ shortId(match.cattleId) }} {{ match.confidencePercent }}% / {{ matchSourceLabel(match.searchScope) }}</button>
+            <button type="button" *ngFor="let match of metricTopMatches(review).slice(0, 20); let rank = index" [class.expected]="expectedCattleId(review) === match.cattleId" (click)="confirmMatchReview(review, match.cattleId)">#{{ rank + 1 }} {{ shortId(match.cattleId) }} {{ match.confidencePercent }}% / {{ matchSourceLabel(match.searchScope) }}</button>
           </div>
           <div class="review-images" *ngIf="review.images.length">
             <button type="button" *ngFor="let image of review.images" (click)="openImage(image.imageType, image.cloudinaryUrl || image.previewUrl)">
@@ -314,10 +317,11 @@
           </div>
         </div>
         <div class="compact-actions review-actions">
-          <button type="button" *ngIf="review.decision === 'matched_existing'" (click)="confirmMatchReview(review)">Correct Match</button>
-          <button type="button" *ngIf="review.decision === 'new_cattle'" (click)="confirmNoCattleFound(review)">Correct No Cattle Found</button>
-          <button type="button" class="ghost" *ngIf="metricTopMatches(review)[0] as bestRanked" (click)="confirmMatchReview(review, bestRanked.cattleId)">Expected Rank 1</button>
-          <button type="button" class="danger-action" *ngIf="review.decision === 'matched_existing'" (click)="moveWrongMatchToRegistered(review)">Wrong - make registered</button>
+          <button type="button" *ngIf="review.decision === 'matched_existing'" (click)="confirmMatchReview(review)">Correct - Cattle Found</button>
+          <button type="button" class="danger-action" *ngIf="review.decision === 'matched_existing'" (click)="markFoundIncorrect(review)">Incorrect - Cattle Found</button>
+          <button type="button" *ngIf="review.decision === 'new_cattle'" (click)="confirmNoCattleFound(review)">Correct - No Cattle Found</button>
+          <button type="button" class="danger-action" *ngIf="review.decision === 'new_cattle'" (click)="markNoCattleFoundIncorrect(review)">Incorrect - Cattle Exists</button>
+          <button type="button" class="ghost" *ngIf="review.decision === 'matched_existing'" (click)="moveWrongMatchToRegistered(review)">Register As New Cow</button>
         </div>
       </article>
     </section>
@@ -368,6 +372,7 @@
     <section class="screen-card home-screen page-enter" *ngIf="agentScreen === 'home'">
       <div class="home-copy">
         <p class="eyebrow">Field Work</p>
+<<<<<<< HEAD
         <h2>Choose workflow.</h2>
         <p>Use Cattle Enrolment for registered cattle. Use Cattle Search when checking whether a cow is already enrolled or should return no cattle found.</p>
       </div>
@@ -381,7 +386,31 @@
           <span>02</span>
           <strong>Cattle Search</strong>
           <small>Find farmer, capture muzzle, get match/no match</small>
+=======
+        <h2>Choose what you are doing now.</h2>
+        <p>Enrolment creates registered cattle. Cattle Search only tests whether a cow is already registered and saves the result for admin review.</p>
+      </div>
+      <div class="choice-grid">
+        <button type="button" class="choice-card primary-choice" (click)="startNewFarmerMode()">
+          <span>New Farmer</span>
+          <strong>Add Farmer + Enrol Cow</strong>
+          <small>Create farmer GPS record and save the first registered cow</small>
         </button>
+        <button type="button" class="choice-card" (click)="findExistingFarmerForEnrollment()">
+          <span>Existing Farmer</span>
+          <strong>Add Cow To Farmer</strong>
+          <small>Select a saved farmer, then register a new cow under that farmer</small>
+>>>>>>> 1006baa (Clarify field workflow and admin review)
+        </button>
+        <button type="button" class="choice-card search-choice" (click)="startCattleSearchFlow()">
+          <span>Search</span>
+          <strong>Cattle Search</strong>
+          <small>Check a cow against registered cattle without creating a new record</small>
+        </button>
+      </div>
+      <div class="flow-warning" *ngIf="!registeredCattleCount">
+        <strong>No registered cattle yet</strong>
+        <span>First use Cattle Enrolment. Cattle Search can only find cows that already exist as registered cattle.</span>
       </div>
       <div class="field-stats">
         <article><span>Farmers</span><strong>{{ cattleStats?.farmerCount || 0 }}</strong></article>
@@ -431,16 +460,28 @@
         <span>{{ hasGps ? ((locationLat | number:'1.6-6') + ', ' + (locationLon | number:'1.6-6')) : 'Use GPS before creating farmer' }}</span>
       </div>
       <div class="action-row"><button type="button" class="ghost" (click)="useGps()">Use GPS</button></div>
+<<<<<<< HEAD
       <div class="action-row farmer-actions"><button type="button" class="primary-action" [disabled]="!farmerName.trim() || !hasGps" (click)="startNewFarmerCapture()">Start First Cow Enrolment</button><button type="button" class="ghost" (click)="findExistingFarmerForEnrollment()">Find Existing Farmer For Enrolment</button></div>
+=======
+      <div class="action-row farmer-actions"><button type="button" class="primary-action" [disabled]="!farmerName.trim() || !hasGps" (click)="startNewFarmerCapture()">Start First Cow Under Farmer</button><button type="button" class="ghost" (click)="findExistingFarmerForEnrollment()">Add Cow To Existing Farmer</button></div>
+>>>>>>> 1006baa (Clarify field workflow and admin review)
     </form>
 
     <section class="screen-card page-enter" *ngIf="agentScreen === 'location'">
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 2</p>
+<<<<<<< HEAD
           <h2>{{ captureWorkflow === 'cattle_search' ? 'Cattle Search Farmer' : 'Enrolment Farmer' }}</h2>
+=======
+          <h2>{{ isCattleSearchFlow ? 'Find Farmer For Cattle Search' : 'Find Registered Farmer' }}</h2>
+>>>>>>> 1006baa (Clarify field workflow and admin review)
         </div>
-        <span>{{ radiusKm }} km</span>
+        <span>{{ isCattleSearchFlow ? 'Search' : 'Enrolment' }}</span>
+      </div>
+      <div class="flow-warning" [class.search-mode]="isCattleSearchFlow">
+        <strong>{{ isCattleSearchFlow ? 'Cattle Search mode' : 'Cattle Enrolment mode' }}</strong>
+        <span>{{ isCattleSearchFlow ? 'This capture will be saved as a cattle search record only. It will not create a registered cow.' : 'This will add a new registered cow under the selected farmer.' }}</span>
       </div>
 
       <div class="location-card farmer-search-card">
@@ -483,7 +524,16 @@
         </button>
       </div>
 
+<<<<<<< HEAD
       <div class="gps-status ready selected-farmer-card" *ngIf="selectedFarmerKey"><strong>Selected farmer</strong><span>{{ farmerName || farmerId }} / {{ farmerId || 'Auto ID' }}</span><small>{{ captureWorkflow === 'cattle_search' ? 'Cattle search first checks this farmer cattle, then all registered cattle records.' : 'Cattle enrolment saves this cow as a registered cattle identity.' }}</small></div><button type="button" class="primary-action big" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">{{ captureWorkflow === 'cattle_search' ? 'Start Cattle Search' : 'Enroll Cow Under Selected Farmer' }}</button>
+=======
+      <div class="gps-status ready selected-farmer-card" *ngIf="selectedFarmerKey">
+        <strong>Selected farmer</strong>
+        <span>{{ farmerName || farmerId }} / {{ farmerId || 'Auto ID' }}</span>
+        <small>{{ locationPrimaryHelp }}</small>
+      </div>
+      <button type="button" class="primary-action big" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">{{ locationPrimaryActionLabel }}</button>
+>>>>>>> 1006baa (Clarify field workflow and admin review)
     </section>
 
     <section class="screen-card camera-card page-enter" *ngIf="agentScreen === 'muzzle'">
@@ -521,7 +571,7 @@
       </div>
 
       <div class="model-grid">
-        <article [class.ready]="yoloStatus?.ok"><strong>{{ yoloStatus?.ok ? 'Muzzle Check Ready' : 'Muzzle Check' }}</strong><span>{{ yoloStatus?.ok ? 'Ready for clear muzzle photos' : (yoloStatus?.error || 'Check model') }}</span><button type="button" class="ghost" (click)="checkYoloStatus()">Check</button></article>
+        <article [class.ready]="yoloStatus?.ok"><strong>{{ yoloStatus?.ok ? 'Phone YOLO Ready' : 'Phone YOLO' }}</strong><span>{{ yoloStatus?.ok ? 'Good/bad muzzle check runs before upload' : (yoloStatus?.error || 'Check model') }}</span><button type="button" class="ghost" (click)="checkYoloStatus()">Check</button></article>
         <article [class.ready]="embeddingStatus?.ok"><strong>{{ embeddingStatus?.ok ? 'Same-Cattle Check Ready' : 'Same-Cattle Check' }}</strong><span>{{ embeddingStatus?.ok ? 'Ready to compare cattle' : 'Check compare service' }}</span><button type="button" class="ghost" (click)="checkEmbeddingStatus()">Check</button></article>
         <article [class.ready]="pineconeStatus?.ok"><strong>{{ pineconeStatus?.ok ? 'Record Search Ready' : 'Record Search' }}</strong><span>{{ pineconeStatus?.totalVectorCount || 0 }} vectors</span><button type="button" class="ghost" (click)="checkPineconeStatus()">Check</button></article>
       </div>

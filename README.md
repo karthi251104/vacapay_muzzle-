@@ -1,80 +1,221 @@
-﻿# Vacapay Muzzle Field Testing App
+# Vacapay Muzzle Field Testing App
 
-Vacapay Muzzle is a cattle muzzle field-testing app with two workflows:
+Vacapay Muzzle is a field-testing app for cattle muzzle identification.
 
-- Cattle Enrolment: register a cattle identity that will be used for future search.
-- Cattle Search: test a cattle against enrolled cattle. The correct result can be a matched cattle or no cattle found.
-
-The field direction is offline-first: Android should run YOLO muzzle detection, good/bad quality classification, cropping, and CLAHE on the phone. The backend should receive only good cropped muzzle images during upload, create DINOv2 embeddings, and save/search vectors in Pinecone.
-
-## Current App Flow
-
-- Add farmer or search existing farmer by GPS/name.
-- Farmer ID is unique and non-sequential, for example `FARM-A7K9Q2M4`.
-- Capture 3 good muzzle images for faster field testing.
-- Capture 7 supporting images: face, side, back, udder.
-- Backend creates one averaged DINOv2 embedding from the 3 muzzle images.
-- Cattle search checks selected farmer cattle first, then all enrolled cattle.
-- Results are tagged as `farmer_cattle` or `all_other_muzzle`.
-
-## Offline Android Requirement
-
-Production Android capture should work like this:
+The app has two official workflows:
 
 ```text
-Android camera frame
--> YOLO TFLite detects muzzle box offline
--> good/bad classifier accepts only usable muzzle crops
--> Android crops muzzle
--> Android applies CLAHE
--> Android saves only good cropped images locally
--> upload screen sends records when internet is good
--> backend creates DINOv2 embeddings
--> backend saves/searches Pinecone
+Cattle Enrolment
+Cattle Search
 ```
 
-Recommended Android model locations:
+Use cattle enrolment to create clean registered cattle identities. Use cattle search to test whether a captured cow is already registered or should return no cattle found.
+
+## Quick Links
+
+- Full workflow: [docs/FIELD_APP_FULL_WORKFLOW.md](docs/FIELD_APP_FULL_WORKFLOW.md)
+- Backend: [backend/src/server.js](backend/src/server.js)
+- Agent/Admin UI: [frontend/src/app/app.component.html](frontend/src/app/app.component.html)
+- Phone TFLite muzzle check: [frontend/src/app/tflite-muzzle-detector.service.ts](frontend/src/app/tflite-muzzle-detector.service.ts)
+
+## Agent Flow
+
+The agent home screen has three choices.
+
+### 1. Add Farmer + Enrol Cow
+
+Use this for a new farmer.
 
 ```text
-android/app/src/main/assets/models/muzzle_detector.tflite
-android/app/src/main/assets/models/muzzle_quality_classifier.tflite
+enter farmer name
+use GPS
+app creates unique farmer ID
+capture cow images
+save as registered cattle
 ```
 
-The current web app still keeps backend YOLO as a browser-testing fallback. Android uploads can send `clientProcessed=true` to save already-cropped muzzle images without backend YOLO cropping.
+### 2. Add Cow To Farmer
 
-## Backend And Pinecone
+Use this when the farmer already exists but the cow is new.
 
-- Cattle enrolment vectors go to the cattle enrolment Pinecone namespace.
-- Cattle search vectors go to the cattle search Pinecone namespace.
-- Pinecone search queries the cattle enrolment namespace so search evidence does not pollute the main identity database.
-- If no match is above threshold, the search result is no cattle found/new cattle.
+```text
+search farmer by GPS or name
+select farmer
+capture cow images
+save as registered cattle under selected farmer
+```
 
-## Admin Evaluation
+### 3. Cattle Search
 
-Admin reviews cattle search records and sets ground truth:
+Use this when checking a cow against existing registered cattle.
 
-- Correct Match: predicted cattle is the expected cattle.
-- Wrong Match: predicted cattle is different from expected cattle.
-- Missed Match: app said no cattle found, but ground truth was an enrolled cattle.
-- Correct No Cattle Found: app said no cattle found and the captured cattle was actually new.
+```text
+search farmer by GPS or name
+select farmer context
+capture cow images
+app returns Cattle Found or No Cattle Found
+save search record for admin review
+```
 
-Metrics shown:
+Important:
 
-- Registered Cattle
-- Cattle Searches
-- Reviewed Searches
-- Correct Matches
-- Correct No Cattle Found
-- Missed Matches
-- Wrong Matches
-- Top-1 Accuracy
-- Top-5 Accuracy
-- False Matches
-- Officer-wise quality
+```text
+For the same cow again, use Cattle Search.
+Do not enrol the same cow again.
+```
 
-For field testing, each officer can do 50 cattle enrolments and 50 cattle searches. In the search set, include both already-enrolled cattle and new cattle where the expected answer is no cattle found.
+## Capture Requirements
 
-## Details
+Current field-testing capture count:
 
-See [docs/COMPLETE_WORKFLOW_AND_EVALUATION.md](docs/COMPLETE_WORKFLOW_AND_EVALUATION.md) for the full start-to-end workflow.
-See [docs/FIELD_TESTING_PROGRESS.md](docs/FIELD_TESTING_PROGRESS.md) for the current progress summary.
+```text
+3 muzzle images
+7 supporting images
+```
+
+Supporting images:
+
+```text
+face1
+face2
+face3
+leftside
+rightside
+back
+udder
+```
+
+The muzzle images are used for embeddings. Supporting images are used by admin to verify whether the app result is correct.
+
+## Phone YOLO And Blur Check
+
+The browser field app uses:
+
+```text
+frontend/src/assets/models/best.tflite
+```
+
+Classes:
+
+```text
+goodmuzzle
+bad muzzle
+```
+
+Current capture thresholds:
+
+```text
+minimum good muzzle confidence: 0.50
+minimum bad muzzle confidence: 0.45
+bad dominance margin: 0.12
+minimum blur/sharpness score: 18
+```
+
+Only good, sharp muzzle crops are uploaded. Blurry images are rejected before they can affect the DINOv2 embedding average.
+
+## Embedding And Search
+
+For each accepted muzzle crop:
+
+```text
+muzzle1 -> DINOv2 embedding 1
+muzzle2 -> DINOv2 embedding 2
+muzzle3 -> DINOv2 embedding 3
+```
+
+Backend averages the three embeddings:
+
+```text
+average embedding = mean(embedding1, embedding2, embedding3)
+```
+
+Cattle search compares the average search embedding against registered cattle embeddings.
+
+Search order:
+
+```text
+1. selected farmer cattle
+2. all registered cattle
+```
+
+Search source tags:
+
+```text
+farmer_cattle
+all_other_muzzle
+```
+
+## Pinecone Separation
+
+The app keeps registered cattle and search evidence separate.
+
+```text
+vacapay-cattle-enrolment
+vacapay-cattle-search
+```
+
+`vacapay-cattle-enrolment` stores clean registered cattle identities and is used as the search gallery.
+
+`vacapay-cattle-search` stores field search evidence and is not used as the main registered cattle gallery.
+
+## Admin Review
+
+Admin dashboard focuses on the field-testing result:
+
+```text
+Total cattle enrolled
+Total cattle searches
+Cattle found correct
+Cattle found incorrect
+No cattle found correct
+No cattle found incorrect
+Pending review
+Top-1 accuracy
+Top-5 accuracy
+```
+
+Admin review actions:
+
+```text
+Correct - Cattle Found
+Incorrect - Cattle Found
+Correct - No Cattle Found
+Incorrect - Cattle Exists
+Register As New Cow
+```
+
+This matches the field test requirement: every cattle search result is checked later as correct or incorrect.
+
+## Production Android Direction
+
+Production Android should run capture processing offline on the phone:
+
+```text
+camera frame
+-> YOLO TFLite muzzle detection
+-> good/bad muzzle quality check
+-> crop
+-> CLAHE/local enhancement
+-> save good crops locally
+-> upload later when internet is good
+-> backend creates embeddings and Pinecone vectors
+```
+
+The backend should not be required for real-time field capture in low-internet areas.
+
+## Field Test Target
+
+Suggested field test plan:
+
+```text
+50 cattle enrolments per officer
+50 cattle searches per officer
+```
+
+Cattle searches should include:
+
+```text
+already enrolled cows where correct result is Cattle Found
+new cows where correct result is No Cattle Found
+```
+

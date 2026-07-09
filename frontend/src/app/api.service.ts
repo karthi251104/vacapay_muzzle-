@@ -16,6 +16,7 @@ export interface Enrollment {
   captureDateTime: string;
   uploadDateTime: string;
   status: string;
+  workflow?: 'cattle_enrolment' | 'cattle_search';
   autoSelectedExistingCattle?: boolean;
   sessions?: CaptureSession[];
 }

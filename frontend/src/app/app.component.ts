@@ -3,6 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, AppUser, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, FarmerMatch, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
+import { TfliteMuzzleDetectorService } from './tflite-muzzle-detector.service';
 
 interface RequiredImage {
   type: string;
@@ -27,24 +28,25 @@ interface FieldTestMetrics {
   registeredCattle: number;
   cattleSearches: number;
   reviewedSearches: number;
-  correctMatches: number;
-  correctNoCattleFound: number;
-  missedMatches: number;
-  wrongMatches: number;
+  cattleFoundResults: number;
+  cattleFoundCorrect: number;
+  cattleFoundIncorrect: number;
+  noCattleFoundResults: number;
+  noCattleFoundCorrect: number;
+  noCattleFoundIncorrect: number;
   top1Accuracy: number;
   top5Accuracy: number;
-  falseMatchCount: number;
-  pendingTruth: number;
+  pendingReview: number;
 }
 
 interface OfficerFieldSummary {
   officer: string;
   cattleSearches: number;
   reviewedSearches: number;
-  correctMatches: number;
-  correctNoCattleFound: number;
-  missedMatches: number;
-  wrongMatches: number;
+  cattleFoundCorrect: number;
+  cattleFoundIncorrect: number;
+  noCattleFoundCorrect: number;
+  noCattleFoundIncorrect: number;
   top1Accuracy: number;
   top5Accuracy: number;
   avgScore: number;
@@ -146,7 +148,10 @@ export class AppComponent implements OnDestroy {
   private stream?: MediaStream;
   private captureTimer?: number;
 
-  constructor(private readonly api: ApiService) {
+  constructor(
+    private readonly api: ApiService,
+    private readonly muzzleDetector: TfliteMuzzleDetectorService
+  ) {
     const savedUser = localStorage.getItem('vacapay_user');
     if (savedUser) {
       this.currentUser = JSON.parse(savedUser) as AppUser;
@@ -196,22 +201,25 @@ export class AppComponent implements OnDestroy {
 
   checkYoloStatus(): void {
     this.checkingYolo = true;
-    this.api.yoloStatus().subscribe({
-      next: (status) => {
-        this.yoloStatus = status;
+    this.muzzleDetector.isReady()
+      .then(() => {
+        this.yoloStatus = {
+          ok: true,
+          modelPath: '/assets/models/best.tflite',
+          task: 'phone_tflite_detection'
+        };
         this.checkingYolo = false;
-        this.message = status.ok ? 'YOLO model is ready.' : `YOLO model not ready: ${status.error || 'Unknown error'}`;
-      },
-      error: (error) => {
+        this.message = 'Phone muzzle check is ready.';
+      })
+      .catch((error) => {
         this.checkingYolo = false;
         this.yoloStatus = {
           ok: false,
-          modelPath: '',
-          error: this.errorMessage(error)
+          modelPath: '/assets/models/best.tflite',
+          error: error instanceof Error ? error.message : 'Phone TFLite model could not load.'
         };
-        this.message = `YOLO model not ready: ${this.yoloStatus.error}`;
-      }
-    });
+        this.message = `Phone muzzle check not ready: ${this.yoloStatus.error}`;
+      });
   }
 
   checkEmbeddingStatus(): void {
@@ -310,7 +318,13 @@ export class AppComponent implements OnDestroy {
     this.resetCaptureState(true);
     this.captureWorkflow = 'cattle_search';
     this.agentScreen = 'location';
+<<<<<<< HEAD
     this.message = 'Cattle search selected. Use GPS/name, select farmer, then capture muzzle photos.';
+=======
+    this.message = this.registeredCattleCount
+      ? 'Cattle search selected. Use GPS/name, select farmer, then capture muzzle photos.'
+      : 'No registered cattle yet. First use Cattle Enrolment to save cows, then use Cattle Search to test matches.';
+>>>>>>> 1006baa (Clarify field workflow and admin review)
   }
 
   findExistingFarmerForEnrollment(): void {
@@ -423,7 +437,7 @@ export class AppComponent implements OnDestroy {
   }
 
   isClosedReview(review: MatchReview): boolean {
-    return ['confirmed', 'wrong_moved_to_registered'].includes(review.reviewStatus);
+    return ['confirmed', 'found_correct', 'found_incorrect', 'no_cattle_correct', 'no_cattle_incorrect', 'wrong_moved_to_registered'].includes(review.reviewStatus);
   }
 
   toggleReviewMode(): void {
@@ -434,9 +448,9 @@ export class AppComponent implements OnDestroy {
   confirmMatchReview(review: MatchReview, correctCattleId?: string): void {
     this.api
       .updateMatchReview(review.auditId, {
-        reviewStatus: 'confirmed',
+        reviewStatus: correctCattleId ? 'found_incorrect' : 'found_correct',
         correctCattleId: correctCattleId || review.matchedCattleId || review.finalCattleId,
-        reviewNotes: correctCattleId ? 'Expected cow corrected by admin.' : 'Photo review confirmed correct.'
+        reviewNotes: correctCattleId ? 'Admin selected a different expected cow from candidate list.' : 'Admin confirmed the cattle-found result is correct.'
       })
       .subscribe({
         next: ({ review: updated }) => {
@@ -450,18 +464,56 @@ export class AppComponent implements OnDestroy {
       });
   }
 
+  markFoundIncorrect(review: MatchReview): void {
+    this.api
+      .updateMatchReview(review.auditId, {
+        reviewStatus: 'found_incorrect',
+        correctCattleId: review.finalCattleId,
+        reviewNotes: 'Admin confirmed the cattle-found result is incorrect.'
+      })
+      .subscribe({
+        next: ({ review: updated }) => {
+          this.allMatchReviews = this.allMatchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
+          this.applyReviewFilter();
+          this.message = `Cattle-found result marked incorrect for ${updated.finalCattleId}.`;
+        },
+        error: (error) => {
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
   confirmNoCattleFound(review: MatchReview): void {
     this.api
       .updateMatchReview(review.auditId, {
-        reviewStatus: 'confirmed',
+        reviewStatus: 'no_cattle_correct',
         correctCattleId: review.finalCattleId,
-        reviewNotes: 'Ground truth confirmed this cattle search correctly returned no enrolled cattle.'
+        reviewNotes: 'Admin confirmed the no-cattle-found result is correct.'
       })
       .subscribe({
         next: ({ review: updated }) => {
           this.allMatchReviews = this.allMatchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
           this.applyReviewFilter();
           this.message = `No-cattle-found result saved for ${updated.finalCattleId}.`;
+        },
+        error: (error) => {
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
+  markNoCattleFoundIncorrect(review: MatchReview): void {
+    this.api
+      .updateMatchReview(review.auditId, {
+        reviewStatus: 'no_cattle_incorrect',
+        correctCattleId: this.metricTopMatches(review)[0]?.cattleId || review.finalCattleId,
+        reviewNotes: 'Admin confirmed this should have found an existing registered cow.'
+      })
+      .subscribe({
+        next: ({ review: updated }) => {
+          this.allMatchReviews = this.allMatchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
+          this.applyReviewFilter();
+          this.message = `No-cattle-found result marked incorrect for ${updated.finalCattleId}.`;
         },
         error: (error) => {
           this.message = this.errorMessage(error);
@@ -619,7 +671,9 @@ export class AppComponent implements OnDestroy {
           this.searchingGpsFarmers = false;
           this.message = farmers.length
             ? `GPS found ${farmers.length} farmer(s). Select the correct farmer to load saved cows.`
-            : 'No farmers found near this GPS. Try name search or add a new farmer.';
+            : (this.registeredCattleCount
+              ? 'No registered farmers found near this GPS. Try name search or add a new farmer in Cattle Enrolment.'
+              : 'No registered farmers exist yet. Use Cattle Enrolment first; cattle searches do not create farmer records.');
         },
         error: (error) => {
           this.searchingFarmers = false;
@@ -649,7 +703,9 @@ export class AppComponent implements OnDestroy {
           this.searchingNameFarmers = false;
           this.message = farmers.length
             ? `Name search found ${farmers.length} farmer(s). Select the correct farmer to load saved cows.`
-            : 'No farmer found by that name/ID. Use GPS search or add a new farmer.';
+            : (this.registeredCattleCount
+              ? 'No registered farmer found by that name/ID. Use GPS search or add a new farmer in Cattle Enrolment.'
+              : 'No registered farmers exist yet. Use Cattle Enrolment first; cattle searches do not create farmer records.');
         },
         error: (error) => {
           this.searchingFarmers = false;
@@ -683,7 +739,9 @@ export class AppComponent implements OnDestroy {
           this.searchingCattle = false;
           this.message = cattle.length
             ? `Found ${cattle.length} saved cow record(s) for this farmer. Now take muzzle photos to identify the correct cow.`
-            : 'No saved cows found for this farmer. Start capture to enroll the first cow.';
+            : (this.captureWorkflow === 'cattle_search'
+              ? 'No saved cows found under this farmer. Cattle Search can still check all registered cattle, but it will not create a new registered cow.'
+              : 'No saved cows found for this farmer. Start capture to enroll the first cow.');
         },
         error: (error) => {
           this.searchingCattle = false;
@@ -745,9 +803,39 @@ export class AppComponent implements OnDestroy {
       this.video.nativeElement.muted = true;
       this.video.nativeElement.playsInline = true;
       await this.video.nativeElement.play();
+      await this.waitForVideoFrame(this.video.nativeElement);
     }
 
     this.cameraOn = true;
+  }
+
+  private waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
+    if (video.videoWidth > 0 && video.videoHeight > 0 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('Camera opened but no video frame was received.'));
+      }, 5000);
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        video.removeEventListener('loadedmetadata', onReady);
+        video.removeEventListener('canplay', onReady);
+        video.removeEventListener('playing', onReady);
+      };
+      const onReady = () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          cleanup();
+          resolve();
+        }
+      };
+      video.addEventListener('loadedmetadata', onReady);
+      video.addEventListener('canplay', onReady);
+      video.addEventListener('playing', onReady);
+      onReady();
+    });
   }
 
   private shouldRetryCameraWithBasicConstraint(error: unknown): boolean {
@@ -805,7 +893,7 @@ export class AppComponent implements OnDestroy {
     this.message = 'Looking for clear muzzle...';
     this.captureTimer = window.setInterval(() => {
       void this.tryCaptureMuzzle();
-    }, 1600);
+    }, 900);
   }
 
   async tryCaptureMuzzle(): Promise<void> {
@@ -816,15 +904,39 @@ export class AppComponent implements OnDestroy {
 
     this.isDetecting = true;
     const slot = this.muzzlePreviews.length + 1;
-    this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount}...`;
-    const blob = await this.frameBlob();
+    if (this.video.nativeElement.videoWidth <= 0 || this.video.nativeElement.videoHeight <= 0) {
+      this.isDetecting = false;
+      this.message = 'Camera preview is not ready yet. Wait one second and start auto capture again.';
+      return;
+    }
 
-    this.api.captureMuzzle(this.enrollment.cattleId, blob, slot).subscribe({
+    this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on phone...`;
+
+    let localResult;
+    try {
+      localResult = await this.muzzleDetector.detectAndCrop(this.video.nativeElement);
+    } catch (error) {
+      this.detectionBox = undefined;
+      this.isDetecting = false;
+      this.message = `Phone muzzle check error: ${error instanceof Error ? error.message : 'TFLite failed.'}`;
+      return;
+    }
+
+    this.lastConfidence = localResult.confidence;
+    this.detectionBox = this.toDetectionBox(localResult.bbox || undefined, localResult.imageSize, localResult.confidence);
+
+    if (!localResult.accepted || !localResult.cropBlob) {
+      this.isDetecting = false;
+      this.message = `${localResult.reason} Hold steady and show a clean straight muzzle.`;
+      return;
+    }
+
+    this.api.captureMuzzle(this.enrollment.cattleId, localResult.cropBlob, slot, true).subscribe({
       next: (response) => {
-        this.lastConfidence = response.result.confidence;
-        this.detectionBox = this.toDetectionBox(response.result.bbox, response.result.imageSize, response.result.confidence);
-        this.muzzlePreviews.push(response.cloudinaryUrl || this.api.mediaUrl(response.previewUrl));
-        this.message = `Muzzle photo ${slot}/${this.muzzleImageCount} saved.`;
+        this.lastConfidence = localResult.confidence;
+        this.detectionBox = this.toDetectionBox(localResult.bbox || undefined, localResult.imageSize, localResult.confidence);
+        this.muzzlePreviews.push(localResult.cropUrl || response.cloudinaryUrl || this.api.mediaUrl(response.previewUrl));
+        this.message = `Good muzzle ${slot}/${this.muzzleImageCount} saved from phone crop.`;
         this.isDetecting = false;
 
         if (response.matchResolution) {
@@ -893,7 +1005,12 @@ export class AppComponent implements OnDestroy {
         this.selectedFarmerKey = `${savedFarmerId}:${savedFarmerName}`;
         this.agentScreen = 'location';
         this.findRegisteredCattle();
-        this.message = 'Cow saved. Same farmer is selected, so you can start the next cow under this farmer.';
+        window.setTimeout(() => this.loadCattleInventory(), 900);
+        if (enrollment.status === 'duplicate_saved_separately' || enrollment.workflow === 'cattle_search') {
+          this.message = 'Cattle search saved separately. Registered cattle count will not increase because this matched an existing cow.';
+        } else {
+          this.message = 'Cow enrolled successfully. It is now a registered cattle record for future cattle search.';
+        }
       },
       error: (error) => {
         this.message = this.errorMessage(error);
@@ -1049,10 +1166,12 @@ export class AppComponent implements OnDestroy {
   get fieldTestMetrics(): FieldTestMetrics {
     const reviews = this.allMatchReviews.filter((review) => this.isCattleSearchCandidate(review));
     const reviewed = reviews.filter((review) => this.isReviewedCattleSearch(review));
-    const correctMatches = reviewed.filter((review) => this.isCorrectMatchedReview(review)).length;
-    const correctNoCattleFound = reviewed.filter((review) => this.isCorrectNoCattleFoundReview(review)).length;
-    const missedMatches = reviewed.filter((review) => this.isMissedReview(review)).length;
-    const wrongMatches = reviewed.filter((review) => this.isWrongMatchedReview(review)).length;
+    const cattleFoundResults = reviews.filter((review) => review.decision === 'matched_existing').length;
+    const noCattleFoundResults = reviews.filter((review) => review.decision === 'new_cattle').length;
+    const cattleFoundCorrect = reviewed.filter((review) => this.isCattleFoundCorrect(review)).length;
+    const cattleFoundIncorrect = reviewed.filter((review) => this.isCattleFoundIncorrect(review)).length;
+    const noCattleFoundCorrect = reviewed.filter((review) => this.isNoCattleFoundCorrect(review)).length;
+    const noCattleFoundIncorrect = reviewed.filter((review) => this.isNoCattleFoundIncorrect(review)).length;
     const top1Correct = reviewed.filter((review) => this.isTopKCorrect(review, 1)).length;
     const top5Correct = reviewed.filter((review) => this.isTopKCorrect(review, 5)).length;
 
@@ -1060,14 +1179,15 @@ export class AppComponent implements OnDestroy {
       registeredCattle: this.cattleStats?.uniqueCattleCount || this.cattleStats?.cattleCount || 0,
       cattleSearches: reviews.length,
       reviewedSearches: reviewed.length,
-      correctMatches,
-      correctNoCattleFound,
-      missedMatches,
-      wrongMatches,
+      cattleFoundResults,
+      cattleFoundCorrect,
+      cattleFoundIncorrect,
+      noCattleFoundResults,
+      noCattleFoundCorrect,
+      noCattleFoundIncorrect,
       top1Accuracy: this.percent(top1Correct, reviewed.length),
       top5Accuracy: this.percent(top5Correct, reviewed.length),
-      falseMatchCount: wrongMatches,
-      pendingTruth: reviews.filter((review) => !this.expectedCattleId(review)).length
+      pendingReview: reviews.filter((review) => !this.isReviewedCattleSearch(review)).length
     };
   }
 
@@ -1082,10 +1202,10 @@ export class AppComponent implements OnDestroy {
       .map(([officer, reviews]) => {
         const searchReviews = reviews.filter((review) => this.isCattleSearchCandidate(review));
         const reviewed = searchReviews.filter((review) => this.isReviewedCattleSearch(review));
-        const correctMatches = reviewed.filter((review) => this.isCorrectMatchedReview(review)).length;
-        const correctNoCattleFound = reviewed.filter((review) => this.isCorrectNoCattleFoundReview(review)).length;
-        const missedMatches = reviewed.filter((review) => this.isMissedReview(review)).length;
-        const wrongMatches = reviewed.filter((review) => this.isWrongMatchedReview(review)).length;
+        const cattleFoundCorrect = reviewed.filter((review) => this.isCattleFoundCorrect(review)).length;
+        const cattleFoundIncorrect = reviewed.filter((review) => this.isCattleFoundIncorrect(review)).length;
+        const noCattleFoundCorrect = reviewed.filter((review) => this.isNoCattleFoundCorrect(review)).length;
+        const noCattleFoundIncorrect = reviewed.filter((review) => this.isNoCattleFoundIncorrect(review)).length;
         const top1Correct = reviewed.filter((review) => this.isTopKCorrect(review, 1)).length;
         const top5Correct = reviewed.filter((review) => this.isTopKCorrect(review, 5)).length;
         const avgScore = this.percent(searchReviews.reduce((total, review) => total + Number(review.confidence || 0), 0), searchReviews.length);
@@ -1094,10 +1214,10 @@ export class AppComponent implements OnDestroy {
           officer,
           cattleSearches: searchReviews.length,
           reviewedSearches: reviewed.length,
-          correctMatches,
-          correctNoCattleFound,
-          missedMatches,
-          wrongMatches,
+          cattleFoundCorrect,
+          cattleFoundIncorrect,
+          noCattleFoundCorrect,
+          noCattleFoundIncorrect,
           top1Accuracy: this.percent(top1Correct, reviewed.length),
           top5Accuracy: this.percent(top5Correct, reviewed.length),
           avgScore,
@@ -1112,7 +1232,14 @@ export class AppComponent implements OnDestroy {
   }
 
   isReviewedCattleSearch(review: MatchReview): boolean {
-    return Boolean(this.expectedCattleId(review) && this.isCattleSearchCandidate(review));
+    return this.isCattleSearchCandidate(review) && [
+      'confirmed',
+      'found_correct',
+      'found_incorrect',
+      'no_cattle_correct',
+      'no_cattle_incorrect',
+      'wrong_moved_to_registered'
+    ].includes(review.reviewStatus);
   }
   expectedCattleId(review: MatchReview): string | null {
     return review.correctCattleId || null;
@@ -1138,6 +1265,22 @@ export class AppComponent implements OnDestroy {
     return Boolean(expected && review.decision === 'matched_existing' && review.matchedCattleId && review.matchedCattleId !== expected);
   }
 
+  isCattleFoundCorrect(review: MatchReview): boolean {
+    return review.reviewStatus === 'found_correct' || this.isCorrectMatchedReview(review);
+  }
+
+  isCattleFoundIncorrect(review: MatchReview): boolean {
+    return review.reviewStatus === 'found_incorrect' || review.reviewStatus === 'wrong_moved_to_registered' || this.isWrongMatchedReview(review);
+  }
+
+  isNoCattleFoundCorrect(review: MatchReview): boolean {
+    return review.reviewStatus === 'no_cattle_correct' || this.isCorrectNoCattleFoundReview(review);
+  }
+
+  isNoCattleFoundIncorrect(review: MatchReview): boolean {
+    return review.reviewStatus === 'no_cattle_incorrect' || this.isMissedReview(review);
+  }
+
   isTopKCorrect(review: MatchReview, k: number): boolean {
     const expected = this.expectedCattleId(review);
     if (!expected) return false;
@@ -1149,7 +1292,11 @@ export class AppComponent implements OnDestroy {
   }
 
   reviewResultLabel(review: MatchReview): string {
-    if (!this.expectedCattleId(review)) return 'Needs ground truth';
+    if (this.isCattleFoundCorrect(review)) return 'Cattle found correct';
+    if (this.isCattleFoundIncorrect(review)) return 'Cattle found incorrect';
+    if (this.isNoCattleFoundCorrect(review)) return 'No cattle found correct';
+    if (this.isNoCattleFoundIncorrect(review)) return 'No cattle found incorrect';
+    if (!this.expectedCattleId(review)) return 'Needs admin review';
     if (this.isCorrectMatchedReview(review)) return 'Correct match';
     if (this.isCorrectNoCattleFoundReview(review)) return 'Correct no cattle found';
     if (this.isMissedReview(review)) return 'Missed';
@@ -1201,6 +1348,24 @@ export class AppComponent implements OnDestroy {
 
   get canStartExistingFarmerCapture(): boolean {
     return this.hasGps && Boolean(this.selectedFarmerKey) && Boolean(this.farmerId.trim() || this.farmerName.trim());
+  }
+
+  get registeredCattleCount(): number {
+    return this.cattleStats?.uniqueCattleCount || this.cattleStats?.cattleCount || this.uniqueCattleInventory.length || 0;
+  }
+
+  get isCattleSearchFlow(): boolean {
+    return this.captureWorkflow === 'cattle_search';
+  }
+
+  get locationPrimaryActionLabel(): string {
+    return this.isCattleSearchFlow ? 'Start Cattle Search' : 'Add New Cow Under Selected Farmer';
+  }
+
+  get locationPrimaryHelp(): string {
+    return this.isCattleSearchFlow
+      ? 'This saves a cattle search record only. It checks this farmer first, then all registered cattle.'
+      : 'This saves a new registered cattle identity under the selected farmer.';
   }
 
   get canComplete(): boolean {
@@ -1271,7 +1436,7 @@ export class AppComponent implements OnDestroy {
     switch (this.agentScreen) {
       case 'farmer': return 'Add a new farmer or search an existing farmer by GPS/name.';
       case 'location': return 'Find the farmer by name and GPS, then muzzle matching selects the correct cow.';
-      case 'muzzle': return `Take ${this.muzzleImageCount} clear muzzle photos. The app checks farmer cattle and all saved muzzle records.`;
+      case 'muzzle': return `Take ${this.muzzleImageCount} good muzzle photos. Phone YOLO rejects bad muzzles, crops the muzzle, applies contrast, then uploads only the crop.`;
       case 'evidence': return 'Add face, side, back and udder photos for the same cattle.';
       case 'review': return 'Check the record once, then save and return home.';
       default: return 'Start capture, continue pending work, or check recent cattle.';
