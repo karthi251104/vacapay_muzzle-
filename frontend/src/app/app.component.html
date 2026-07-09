@@ -372,21 +372,6 @@
     <section class="screen-card home-screen page-enter" *ngIf="agentScreen === 'home'">
       <div class="home-copy">
         <p class="eyebrow">Field Work</p>
-<<<<<<< HEAD
-        <h2>Choose workflow.</h2>
-        <p>Use Cattle Enrolment for registered cattle. Use Cattle Search when checking whether a cow is already enrolled or should return no cattle found.</p>
-      </div>
-      <div class="choice-grid">
-        <button type="button" class="choice-card primary-choice" (click)="startNewFarmerMode()">
-          <span>01</span>
-          <strong>Cattle Enrolment</strong>
-          <small>Add/search farmer, then register cow</small>
-        </button>
-        <button type="button" class="choice-card" (click)="startCattleSearchFlow()">
-          <span>02</span>
-          <strong>Cattle Search</strong>
-          <small>Find farmer, capture muzzle, get match/no match</small>
-=======
         <h2>Choose what you are doing now.</h2>
         <p>Enrolment creates registered cattle. Cattle Search only tests whether a cow is already registered and saves the result for admin review.</p>
       </div>
@@ -400,7 +385,6 @@
           <span>Existing Farmer</span>
           <strong>Add Cow To Farmer</strong>
           <small>Select a saved farmer, then register a new cow under that farmer</small>
->>>>>>> 1006baa (Clarify field workflow and admin review)
         </button>
         <button type="button" class="choice-card search-choice" (click)="startCattleSearchFlow()">
           <span>Search</span>
@@ -460,22 +444,14 @@
         <span>{{ hasGps ? ((locationLat | number:'1.6-6') + ', ' + (locationLon | number:'1.6-6')) : 'Use GPS before creating farmer' }}</span>
       </div>
       <div class="action-row"><button type="button" class="ghost" (click)="useGps()">Use GPS</button></div>
-<<<<<<< HEAD
-      <div class="action-row farmer-actions"><button type="button" class="primary-action" [disabled]="!farmerName.trim() || !hasGps" (click)="startNewFarmerCapture()">Start First Cow Enrolment</button><button type="button" class="ghost" (click)="findExistingFarmerForEnrollment()">Find Existing Farmer For Enrolment</button></div>
-=======
       <div class="action-row farmer-actions"><button type="button" class="primary-action" [disabled]="!farmerName.trim() || !hasGps" (click)="startNewFarmerCapture()">Start First Cow Under Farmer</button><button type="button" class="ghost" (click)="findExistingFarmerForEnrollment()">Add Cow To Existing Farmer</button></div>
->>>>>>> 1006baa (Clarify field workflow and admin review)
     </form>
 
     <section class="screen-card page-enter" *ngIf="agentScreen === 'location'">
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 2</p>
-<<<<<<< HEAD
-          <h2>{{ captureWorkflow === 'cattle_search' ? 'Cattle Search Farmer' : 'Enrolment Farmer' }}</h2>
-=======
           <h2>{{ isCattleSearchFlow ? 'Find Farmer For Cattle Search' : 'Find Registered Farmer' }}</h2>
->>>>>>> 1006baa (Clarify field workflow and admin review)
         </div>
         <span>{{ isCattleSearchFlow ? 'Search' : 'Enrolment' }}</span>
       </div>
@@ -524,16 +500,12 @@
         </button>
       </div>
 
-<<<<<<< HEAD
-      <div class="gps-status ready selected-farmer-card" *ngIf="selectedFarmerKey"><strong>Selected farmer</strong><span>{{ farmerName || farmerId }} / {{ farmerId || 'Auto ID' }}</span><small>{{ captureWorkflow === 'cattle_search' ? 'Cattle search first checks this farmer cattle, then all registered cattle records.' : 'Cattle enrolment saves this cow as a registered cattle identity.' }}</small></div><button type="button" class="primary-action big" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">{{ captureWorkflow === 'cattle_search' ? 'Start Cattle Search' : 'Enroll Cow Under Selected Farmer' }}</button>
-=======
       <div class="gps-status ready selected-farmer-card" *ngIf="selectedFarmerKey">
         <strong>Selected farmer</strong>
         <span>{{ farmerName || farmerId }} / {{ farmerId || 'Auto ID' }}</span>
         <small>{{ locationPrimaryHelp }}</small>
       </div>
       <button type="button" class="primary-action big" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">{{ locationPrimaryActionLabel }}</button>
->>>>>>> 1006baa (Clarify field workflow and admin review)
     </section>
 
     <section class="screen-card camera-card page-enter" *ngIf="agentScreen === 'muzzle'">

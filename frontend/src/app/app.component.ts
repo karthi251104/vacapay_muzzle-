@@ -318,13 +318,9 @@ export class AppComponent implements OnDestroy {
     this.resetCaptureState(true);
     this.captureWorkflow = 'cattle_search';
     this.agentScreen = 'location';
-<<<<<<< HEAD
-    this.message = 'Cattle search selected. Use GPS/name, select farmer, then capture muzzle photos.';
-=======
     this.message = this.registeredCattleCount
       ? 'Cattle search selected. Use GPS/name, select farmer, then capture muzzle photos.'
       : 'No registered cattle yet. First use Cattle Enrolment to save cows, then use Cattle Search to test matches.';
->>>>>>> 1006baa (Clarify field workflow and admin review)
   }
 
   findExistingFarmerForEnrollment(): void {
