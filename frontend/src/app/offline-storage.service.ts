@@ -14,6 +14,7 @@ export interface PendingCapture {
   muzzleBlobs: { slot: number; blob: Blob; confidence?: number; sharpness?: number }[];
   evidenceBlobs: { type: string; blob: Blob }[];
   createdAt: string;
+  captureDurationSeconds?: number;
   syncStatus: 'pending' | 'syncing' | 'failed';
   lastError?: string;
   retryCount: number;
@@ -139,6 +140,15 @@ export class OfflineStorageService {
     const capture = await this.getCapture(id);
     if (!capture) throw new Error('Capture not found in offline storage');
     capture.evidenceBlobs.push({ type, blob });
+    await this.saveCapture(capture);
+  }
+
+  async setCaptureDuration(id: string, captureDurationSeconds?: number): Promise<void> {
+    const capture = await this.getCapture(id);
+    if (!capture) throw new Error('Capture not found in offline storage');
+    if (captureDurationSeconds !== undefined) {
+      capture.captureDurationSeconds = captureDurationSeconds;
+    }
     await this.saveCapture(capture);
   }
 }

@@ -344,6 +344,8 @@
             <strong>Search Capture: {{ shortId(review.finalCattleId) }}</strong>
             <p>{{ review.farmerName || 'NA' }} / Officer: {{ review.fieldOfficerName || 'NA' }}</p>
             <p>Date: {{ review.captureDate | date:'medium' }}</p>
+            <p *ngIf="review.captureDurationSeconds">Capture time: {{ review.captureDurationSeconds }} sec</p>
+            <p *ngIf="review.appVersion">Build {{ review.appVersion }} / {{ review.dinov2ModelVersion || 'DINOv2' }} / threshold {{ review.thresholdPercent }}%</p>
             <p class="status-badge" [class.needs-review]="!review.reviewStatus">{{ reviewResultLabel(review) }}</p>
           </div>
           <div class="sbs-images">
@@ -473,6 +475,10 @@
       <div class="flow-warning" *ngIf="!registeredCattleCount">
         <strong>No registered cattle yet</strong>
         <span>First use Cattle Enrolment. Cattle Search can only find cows that already exist as registered cattle.</span>
+      </div>
+      <div class="flow-warning version-strip" *ngIf="appVersion">
+        <strong>Field build {{ appVersion.appVersion }}</strong>
+        <span>{{ appVersion.tfliteMuzzleModelVersion }} / DINOv2 {{ appVersion.dinov2ModelVersion }} / match {{ appVersion.thresholds.embeddingMatchPercent }}% / {{ appVersion.muzzleImageCount }} muzzle photos</span>
       </div>
       <div class="field-stats">
         <article><span>Farmers</span><strong>{{ cattleStats?.farmerCount || 0 }}</strong></article>

@@ -28,6 +28,7 @@ export interface CaptureSession {
   uploadDateTime: string;
   folderLocation: string;
   status: string;
+  captureDurationSeconds?: number | null;
   images?: Record<string, CaptureImageRef>;
 }
 
@@ -246,6 +247,24 @@ export interface PineconeStatus {
   error?: string;
 }
 
+export interface AppVersionStatus {
+  appVersion: string;
+  captureWorkflowVersion: string;
+  tfliteMuzzleModelVersion: string;
+  yoloModelVersion: string;
+  dinov2ModelVersion: string;
+  muzzleImageCount: number;
+  thresholds: {
+    muzzleConfidence: number;
+    embeddingMatch: number;
+    embeddingMatchPercent: number;
+  };
+  pineconeNamespaces: {
+    enrolment: string;
+    search: string;
+  };
+}
+
 export interface MatchReviewImage {
   imageType: string;
   previewUrl: string;
@@ -261,6 +280,13 @@ export interface MatchReview {
   confidence: number;
   confidencePercent: number;
   thresholdPercent: number;
+  appVersion?: string;
+  captureWorkflowVersion?: string;
+  tfliteMuzzleModelVersion?: string;
+  yoloModelVersion?: string;
+  dinov2ModelVersion?: string;
+  captureDurationSeconds?: number | null;
+  muzzleImageCount?: number;
   matchedCattleId: string | null;
   previousCattleId?: string | null;
   topMatches: MuzzleMatchResult[];
@@ -298,6 +324,10 @@ export class ApiService {
 
   pineconeStatus(): Observable<PineconeStatus> {
     return this.http.get<PineconeStatus>(`${this.baseUrl}/pinecone/status`);
+  }
+
+  appVersion(): Observable<AppVersionStatus> {
+    return this.http.get<AppVersionStatus>(`${this.baseUrl}/version`);
   }
 
   setToken(token: string): void {

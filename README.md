@@ -34,7 +34,11 @@ GPS caching for repeated captures in the same location
 low battery warning where the browser Battery API is available
 vibration and short beep feedback after capture
 capture duration saved when a record is completed
+offline sync preserves capture duration when records upload later
+service worker cache version is bumped to vacapay-v2 for fresh field builds
+/api/version exposes app, model, threshold and Pinecone namespace details
 admin filters and CSV export for match review
+CSV export includes capture duration and model/build versions
 side-by-side admin review of search images and matched registered cattle images
 ```
 

@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
 import { OfflineStorageService, PendingCapture } from './offline-storage.service';
 
@@ -79,7 +80,7 @@ export class SyncService {
     await this.offlineStorage.updateSyncStatus(capture.id, 'syncing');
 
     // Step 1: Create enrollment on server
-    const enrollmentResponse = await this.api.createEnrollment({
+    const enrollmentResponse = await firstValueFrom(this.api.createEnrollment({
       farmerId: capture.farmerId,
       farmerName: capture.farmerName,
       fieldOfficerName: capture.fieldOfficerName,
@@ -89,7 +90,7 @@ export class SyncService {
       matchRadiusKm: 7,
       newFarmer: capture.newFarmer,
       workflow: capture.workflow
-    }).toPromise();
+    }));
 
     if (!enrollmentResponse?.enrollment) {
       throw new Error('Failed to create enrollment during sync');
@@ -99,16 +100,16 @@ export class SyncService {
 
     // Step 2: Upload muzzle images
     for (const muzzle of capture.muzzleBlobs) {
-      await this.api.captureMuzzle(cattleId, muzzle.blob, muzzle.slot, true).toPromise();
+      await firstValueFrom(this.api.captureMuzzle(cattleId, muzzle.blob, muzzle.slot, true));
     }
 
     // Step 3: Upload evidence images
     for (const evidence of capture.evidenceBlobs) {
-      await this.api.saveImage(cattleId, evidence.type, evidence.blob).toPromise();
+      await firstValueFrom(this.api.saveImage(cattleId, evidence.type, evidence.blob));
     }
 
     // Step 4: Complete enrollment
-    await this.api.complete(cattleId).toPromise();
+    await firstValueFrom(this.api.complete(cattleId, capture.captureDurationSeconds));
   }
 
   destroy(): void {

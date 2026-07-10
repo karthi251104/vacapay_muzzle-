@@ -48,6 +48,10 @@ const PINECONE_NAMESPACE = process.env.PINECONE_NAMESPACE || 'vacapay';
 const PINECONE_ENROLMENT_NAMESPACE = process.env.PINECONE_ENROLMENT_NAMESPACE || `${PINECONE_NAMESPACE}-cattle-enrolment`;
 const PINECONE_SEARCH_NAMESPACE = process.env.PINECONE_SEARCH_NAMESPACE || `${PINECONE_NAMESPACE}-cattle-search`;
 const pineconeEnabled = Boolean(PINECONE_API_KEY && PINECONE_INDEX_HOST);
+const APP_VERSION = process.env.APP_VERSION || 'field-test-2026-07-10';
+const TFLITE_MUZZLE_MODEL_VERSION = process.env.TFLITE_MUZZLE_MODEL_VERSION || path.basename(process.env.TFLITE_MUZZLE_MODEL_PATH || 'best.tflite');
+const YOLO_MODEL_VERSION = process.env.YOLO_MODEL_VERSION || path.basename(MODEL_PATH);
+const DINOV2_MODEL_VERSION = process.env.DINOV2_MODEL_VERSION || path.basename(DINOV2_MODEL_PATH);
 const MUZZLE_IMAGE_FILES = Array.from({ length: MUZZLE_IMAGE_COUNT }, (_, index) => `muzzle${index + 1}.jpg`);
 const SUPPORT_IMAGE_FILES = [
   'face1.jpg',
@@ -133,6 +137,7 @@ function safeCattleId(cattleId) {
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
+    appVersion: APP_VERSION,
     modelPath: MODEL_PATH,
     dinov2ModelPath: DINOV2_MODEL_PATH,
     embeddingMatchThreshold: EMBEDDING_MATCH_THRESHOLD,
@@ -154,6 +159,26 @@ app.get('/api/health', (_req, res) => {
       cattleEnrolmentNamespace: PINECONE_ENROLMENT_NAMESPACE,
       cattleSearchNamespace: PINECONE_SEARCH_NAMESPACE,
       indexHost: pineconeEnabled ? PINECONE_INDEX_HOST : null
+    }
+  });
+});
+
+app.get('/api/version', (_req, res) => {
+  res.json({
+    appVersion: APP_VERSION,
+    captureWorkflowVersion: 'cattle-enrolment-search-v2',
+    tfliteMuzzleModelVersion: TFLITE_MUZZLE_MODEL_VERSION,
+    yoloModelVersion: YOLO_MODEL_VERSION,
+    dinov2ModelVersion: DINOV2_MODEL_VERSION,
+    muzzleImageCount: MUZZLE_IMAGE_COUNT,
+    thresholds: {
+      muzzleConfidence: MUZZLE_CONF,
+      embeddingMatch: EMBEDDING_MATCH_THRESHOLD,
+      embeddingMatchPercent: Math.round(EMBEDDING_MATCH_THRESHOLD * 100)
+    },
+    pineconeNamespaces: {
+      enrolment: PINECONE_ENROLMENT_NAMESPACE,
+      search: PINECONE_SEARCH_NAMESPACE
     }
   });
 });
@@ -832,8 +857,11 @@ app.post('/api/enrollments/:cattleId/complete', requireAuth, async (req, res, ne
       session.workflow = 'cattle_enrolment';
     }
 
-    if (req.body.captureDurationSeconds) {
-      session.captureDurationSeconds = Number(req.body.captureDurationSeconds);
+    if (req.body.captureDurationSeconds !== undefined) {
+      const durationSeconds = Number(req.body.captureDurationSeconds);
+      if (Number.isFinite(durationSeconds)) {
+        session.captureDurationSeconds = durationSeconds;
+      }
     }
 
     row.uploadDateTime = new Date().toISOString();
@@ -2034,13 +2062,20 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
     auditId,
     cattleId,
     finalCattleId,
-    workflow: matchResult.workflow || session.workflow || row?.workflow || 'cattle_search',
+    workflow: matchResult.workflow || session.workflow || 'cattle_search',
     sessionId: session.sessionId,
     decision: matchResult.decision,
     confidence,
     confidencePercent: matchResult.confidencePercent,
     threshold: matchResult.threshold,
     thresholdPercent: matchResult.thresholdPercent,
+    appVersion: APP_VERSION,
+    captureWorkflowVersion: 'cattle-enrolment-search-v2',
+    tfliteMuzzleModelVersion: TFLITE_MUZZLE_MODEL_VERSION,
+    yoloModelVersion: YOLO_MODEL_VERSION,
+    dinov2ModelVersion: DINOV2_MODEL_VERSION,
+    captureDurationSeconds: Number(session.captureDurationSeconds || 0) || null,
+    muzzleImageCount: MUZZLE_IMAGE_COUNT,
     matchedCattleId: matchResult.matchedCattleId,
     previousCattleId: matchResult.previousCattleId || null,
     topMatches: matchResult.topMatches || [],

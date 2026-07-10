@@ -434,6 +434,7 @@ Additional production review tools:
 decision filter
 field officer filter
 CSV export
+CSV includes capture duration and model/build versions
 side-by-side review layout
 loaded enrolled-cattle images for matched candidates
 ```
@@ -452,6 +453,11 @@ app result
 confidence score
 Top-20 candidate cattle list
 captured muzzle and supporting images
+capture duration in seconds
+app build version
+TFLite muzzle model version
+DINOv2 model version
+embedding threshold used for that result
 ```
 
 Admin actions:
@@ -497,6 +503,7 @@ Public status endpoints remain available for operational checks:
 
 ```text
 /api/health
+/api/version
 /api/yolo/status
 /api/embedding/status
 /api/pinecone/status

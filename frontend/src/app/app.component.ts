@@ -2,7 +2,7 @@ import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, AppUser, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, FarmerMatch, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
+import { ApiService, AppUser, AppVersionStatus, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, FarmerMatch, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
 import { TfliteMuzzleDetectorService } from './tflite-muzzle-detector.service';
 import { OfflineStorageService, PendingCapture } from './offline-storage.service';
 import { SyncService } from './sync.service';
@@ -100,6 +100,7 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   };
   ngOnInit(): void {
+    this.loadAppVersion();
     this.checkBattery();
     this.setupConnectivityListeners();
     this.syncService.refreshPendingCount().then(count => {
@@ -110,6 +111,17 @@ export class AppComponent implements OnInit, OnDestroy {
   private setupConnectivityListeners(): void {
     window.addEventListener('online', this.onOnline);
     window.addEventListener('offline', this.onOffline);
+  }
+
+  private loadAppVersion(): void {
+    this.api.appVersion().subscribe({
+      next: (version) => {
+        this.appVersion = version;
+      },
+      error: () => {
+        this.appVersion = undefined;
+      }
+    });
   }
 
   private async checkBattery(): Promise<void> {
@@ -204,6 +216,7 @@ export class AppComponent implements OnInit, OnDestroy {
   yoloStatus?: YoloStatus;
   embeddingStatus?: EmbeddingStatus;
   pineconeStatus?: PineconeStatus;
+  appVersion?: AppVersionStatus;
   matchResolution?: MuzzleMatchResolution;
   checkingYolo = false;
   checkingEmbedding = false;
@@ -1206,7 +1219,11 @@ export class AppComponent implements OnInit, OnDestroy {
     const captureDurationSeconds = this.captureStartTime ? Math.round((Date.now() - this.captureStartTime) / 1000) : undefined;
 
     if (this.isOffline && this.offlineCaptureId) {
-      this.syncService.refreshPendingCount().then(c => this.pendingSyncCount = c);
+      this.offlineStorage
+        .setCaptureDuration(this.offlineCaptureId, captureDurationSeconds)
+        .then(() => this.syncService.refreshPendingCount())
+        .then(c => this.pendingSyncCount = c)
+        .catch(() => {});
       this.resetCaptureState(false);
       this.farmerId = savedFarmerId;
       this.farmerName = savedFarmerName;
@@ -1485,7 +1502,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   exportReviewsCsv(): void {
     if (!this.matchReviews.length) return;
-    const headers = ['Cattle ID', 'Date', 'Officer', 'Farmer', 'App Decision', 'Review Status', 'Top Match ID', 'Confidence', 'Correct?'];
+    const headers = ['Cattle ID', 'Date', 'Officer', 'Farmer', 'App Decision', 'Review Status', 'Top Match ID', 'Confidence', 'Capture Seconds', 'App Version', 'DINOv2 Model', 'TFLite Model', 'Correct?'];
     const rows = this.matchReviews.map(r => {
       return [
         r.finalCattleId,
@@ -1496,6 +1513,10 @@ export class AppComponent implements OnInit, OnDestroy {
         r.reviewStatus || 'pending',
         r.topMatches?.[0]?.cattleId || '',
         r.topMatches?.[0]?.confidencePercent || '',
+        r.captureDurationSeconds || '',
+        r.appVersion || '',
+        r.dinov2ModelVersion || '',
+        r.tfliteMuzzleModelVersion || '',
         this.reviewResultLabel(r)
       ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(',');
     });
