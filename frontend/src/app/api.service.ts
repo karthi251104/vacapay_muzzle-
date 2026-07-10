@@ -54,6 +54,8 @@ export interface MuzzleCaptureResponse {
   previewUrl: string;
   cloudinaryUrl?: string | null;
   matchResolution?: MuzzleMatchResolution | null;
+  matchPending?: boolean;
+  matchError?: string | null;
   result: {
     detected: boolean;
     confidence: number;

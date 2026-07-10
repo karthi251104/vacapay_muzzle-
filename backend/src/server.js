@@ -2,6 +2,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -26,7 +27,7 @@ const app = express();
 const upload = multer({ dest: uploadDir });
 
 const PORT = Number(process.env.PORT || 3000);
-const PYTHON_BIN = process.env.PYTHON_BIN || 'python';
+const PYTHON_BIN = resolvePythonBin();
 const MODEL_PATH = process.env.MODEL_PATH || path.join(rootDir, 'best_v4.pt');
 const DINOV2_MODEL_PATH = process.env.DINOV2_MODEL_PATH || path.join(__dirname, '..', 'dinov2_triplet_v2_best.pt');
 const YOLO_IMGSZ = Number(process.env.YOLO_IMGSZ || 640);
@@ -65,6 +66,22 @@ const SUPPORT_IMAGE_FILES = [
 const REQUIRED_IMAGES = [...MUZZLE_IMAGE_FILES, ...SUPPORT_IMAGE_FILES];
 const JWT_SECRET = process.env.JWT_SECRET || randomUUID();
 let writeLock = Promise.resolve();
+
+function resolvePythonBin() {
+  if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
+
+  const candidates = process.platform === 'win32'
+    ? [
+        path.join(rootDir, '.venv-llm-muzzle', 'Scripts', 'python.exe'),
+        path.join(rootDir, '.venv', 'Scripts', 'python.exe')
+      ]
+    : [
+        path.join(rootDir, '.venv-llm-muzzle', 'bin', 'python'),
+        path.join(rootDir, '.venv', 'bin', 'python')
+      ];
+
+  return candidates.find((candidate) => existsSync(candidate)) || 'python';
+}
 
 function base64url(bufferOrString) {
   return Buffer.from(bufferOrString).toString('base64')
@@ -140,6 +157,7 @@ app.get('/api/health', (_req, res) => {
     appVersion: APP_VERSION,
     modelPath: MODEL_PATH,
     dinov2ModelPath: DINOV2_MODEL_PATH,
+    pythonRuntime: PYTHON_BIN,
     embeddingMatchThreshold: EMBEDDING_MATCH_THRESHOLD,
     yoloImageSize: YOLO_IMGSZ,
     muzzleImageCount: MUZZLE_IMAGE_COUNT,
@@ -775,7 +793,16 @@ app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'
       localPath: outPath,
       previewUrl
     });
-    const matchResolution = slot === MUZZLE_IMAGE_COUNT ? await resolveMuzzleMatch(cattleId) : null;
+    let matchResolution = null;
+    let matchError = null;
+    if (slot === MUZZLE_IMAGE_COUNT) {
+      try {
+        matchResolution = await resolveMuzzleMatch(cattleId);
+      } catch (error) {
+        matchError = error;
+        console.error(`Muzzle ${slot} was saved for ${cattleId}, but matching is pending:`, error);
+      }
+    }
 
     res.json({
       slot,
@@ -784,6 +811,8 @@ app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'
       cloudinaryUrl: imageRef.cloudinary?.secureUrl || null,
       imageRef,
       matchResolution,
+      matchPending: Boolean(matchError),
+      matchError: matchError ? publicErrorMessage(matchError) : null,
       result
     });
   } catch (error) {
@@ -835,15 +864,15 @@ app.post('/api/enrollments/:cattleId/images', requireAuth, upload.single('image'
 app.post('/api/enrollments/:cattleId/complete', requireAuth, async (req, res, next) => {
   try {
     const cattleId = safeCattleId(req.params.cattleId);
-    const rows = await readMetadata();
-    const row = normalizeRecord(rows.find((item) => item.cattleId === cattleId));
+    let rows = await readMetadata();
+    let row = normalizeRecord(rows.find((item) => item.cattleId === cattleId));
 
     if (!row) {
       res.status(404).json({ error: 'Enrollment not found.' });
       return;
     }
 
-    const session = getActiveSession(row);
+    let session = getActiveSession(row);
     const folder = session.folderLocation;
     const files = await fs.readdir(folder);
     const missing = REQUIRED_IMAGES.filter((file) => !files.includes(file));
@@ -851,6 +880,13 @@ app.post('/api/enrollments/:cattleId/complete', requireAuth, async (req, res, ne
     if (missing.length) {
       res.status(409).json({ error: 'Enrollment is incomplete.', missing });
       return;
+    }
+
+    if (!session.matchResult?.resolved) {
+      await resolveMuzzleMatch(cattleId);
+      rows = await readMetadata();
+      row = normalizeRecord(rows.find((item) => item.cattleId === cattleId));
+      session = getActiveSession(row);
     }
 
     const workflow = normalizeWorkflow(row.workflow || session.workflow, 'cattle_enrolment');
@@ -2365,10 +2401,16 @@ function runPythonJson(args) {
       stderr += chunk.toString();
     });
 
-    child.on('error', reject);
+    child.on('error', (error) => {
+      reject(new Error(`Could not start Python runtime "${PYTHON_BIN}": ${error.message}`));
+    });
     child.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(cleanPythonError(stderr || `Python process exited with code ${code}`)));
+        const detail = cleanPythonError(stderr || `Python process exited with code ${code}`);
+        const dependencyHint = /ModuleNotFoundError|No module named/i.test(detail)
+          ? ` Python runtime: ${PYTHON_BIN}. Install backend/requirements.txt in this environment.`
+          : '';
+        reject(new Error(`${detail}${dependencyHint}`));
         return;
       }
 

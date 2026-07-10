@@ -2,7 +2,9 @@
 set SCRIPT_DIR=%~dp0
 cd /d "%SCRIPT_DIR%"
 for %%I in ("%SCRIPT_DIR%..") do set ROOT_DIR=%%~fI
-set PYTHON_BIN=C:\Users\dev1x\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe
+set PYTHON_BIN=%ROOT_DIR%\.venv-llm-muzzle\Scripts\python.exe
+if not exist "%PYTHON_BIN%" set PYTHON_BIN=%ROOT_DIR%\.venv\Scripts\python.exe
+if not exist "%PYTHON_BIN%" set PYTHON_BIN=python
 set MODEL_PATH=%ROOT_DIR%\best_v4.pt
 set DINOV2_MODEL_PATH=%ROOT_DIR%\backend\dinov2_triplet_v2_best.pt
 set EMBEDDING_MATCH_THRESHOLD=0.70

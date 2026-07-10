@@ -1167,7 +1167,9 @@ export class AppComponent implements OnInit, OnDestroy {
 
         if (this.muzzlePreviews.length >= this.muzzleImageCount && this.autoCaptureOn) {
           this.toggleAutoCapture();
-          if (!response.matchResolution) {
+          if (response.matchPending) {
+            this.message = `All ${this.muzzleImageCount} muzzle photos are saved. Matching will retry when you complete this record.`;
+          } else if (!response.matchResolution) {
             this.message = `All ${this.muzzleImageCount} muzzle photos captured. Checking farmer cattle and all saved muzzle records.`;
           }
           this.agentScreen = 'evidence';
