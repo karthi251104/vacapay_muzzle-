@@ -1036,7 +1036,7 @@ select:focus {
 }
 
 .mobile-flow {
-  padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  padding-bottom: calc(156px + env(safe-area-inset-bottom));
   padding-left: max(18px, env(safe-area-inset-left));
   padding-right: max(18px, env(safe-area-inset-right));
   padding-top: max(18px, env(safe-area-inset-top));
@@ -1512,6 +1512,10 @@ select:focus {
   z-index: 30;
 }
 
+.location-primary-action {
+  margin-top: 8px;
+}
+
 .bottom-nav button {
   background: transparent;
   color: var(--muted);
@@ -1647,7 +1651,7 @@ select:focus {
   }
 
   .mobile-flow {
-    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) calc(92px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) calc(156px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   }
 
   .auth-app {
@@ -1878,6 +1882,29 @@ select:focus {
 @media (max-width: 700px) {
   .farmer-actions {
     grid-template-columns: 1fr;
+  }
+
+  .choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .choice-card {
+    min-height: 112px;
+  }
+
+  .location-primary-action {
+    border-radius: 8px;
+    bottom: calc(74px + env(safe-area-inset-bottom));
+    box-shadow: 0 -10px 28px rgba(17, 56, 71, 0.22);
+    left: max(14px, env(safe-area-inset-left));
+    margin: 0;
+    position: fixed;
+    right: max(14px, env(safe-area-inset-right));
+    z-index: 42;
+  }
+
+  .location-screen {
+    padding-bottom: calc(150px + env(safe-area-inset-bottom));
   }
 }
 .choice-grid,

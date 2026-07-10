@@ -531,7 +531,7 @@
       <div class="action-row farmer-actions"><button type="button" class="primary-action" [disabled]="!farmerName.trim() || !hasGps" (click)="startNewFarmerCapture()">Start First Cow Under Farmer</button><button type="button" class="ghost" (click)="findExistingFarmerForEnrollment()">Add Cow To Existing Farmer</button></div>
     </form>
 
-    <section class="screen-card page-enter" *ngIf="agentScreen === 'location'">
+    <section class="screen-card location-screen page-enter" *ngIf="agentScreen === 'location'">
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 2</p>
@@ -589,7 +589,7 @@
         <span>{{ farmerName || farmerId }} / {{ farmerId || 'Auto ID' }}</span>
         <small>{{ locationPrimaryHelp }}</small>
       </div>
-      <button type="button" class="primary-action big" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">{{ locationPrimaryActionLabel }}</button>
+      <button type="button" class="primary-action big location-primary-action" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">{{ locationPrimaryActionLabel }}</button>
     </section>
 
     <section class="screen-card camera-card page-enter" *ngIf="agentScreen === 'muzzle'">
