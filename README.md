@@ -40,6 +40,14 @@ service worker cache version is bumped to vacapay-v2 for fresh field builds
 admin filters and CSV export for match review
 CSV export includes capture duration and model/build versions
 side-by-side admin review of search images and matched registered cattle images
+mobile cattle search action is fixed above the bottom nav after farmer selection
+offline sync uses stable cattle IDs and resumes the same capture instead of creating duplicate cattle records
+offline sync preserves the selected GPS radius
+stuck syncing records are recovered back to pending on app start
+cattle enrolment duplicate matches are blocked/warned separately and are not counted as cattle search metrics
+admin field-test metrics count only workflow=cattle_search records
+admin review API returns up to 5000 records for field-test batches
+CSV export uses Blob download to avoid broken exports with special characters
 ```
 
 Production note:
@@ -47,6 +55,7 @@ Production note:
 ```text
 The browser app now has a phone-side TFLite muzzle gate.
 The final native Android app should keep the same flow but run the model from Android assets.
+The current browser PWA still loads TensorFlow JS/TFLite loader scripts from CDN before it can run the local best.tflite model, so true first-use offline Android production still requires bundling that runtime in the native app.
 ```
 
 ## Agent Flow

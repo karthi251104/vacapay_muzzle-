@@ -275,6 +275,7 @@ export interface MatchReview {
   auditId: string;
   cattleId: string;
   finalCattleId: string;
+  workflow?: 'cattle_enrolment' | 'cattle_search';
   sessionId: string;
   decision: 'matched_existing' | 'new_cattle';
   confidence: number;
@@ -372,7 +373,7 @@ export class ApiService {
     return this.http.post<{ agent: AppUser }>(`${this.baseUrl}/agents`, payload, { headers: this.authHeaders() });
   }
 
-  createEnrollment(payload: Partial<Enrollment> & { matchRadiusKm?: number; newFarmer?: boolean; workflow?: 'cattle_enrolment' | 'cattle_search' }): Observable<{ enrollment: Enrollment }> {
+  createEnrollment(payload: Partial<Enrollment> & { matchRadiusKm?: number; newFarmer?: boolean; workflow?: 'cattle_enrolment' | 'cattle_search'; offlineCaptureId?: string }): Observable<{ enrollment: Enrollment }> {
     return this.http.post<{ enrollment: Enrollment }>(`${this.baseUrl}/enrollments`, payload, { headers: this.authHeaders() });
   }
 

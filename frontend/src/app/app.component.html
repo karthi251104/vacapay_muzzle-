@@ -543,6 +543,11 @@
         <strong>{{ isCattleSearchFlow ? 'Cattle Search mode' : 'Cattle Enrolment mode' }}</strong>
         <span>{{ isCattleSearchFlow ? 'This capture will be saved as a cattle search record only. It will not create a registered cow.' : 'This will add a new registered cow under the selected farmer.' }}</span>
       </div>
+      <div class="flow-steps" *ngIf="isCattleSearchFlow">
+        <span>1. Use GPS or enter farmer name</span>
+        <span>2. Select the farmer card</span>
+        <span>3. Tap Start Cattle Search</span>
+      </div>
 
       <div class="location-card farmer-search-card">
         <label><span>Farmer Name or ID</span><input name="farmerSearch" [(ngModel)]="farmerSearchQuery" placeholder="Type farmer name or ID"></label>

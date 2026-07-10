@@ -17,6 +17,7 @@ export class SyncService {
     private readonly offlineStorage: OfflineStorageService
   ) {
     this.setupOnlineListener();
+    void this.offlineStorage.resetStuckSyncingToPending();
     this.refreshPendingCount();
   }
 
@@ -79,24 +80,30 @@ export class SyncService {
   private async syncCapture(capture: PendingCapture): Promise<void> {
     await this.offlineStorage.updateSyncStatus(capture.id, 'syncing');
 
-    // Step 1: Create enrollment on server
-    const enrollmentResponse = await firstValueFrom(this.api.createEnrollment({
-      farmerId: capture.farmerId,
-      farmerName: capture.farmerName,
-      fieldOfficerName: capture.fieldOfficerName,
-      fieldOfficerId: capture.fieldOfficerId,
-      locationLat: capture.locationLat,
-      locationLon: capture.locationLon,
-      matchRadiusKm: 7,
-      newFarmer: capture.newFarmer,
-      workflow: capture.workflow
-    }));
+    let cattleId = capture.serverCattleId || capture.cattleId;
 
-    if (!enrollmentResponse?.enrollment) {
-      throw new Error('Failed to create enrollment during sync');
+    if (!capture.serverCattleId) {
+      const enrollmentResponse = await firstValueFrom(this.api.createEnrollment({
+        cattleId,
+        farmerId: capture.farmerId,
+        farmerName: capture.farmerName,
+        fieldOfficerName: capture.fieldOfficerName,
+        fieldOfficerId: capture.fieldOfficerId,
+        locationLat: capture.locationLat,
+        locationLon: capture.locationLon,
+        matchRadiusKm: capture.matchRadiusKm || 7,
+        newFarmer: capture.newFarmer,
+        workflow: capture.workflow,
+        offlineCaptureId: capture.id
+      }));
+
+      if (!enrollmentResponse?.enrollment) {
+        throw new Error('Failed to create enrollment during sync');
+      }
+
+      cattleId = enrollmentResponse.enrollment.cattleId;
+      await this.offlineStorage.updateServerCattleId(capture.id, cattleId);
     }
-
-    const cattleId = enrollmentResponse.enrollment.cattleId;
 
     // Step 2: Upload muzzle images
     for (const muzzle of capture.muzzleBlobs) {

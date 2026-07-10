@@ -736,6 +736,7 @@ export class AppComponent implements OnInit, OnDestroy {
         fieldOfficerId: this.enrollment.fieldOfficerId,
         locationLat: this.locationLat,
         locationLon: this.locationLon,
+        matchRadiusKm: this.radiusKm,
         workflow: this.captureWorkflow,
         newFarmer,
         muzzleBlobs: [],
@@ -743,6 +744,8 @@ export class AppComponent implements OnInit, OnDestroy {
         createdAt: new Date().toISOString(),
         syncStatus: 'pending',
         retryCount: 0
+      }).catch((error) => {
+        this.message = `Could not save offline capture: ${error instanceof Error ? error.message : 'IndexedDB failed.'}`;
       });
 
       this.muzzlePreviews = [];
@@ -803,6 +806,9 @@ export class AppComponent implements OnInit, OnDestroy {
       this.locationLat = this.gpsCache.lat;
       this.locationLon = this.gpsCache.lon;
       this.message = `Using cached GPS (${this.locationLat}, ${this.locationLon}).`;
+      if (this.agentScreen === 'location') {
+        this.findFarmersByGps();
+      }
       return;
     }
 
@@ -812,6 +818,9 @@ export class AppComponent implements OnInit, OnDestroy {
         this.locationLon = Number(position.coords.longitude.toFixed(6));
         this.gpsCache = { lat: this.locationLat, lon: this.locationLon, timestamp: Date.now() };
         this.message = `GPS location saved (${this.locationLat}, ${this.locationLon}).`;
+        if (this.agentScreen === 'location') {
+          this.findFarmersByGps();
+        }
       },
       () => {
         this.message = 'Could not read GPS location.';
@@ -961,6 +970,7 @@ export class AppComponent implements OnInit, OnDestroy {
       if (this.shouldRetryCameraWithBasicConstraint(error)) {
         try {
           await this.openCamera({ video: true, audio: false });
+          this.captureStartTime = Date.now();
           this.message = 'Camera ready. Browser used the default camera because back camera settings were rejected.';
           return;
         } catch (retryError) {
@@ -1128,6 +1138,11 @@ export class AppComponent implements OnInit, OnDestroy {
         });
         this.message = `Offline: Good muzzle ${slot}/${this.muzzleImageCount} saved locally.`;
         this.isDetecting = false;
+        if (this.muzzlePreviews.length >= this.muzzleImageCount && this.autoCaptureOn) {
+          this.toggleAutoCapture();
+          this.agentScreen = 'evidence';
+          this.message = `Offline: all ${this.muzzleImageCount} muzzle photos saved. Add supporting photos next.`;
+        }
       });
       return;
     }
@@ -1393,6 +1408,10 @@ export class AppComponent implements OnInit, OnDestroy {
       const owner = bestMatch?.farmerName ? ` under farmer ${bestMatch.farmerName}` : '';
       const cow = bestMatch?.cattleLabel || this.shortId(resolution.matchedCattleId || resolution.enrollment.cattleId);
       this.loadCattleInventory();
+      if (resolution.enrollment.workflow === 'cattle_enrolment') {
+        this.message = `This cow already exists${owner} (${cow}). Do not enrol it again; use Cattle Search for repeat testing.`;
+        return;
+      }
       this.message = `Cattle search matched in ${source}${owner} (${cow}). This search record is saved separately for testing.`;
       return;
     }
@@ -1520,14 +1539,16 @@ export class AppComponent implements OnInit, OnDestroy {
         this.reviewResultLabel(r)
       ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(',');
     });
-    const csvContent = "data:text/csv;charset=utf-8," + headers.join(',') + "\n" + rows.join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = headers.join(',') + "\n" + rows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+    const encodedUri = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
     link.setAttribute('download', `vacapay_reviews_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(encodedUri);
   }
 
   downloadSelectedImages(): void {
@@ -1642,7 +1663,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   isCattleSearchCandidate(review: MatchReview): boolean {
-    return review.decision === 'matched_existing' || review.decision === 'new_cattle';
+    return review.workflow === 'cattle_search' && (review.decision === 'matched_existing' || review.decision === 'new_cattle');
   }
 
   isReviewedCattleSearch(review: MatchReview): boolean {
@@ -1773,6 +1794,8 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   get locationPrimaryActionLabel(): string {
+    if (!this.selectedFarmerKey) return 'Select Farmer First';
+    if (!this.hasGps) return 'Use GPS First';
     return this.isCattleSearchFlow ? 'Start Cattle Search' : 'Add New Cow Under Selected Farmer';
   }
 
@@ -1913,6 +1936,8 @@ export class AppComponent implements OnInit, OnDestroy {
     this.stopCamera();
     this.enrollment = undefined;
     this.cattleId = '';
+    this.offlineCaptureId = undefined;
+    this.captureStartTime = 0;
     this.selectedFarmerKey = '';
     this.farmerMatches = [];
     this.gpsFarmerMatches = [];

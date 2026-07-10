@@ -3,12 +3,14 @@ import { Injectable } from '@angular/core';
 export interface PendingCapture {
   id: string;
   cattleId: string;
+  serverCattleId?: string;
   farmerId: string;
   farmerName: string;
   fieldOfficerName: string;
   fieldOfficerId?: string;
   locationLat: number | null;
   locationLon: number | null;
+  matchRadiusKm?: number;
   workflow: 'cattle_enrolment' | 'cattle_search';
   newFarmer: boolean;
   muzzleBlobs: { slot: number; blob: Blob; confidence?: number; sharpness?: number }[];
@@ -122,6 +124,24 @@ export class OfflineStorageService {
       capture.retryCount = (capture.retryCount || 0) + 1;
     }
     await this.saveCapture(capture);
+  }
+
+  async updateServerCattleId(id: string, serverCattleId: string): Promise<void> {
+    const capture = await this.getCapture(id);
+    if (!capture) return;
+    capture.serverCattleId = serverCattleId;
+    capture.syncStatus = 'syncing';
+    await this.saveCapture(capture);
+  }
+
+  async resetStuckSyncingToPending(): Promise<void> {
+    const captures = await this.getAllCaptures();
+    await Promise.all(captures
+      .filter((capture) => capture.syncStatus === 'syncing')
+      .map((capture) => {
+        capture.syncStatus = 'pending';
+        return this.saveCapture(capture);
+      }));
   }
 
   async getPendingCount(): Promise<number> {

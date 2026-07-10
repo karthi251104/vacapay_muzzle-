@@ -233,6 +233,15 @@ Recommended Android model location:
 android/app/src/main/assets/models/best.tflite
 ```
 
+Current browser PWA limitation:
+
+```text
+best.tflite and the TFLite WASM files are stored locally in frontend assets.
+The browser PWA still loads TensorFlow JS/TFLite loader scripts from CDN.
+So first-use fully offline model loading is not guaranteed in the browser PWA.
+For production Android, bundle the runtime and best.tflite inside the APK assets.
+```
+
 ## 8. Backend Image Save
 
 When the phone sends an accepted crop, the frontend sends:
@@ -250,6 +259,30 @@ save the crop as muzzle1/muzzle2/muzzle3
 ```
 
 The backend still has server-side support for older browser/manual testing, but the target field flow is phone-side processing.
+
+## 8A. Field Reliability Fixes In Current Build
+
+The current field build includes these important production fixes:
+
+```text
+Cattle Search start action stays visible above the mobile bottom nav.
+Use GPS auto-runs GPS farmer search on the find-farmer screen.
+Offline sync stores the server cattle ID and resumes the same capture on retry.
+Offline sync sends the same offline capture ID to the backend so retries do not create new sessions.
+Offline sync preserves the selected search radius instead of forcing 7 km.
+Records left in syncing state are recovered to pending on app start.
+Offline 3-muzzle capture advances to supporting image capture.
+Fallback camera mode records capture duration correctly.
+```
+
+Workflow separation fixes:
+
+```text
+Cattle Enrolment duplicate match -> warns that the cow already exists.
+Cattle Enrolment duplicate match -> is not saved as cattle_search evidence.
+Cattle Search match/no-match -> saved as cattle_search evidence for admin review.
+Admin field-test metrics count only workflow=cattle_search records.
+```
 
 ## 9. Embedding Creation
 

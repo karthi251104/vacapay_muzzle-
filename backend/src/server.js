@@ -306,7 +306,7 @@ app.get('/api/reviews/matches', requireAuth, requireAdmin, async (req, res, next
         return confidence >= lower && confidence <= upper;
       })
       .sort((a, b) => String(b.resolvedAt || '').localeCompare(String(a.resolvedAt || '')))
-      .slice(0, 100)
+      .slice(0, 5000)
       .map((audit) => ({
         ...audit,
         images: imageLookup.get(`${audit.finalCattleId || audit.cattleId}__${audit.sessionId}`) || []
@@ -667,13 +667,13 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
     }
 
     const requestedCattleId = String(req.body.cattleId || '').trim();
+    const offlineCaptureId = String(req.body.offlineCaptureId || '').trim();
     const rows = await readMetadata();
     const cattleId = requestedCattleId || randomUUID();
     const existingIndex = rows.findIndex((row) => row.cattleId === cattleId);
     const existing = existingIndex >= 0 ? normalizeRecord(rows[existingIndex]) : null;
     const workflow = normalizeWorkflow(req.body.workflow, existing ? 'cattle_search' : 'cattle_enrolment');
     const rootFolder = path.join(dataDir, cattleId);
-    const session = await createCaptureSession({ cattleId, captureDateTime: req.body.captureDateTime || now });
 
     const record = existing || {
       cattleId,
@@ -685,6 +685,21 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
       rootFolderLocation: rootFolder,
       sessions: []
     };
+
+    if (existing && offlineCaptureId) {
+      const existingSession = (record.sessions || []).find((item) => item.offlineCaptureId === offlineCaptureId);
+      if (existingSession) {
+        record.activeSessionId = existingSession.sessionId;
+        record.uploadDateTime = now;
+        rows[existingIndex] = record;
+        await writeMetadata(rows);
+        res.status(200).json({ enrollment: record });
+        return;
+      }
+    }
+
+    const session = await createCaptureSession({ cattleId, captureDateTime: req.body.captureDateTime || now });
+    if (offlineCaptureId) session.offlineCaptureId = offlineCaptureId;
 
     const isNewFarmer = req.body.newFarmer === true || req.body.newFarmer === 'true';
     record.farmerId = isNewFarmer && !existing ? generateUniqueFarmerId(rows) : (String(req.body.farmerId || record.farmerId || '').trim() || generateUniqueFarmerId(rows));
@@ -699,7 +714,7 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
     record.captureDateTime = session.captureDateTime;
     record.uploadDateTime = now;
     record.workflow = workflow;
-    record.status = workflow === 'cattle_search' ? 'cattle_search_draft' : (existing ? 'cattle_search_manual_folder' : 'draft');
+    record.status = workflow === 'cattle_search' ? 'cattle_search_draft' : 'draft';
     record.autoSelectedExistingCattle = false;
     record.activeSessionId = session.sessionId;
     session.workflow = workflow;
@@ -1367,10 +1382,11 @@ async function resolveMuzzleMatch(cattleId) {
   if (isMatched) {
     const now = new Date().toISOString();
     const duplicateOf = topMatches[0] || null;
+    const duplicateStatus = queryWorkflow === 'cattle_search' ? 'duplicate_saved_separately' : 'enrolment_duplicate_blocked';
     const matchResult = {
       resolved: true,
       decision: 'matched_existing',
-      workflow: 'cattle_search',
+      workflow: queryWorkflow,
       duplicateSavedSeparately: true,
       confidence: bestMatch?.score || 0,
       confidencePercent: Math.round((bestMatch?.score || 0) * 100),
@@ -1386,25 +1402,29 @@ async function resolveMuzzleMatch(cattleId) {
     };
 
     querySession.matchResult = matchResult;
-    querySession.status = 'duplicate_saved_separately';
-    queryRow.status = 'duplicate_saved_separately';
-    queryRow.workflow = 'cattle_search';
-    querySession.workflow = 'cattle_search';
+    querySession.status = duplicateStatus;
+    queryRow.status = duplicateStatus;
+    queryRow.workflow = queryWorkflow;
+    querySession.workflow = queryWorkflow;
     queryRow.duplicateOfCattleId = duplicateOf?.cattleId || bestMatch.cattleId;
     queryRow.duplicateOfFarmerName = duplicateOf?.farmerName || bestMatch.farmerName || '';
     queryRow.uploadDateTime = now;
-    await upsertSessionVector(queryRow, querySession, { namespace: PINECONE_SEARCH_NAMESPACE, workflow: 'cattle_search' }).catch(() => null);
+    if (queryWorkflow === 'cattle_search') {
+      await upsertSessionVector(queryRow, querySession, { namespace: PINECONE_SEARCH_NAMESPACE, workflow: 'cattle_search' }).catch(() => null);
+    }
     await writeMetadata(rows.filter(Boolean));
-    await storeMatchAudit({
-      cattleId: queryRow.cattleId,
-      finalCattleId: queryRow.cattleId,
-      session: querySession,
-      matchResult,
-      farmerName: queryRow.farmerName,
-      fieldOfficerName: queryRow.fieldOfficerName,
-      locationLat: queryRow.locationLat,
-      locationLon: queryRow.locationLon
-    });
+    if (queryWorkflow === 'cattle_search') {
+      await storeMatchAudit({
+        cattleId: queryRow.cattleId,
+        finalCattleId: queryRow.cattleId,
+        session: querySession,
+        matchResult,
+        farmerName: queryRow.farmerName,
+        fieldOfficerName: queryRow.fieldOfficerName,
+        locationLat: queryRow.locationLat,
+        locationLon: queryRow.locationLon
+      });
+    }
     return {
       ...matchResult,
       enrollment: queryRow
