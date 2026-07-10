@@ -1,9 +1,11 @@
 import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, ElementRef, OnDestroy, ViewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, AppUser, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, FarmerMatch, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
 import { TfliteMuzzleDetectorService } from './tflite-muzzle-detector.service';
+import { OfflineStorageService, PendingCapture } from './offline-storage.service';
+import { SyncService } from './sync.service';
 
 interface RequiredImage {
   type: string;
@@ -65,7 +67,86 @@ interface AgentStep {
   templateUrl: './app.component.html',
   styleUrl: './app.component.css'
 })
-export class AppComponent implements OnDestroy {
+export class AppComponent implements OnInit, OnDestroy {
+  batteryLevel?: number;
+  captureStartTime = 0;
+  isOffline = !navigator.onLine;
+  pendingSyncCount = 0;
+  evidenceCameraActive = false;
+  evidenceCameraIndex = 0;
+  private gpsCache?: { lat: number; lon: number; timestamp: number };
+  private offlineCaptureId?: string;
+  private batteryManager?: EventTarget;
+  private readonly onOnline = () => {
+    this.isOffline = false;
+    this.message = 'Back online. Syncing pending captures...';
+    this.syncService.syncAll().then((result) => {
+      this.pendingSyncCount = this.syncService.pendingCount;
+      if (result.synced > 0) {
+        this.message = `${result.synced} offline capture(s) synced successfully.`;
+        this.loadCattleInventory();
+      }
+    });
+  };
+  private readonly onOffline = () => {
+    this.isOffline = true;
+    this.message = 'You are offline. Captures will be saved locally and synced when internet returns.';
+  };
+  private readonly onBatteryLevelChange = () => {
+    const battery = this.batteryManager as { level?: number } | undefined;
+    this.batteryLevel = battery?.level;
+    if (this.batteryLevel !== undefined && this.batteryLevel < 0.20) {
+      this.message = 'Battery is low. Connect charger if you have many cows to capture.';
+    }
+  };
+  ngOnInit(): void {
+    this.checkBattery();
+    this.setupConnectivityListeners();
+    this.syncService.refreshPendingCount().then(count => {
+      this.pendingSyncCount = count;
+    });
+  }
+
+  private setupConnectivityListeners(): void {
+    window.addEventListener('online', this.onOnline);
+    window.addEventListener('offline', this.onOffline);
+  }
+
+  private async checkBattery(): Promise<void> {
+    try {
+      if ('getBattery' in navigator) {
+        const battery = await (navigator as any).getBattery();
+        this.batteryManager = battery;
+        this.batteryLevel = battery.level;
+        battery.addEventListener('levelchange', this.onBatteryLevelChange);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  private playBeep(success: boolean): void {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = success ? 'sine' : 'square';
+      osc.frequency.setValueAtTime(success ? 800 : 300, ctx.currentTime);
+      if (success) {
+        osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+      }
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.1);
+    } catch {
+      // ignore
+    }
+  }
   @ViewChild('video') video?: ElementRef<HTMLVideoElement>;
   @ViewChild('canvas') canvas?: ElementRef<HTMLCanvasElement>;
 
@@ -83,6 +164,11 @@ export class AppComponent implements OnDestroy {
   adminRegistryView: 'unique' | 'duplicates' = 'unique';
   imageViewer?: { title: string; url: string };
   showAllReviews = false;
+  reviewFilterDecision = 'all';
+  reviewFilterOfficer = 'all';
+  officerNamesForFilter: string[] = [];
+  loadedMatchedImages: Record<string, CattleImageSummary[]> = {};
+
   agentName = '';
   agentPhone = '';
   newAgentId = '';
@@ -93,6 +179,7 @@ export class AppComponent implements OnDestroy {
   captureWorkflow: 'cattle_enrolment' | 'cattle_search' = 'cattle_enrolment';
   farmerId = '';
   farmerName = '';
+  farmerSearchQuery = '';
   fieldOfficerName = '';
   locationLat: number | null = null;
   locationLon: number | null = null;
@@ -107,7 +194,7 @@ export class AppComponent implements OnDestroy {
   cattleMatches: CattleMatch[] = [];
   searchingCattle = false;
 
-  muzzlePreviews: string[] = [];
+  muzzlePreviews: { url: string; confidence?: number; sharpness?: number }[] = [];
   cameraOn = false;
   autoCaptureOn = false;
   isDetecting = false;
@@ -127,11 +214,11 @@ export class AppComponent implements OnDestroy {
 
   readonly agentScreens: AgentStep[] = [
     { key: 'home', label: 'Home', caption: 'Start' },
-    { key: 'farmer', label: 'Owner', caption: 'Details' },
-    { key: 'location', label: 'Nearby', caption: 'Check' },
+    { key: 'farmer', label: 'Farmer', caption: 'Add' },
+    { key: 'location', label: 'Find', caption: 'GPS/Name' },
     { key: 'muzzle', label: 'Muzzle', caption: `${this.muzzleImageCount} photos` },
-    { key: 'evidence', label: 'Evidence', caption: 'Photos' },
-    { key: 'review', label: 'Review', caption: 'Finish' }
+    { key: 'evidence', label: 'Other', caption: 'Photos' },
+    { key: 'review', label: 'Save', caption: 'Finish' }
   ];
 
   readonly requiredImages: RequiredImage[] = [
@@ -150,7 +237,9 @@ export class AppComponent implements OnDestroy {
 
   constructor(
     private readonly api: ApiService,
-    private readonly muzzleDetector: TfliteMuzzleDetectorService
+    private readonly muzzleDetector: TfliteMuzzleDetectorService,
+    private readonly offlineStorage: OfflineStorageService,
+    public readonly syncService: SyncService
   ) {
     const savedUser = localStorage.getItem('vacapay_user');
     if (savedUser) {
@@ -168,6 +257,10 @@ export class AppComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.stopCamera();
+    window.removeEventListener('online', this.onOnline);
+    window.removeEventListener('offline', this.onOffline);
+    this.batteryManager?.removeEventListener?.('levelchange', this.onBatteryLevelChange);
+    this.syncService.destroy();
   }
 
   login(): void {
@@ -300,6 +393,7 @@ export class AppComponent implements OnDestroy {
 
   beginEnrollmentFlow(): void {
     this.startNewFarmerMode();
+    this.useGps();
   }
 
   startNewFarmerMode(): void {
@@ -321,6 +415,7 @@ export class AppComponent implements OnDestroy {
     this.message = this.registeredCattleCount
       ? 'Cattle search selected. Use GPS/name, select farmer, then capture muzzle photos.'
       : 'No registered cattle yet. First use Cattle Enrolment to save cows, then use Cattle Search to test matches.';
+    this.useGps();
   }
 
   findExistingFarmerForEnrollment(): void {
@@ -417,7 +512,10 @@ export class AppComponent implements OnDestroy {
   loadMatchReviews(): void {
     this.api.listMatchReviews(false).subscribe({
       next: ({ reviews }) => {
-        this.allMatchReviews = reviews;
+        this.allMatchReviews = (reviews || []).sort(
+          (a, b) => new Date(b.captureDate).getTime() - new Date(a.captureDate).getTime()
+        );
+        this.updateOfficerNamesForFilter();
         this.applyReviewFilter();
       },
       error: (error) => {
@@ -427,9 +525,23 @@ export class AppComponent implements OnDestroy {
   }
 
   applyReviewFilter(): void {
-    this.matchReviews = this.showAllReviews
+    let filtered = this.showAllReviews
       ? this.allMatchReviews
       : this.allMatchReviews.filter((review) => !this.isClosedReview(review));
+
+    if (this.reviewFilterDecision !== 'all') {
+      if (this.reviewFilterDecision === 'pending') {
+        filtered = filtered.filter((review) => !this.isReviewedCattleSearch(review));
+      } else {
+        filtered = filtered.filter((review) => review.decision === this.reviewFilterDecision);
+      }
+    }
+
+    if (this.reviewFilterOfficer !== 'all') {
+      filtered = filtered.filter((review) => review.fieldOfficerName === this.reviewFilterOfficer);
+    }
+
+    this.matchReviews = filtered;
   }
 
   isClosedReview(review: MatchReview): boolean {
@@ -581,6 +693,53 @@ export class AppComponent implements OnDestroy {
 
     const newFarmer = !this.selectedFarmerKey;
     const isSearch = this.captureWorkflow === 'cattle_search';
+
+    if (this.isOffline) {
+      this.offlineCaptureId = `offline_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      this.cattleId = `offline_cow_${this.offlineCaptureId}`;
+      this.enrollment = {
+        cattleId: this.cattleId,
+        farmerId: this.farmerId,
+        farmerName: this.farmerName,
+        fieldOfficerName: this.currentUser?.name || this.fieldOfficerName,
+        fieldOfficerId: this.currentUser?.agentId || '',
+        locationLat: this.locationLat,
+        locationLon: this.locationLon,
+        workflow: this.captureWorkflow,
+        rootFolderLocation: 'offline',
+        folderLocation: 'offline',
+        activeSessionId: 'offline',
+        captureDateTime: new Date().toISOString(),
+        uploadDateTime: new Date().toISOString(),
+        status: 'offline_pending'
+      };
+
+      this.offlineStorage.saveCapture({
+        id: this.offlineCaptureId,
+        cattleId: this.cattleId,
+        farmerId: this.farmerId,
+        farmerName: this.farmerName,
+        fieldOfficerName: this.enrollment.fieldOfficerName,
+        fieldOfficerId: this.enrollment.fieldOfficerId,
+        locationLat: this.locationLat,
+        locationLon: this.locationLon,
+        workflow: this.captureWorkflow,
+        newFarmer,
+        muzzleBlobs: [],
+        evidenceBlobs: [],
+        createdAt: new Date().toISOString(),
+        syncStatus: 'pending',
+        retryCount: 0
+      });
+
+      this.muzzlePreviews = [];
+      this.matchResolution = undefined;
+      this.requiredImages.forEach(item => { item.previewUrl = undefined; item.uploading = false; });
+      this.agentScreen = 'muzzle';
+      this.message = 'Offline mode: Ready to capture. Photos will be saved to your device.';
+      return;
+    }
+
     this.message = isSearch
       ? 'Starting cattle search capture...'
       : (newFarmer ? 'Creating farmer and starting first cow enrolment...' : 'Starting cattle enrolment capture...');
@@ -627,10 +786,19 @@ export class AppComponent implements OnDestroy {
       return;
     }
 
+    if (this.gpsCache && Date.now() - this.gpsCache.timestamp < 5 * 60 * 1000) {
+      this.locationLat = this.gpsCache.lat;
+      this.locationLon = this.gpsCache.lon;
+      this.message = `Using cached GPS (${this.locationLat}, ${this.locationLon}).`;
+      return;
+    }
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
         this.locationLat = Number(position.coords.latitude.toFixed(6));
         this.locationLon = Number(position.coords.longitude.toFixed(6));
+        this.gpsCache = { lat: this.locationLat, lon: this.locationLon, timestamp: Date.now() };
+        this.message = `GPS location saved (${this.locationLat}, ${this.locationLon}).`;
       },
       () => {
         this.message = 'Could not read GPS location.';
@@ -680,7 +848,7 @@ export class AppComponent implements OnDestroy {
   }
 
   findFarmersByName(): void {
-    const q = (this.farmerName || this.farmerId).trim();
+    const q = (this.farmerSearchQuery || this.farmerName || this.farmerId).trim();
     if (!q) {
       this.message = 'Enter farmer name or farmer ID to search by name.';
       return;
@@ -714,6 +882,7 @@ export class AppComponent implements OnDestroy {
   selectFarmer(match: FarmerMatch): void {
     this.farmerId = match.farmerId || this.farmerId;
     this.farmerName = match.farmerName || this.farmerName;
+    this.farmerSearchQuery = this.farmerName || this.farmerId;
     this.selectedFarmerKey = match.key || `${match.farmerId}:${match.farmerName}`;
     this.message = `${match.farmerName || match.farmerId} selected. First checking this farmer's ${match.cattleCount} cow(s), then all saved muzzle records.`;
     this.findRegisteredCattle();
@@ -773,6 +942,7 @@ export class AppComponent implements OnDestroy {
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
       });
+      this.captureStartTime = Date.now();
       this.message = 'Camera ready. Start auto capture when muzzle is visible.';
     } catch (error) {
       if (this.shouldRetryCameraWithBasicConstraint(error)) {
@@ -927,11 +1097,39 @@ export class AppComponent implements OnDestroy {
       return;
     }
 
+    if (this.isOffline && this.offlineCaptureId) {
+      if (navigator.vibrate) navigator.vibrate(200);
+      this.playBeep(true);
+
+      this.offlineStorage.addMuzzleToCapture(
+        this.offlineCaptureId,
+        slot,
+        localResult.cropBlob,
+        localResult.confidence,
+        localResult.sharpness
+      ).then(() => {
+        this.muzzlePreviews.push({
+          url: URL.createObjectURL(localResult.cropBlob as Blob),
+          confidence: localResult.confidence,
+          sharpness: localResult.sharpness
+        });
+        this.message = `Offline: Good muzzle ${slot}/${this.muzzleImageCount} saved locally.`;
+        this.isDetecting = false;
+      });
+      return;
+    }
+
     this.api.captureMuzzle(this.enrollment.cattleId, localResult.cropBlob, slot, true).subscribe({
       next: (response) => {
+        if (navigator.vibrate) navigator.vibrate(200);
+        this.playBeep(true);
         this.lastConfidence = localResult.confidence;
         this.detectionBox = this.toDetectionBox(localResult.bbox || undefined, localResult.imageSize, localResult.confidence);
-        this.muzzlePreviews.push(localResult.cropUrl || response.cloudinaryUrl || this.api.mediaUrl(response.previewUrl));
+        this.muzzlePreviews.push({
+          url: localResult.cropUrl || response.cloudinaryUrl || this.api.mediaUrl(response.previewUrl),
+          confidence: localResult.confidence,
+          sharpness: localResult.sharpness
+        });
         this.message = `Good muzzle ${slot}/${this.muzzleImageCount} saved from phone crop.`;
         this.isDetecting = false;
 
@@ -948,6 +1146,8 @@ export class AppComponent implements OnDestroy {
         }
       },
       error: (error) => {
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        this.playBeep(false);
         this.detectionBox = undefined;
         this.message = error.status === 422
           ? `Muzzle was not clear for photo ${slot}/${this.muzzleImageCount}. Hold steady and show the full muzzle.`
@@ -966,6 +1166,19 @@ export class AppComponent implements OnDestroy {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
+
+    if (this.isOffline && this.offlineCaptureId) {
+      item.uploading = true;
+      this.offlineStorage.addEvidenceToCapture(this.offlineCaptureId, item.type, file).then(() => {
+        item.previewUrl = URL.createObjectURL(file);
+        item.uploading = false;
+        this.message = `Offline: ${item.label} saved locally.`;
+        if (this.capturedOtherImages === this.requiredImages.length && this.muzzlePreviews.length === this.muzzleImageCount) {
+          this.agentScreen = 'review';
+        }
+      });
+      return;
+    }
 
     item.uploading = true;
     this.api.saveImage(this.enrollment.cattleId, item.type, file).subscribe({
@@ -990,8 +1203,20 @@ export class AppComponent implements OnDestroy {
 
     const savedFarmerId = this.farmerId || this.enrollment.farmerId || '';
     const savedFarmerName = this.farmerName || this.enrollment.farmerName || '';
+    const captureDurationSeconds = this.captureStartTime ? Math.round((Date.now() - this.captureStartTime) / 1000) : undefined;
 
-    this.api.complete(this.enrollment.cattleId).subscribe({
+    if (this.isOffline && this.offlineCaptureId) {
+      this.syncService.refreshPendingCount().then(c => this.pendingSyncCount = c);
+      this.resetCaptureState(false);
+      this.farmerId = savedFarmerId;
+      this.farmerName = savedFarmerName;
+      this.selectedFarmerKey = `${savedFarmerId}:${savedFarmerName}`;
+      this.agentScreen = 'home';
+      this.message = 'Offline capture complete. It will automatically upload when you get internet.';
+      return;
+    }
+
+    this.api.complete(this.enrollment.cattleId, captureDurationSeconds).subscribe({
       next: ({ enrollment }) => {
         this.enrollment = enrollment;
         this.loadCattleInventory();
@@ -999,19 +1224,144 @@ export class AppComponent implements OnDestroy {
         this.farmerId = savedFarmerId;
         this.farmerName = savedFarmerName;
         this.selectedFarmerKey = `${savedFarmerId}:${savedFarmerName}`;
-        this.agentScreen = 'location';
+        this.agentScreen = 'home';
         this.findRegisteredCattle();
         window.setTimeout(() => this.loadCattleInventory(), 900);
         if (enrollment.status === 'duplicate_saved_separately' || enrollment.workflow === 'cattle_search') {
-          this.message = 'Cattle search saved separately. Registered cattle count will not increase because this matched an existing cow.';
+          this.message = 'Cattle search saved separately. Use "Enrol Next Cow" to continue with the same farmer.';
         } else {
-          this.message = 'Cow enrolled successfully. It is now a registered cattle record for future cattle search.';
+          this.message = 'Cow enrolled successfully! Use "Enrol Next Cow" to add another cow for the same farmer.';
         }
       },
       error: (error) => {
         this.message = this.errorMessage(error);
       }
     });
+  }
+
+  quickEnrolNextCow(): void {
+    const savedFarmerId = this.farmerId;
+    const savedFarmerName = this.farmerName;
+    const savedOfficer = this.fieldOfficerName;
+    this.resetCaptureState(false);
+    this.captureWorkflow = 'cattle_enrolment';
+    this.farmerId = savedFarmerId;
+    this.farmerName = savedFarmerName;
+    this.fieldOfficerName = savedOfficer;
+    this.selectedFarmerKey = `${savedFarmerId}:${savedFarmerName}`;
+    this.message = 'Quick enrol: same farmer, new cow. Creating enrollment...';
+    this.createEnrollment();
+  }
+
+  startEvidenceCamera(): void {
+    this.evidenceCameraIndex = this.requiredImages.findIndex(item => !item.previewUrl);
+    if (this.evidenceCameraIndex < 0) {
+      this.message = 'All evidence photos are already captured.';
+      return;
+    }
+    this.evidenceCameraActive = true;
+    this.message = `Point camera at: ${this.requiredImages[this.evidenceCameraIndex].label}`;
+    void this.startCamera();
+  }
+
+  async captureEvidencePhoto(): Promise<void> {
+    if (!this.enrollment || !this.video || this.evidenceCameraIndex < 0) return;
+    const item = this.requiredImages[this.evidenceCameraIndex];
+    if (!item) return;
+
+    try {
+      const blob = await this.frameBlob();
+
+      if (this.isOffline && this.offlineCaptureId) {
+        item.uploading = true;
+        this.offlineStorage.addEvidenceToCapture(this.offlineCaptureId, item.type, blob).then(() => {
+           item.previewUrl = URL.createObjectURL(blob);
+           item.uploading = false;
+           if (navigator.vibrate) navigator.vibrate(100);
+           this.playBeep(true);
+
+           const nextIndex = this.requiredImages.findIndex((img, idx) => idx > this.evidenceCameraIndex && !img.previewUrl);
+           if (nextIndex >= 0) {
+             this.evidenceCameraIndex = nextIndex;
+             this.message = `Offline: ${item.label} saved! Now point camera at: ${this.requiredImages[nextIndex].label}`;
+           } else {
+             this.evidenceCameraActive = false;
+             this.stopCamera();
+             this.message = 'Offline: All evidence photos captured! Review your record.';
+             if (this.muzzlePreviews.length >= this.muzzleImageCount) {
+               this.agentScreen = 'review';
+             }
+           }
+        });
+        return;
+      }
+
+      item.uploading = true;
+      this.api.saveImage(this.enrollment.cattleId, item.type, blob).subscribe({
+        next: (response) => {
+          item.previewUrl = response.cloudinaryUrl || this.api.mediaUrl(response.previewUrl);
+          item.uploading = false;
+          if (navigator.vibrate) navigator.vibrate(100);
+          this.playBeep(true);
+
+          // Find next un-captured evidence
+          const nextIndex = this.requiredImages.findIndex((img, idx) => idx > this.evidenceCameraIndex && !img.previewUrl);
+          if (nextIndex >= 0) {
+            this.evidenceCameraIndex = nextIndex;
+            this.message = `${item.label} saved! Now point camera at: ${this.requiredImages[nextIndex].label}`;
+          } else {
+            this.evidenceCameraActive = false;
+            this.stopCamera();
+            this.message = 'All evidence photos captured! Review your record.';
+            if (this.muzzlePreviews.length >= this.muzzleImageCount) {
+              this.agentScreen = 'review';
+            }
+          }
+        },
+        error: (error) => {
+          item.uploading = false;
+          this.message = `Evidence upload error: ${this.errorMessage(error)}`;
+        }
+      });
+    } catch {
+      this.message = 'Could not capture evidence photo from camera.';
+    }
+  }
+
+  skipEvidencePhoto(): void {
+    const nextIndex = this.requiredImages.findIndex((img, idx) => idx > this.evidenceCameraIndex && !img.previewUrl);
+    if (nextIndex >= 0) {
+      this.evidenceCameraIndex = nextIndex;
+      this.message = `Skipped. Now point camera at: ${this.requiredImages[nextIndex].label}`;
+    } else {
+      this.evidenceCameraActive = false;
+      this.stopCamera();
+      this.message = 'Evidence capture finished.';
+    }
+  }
+
+  stopEvidenceCamera(): void {
+    this.evidenceCameraActive = false;
+    this.stopCamera();
+    this.message = 'Evidence camera stopped. You can still use file picker for remaining photos.';
+  }
+
+  async manualSync(): Promise<void> {
+    if (!navigator.onLine) {
+      this.message = 'Still offline. Cannot sync now.';
+      return;
+    }
+    this.message = 'Syncing pending captures...';
+    const result = await this.syncService.syncAll();
+    this.pendingSyncCount = this.syncService.pendingCount;
+    if (result.synced > 0) {
+      this.message = `Synced ${result.synced} capture(s). ${result.failed > 0 ? result.failed + ' failed.' : ''}`;
+      this.loadCattleInventory();
+    } else if (result.failed > 0) {
+      this.message = `${result.failed} capture(s) failed to sync. Will retry when connection improves.`;
+    } else {
+      this.message = 'No pending captures to sync.';
+    }
   }
 
   private applyMatchResolution(resolution: MuzzleMatchResolution): void {
@@ -1039,7 +1389,7 @@ export class AppComponent implements OnDestroy {
 
     const previews = Array.from({ length: this.muzzleImageCount }, (_, index) => session.images?.[`muzzle${index + 1}`]?.previewUrl)
       .filter((preview): preview is string => Boolean(preview))
-      .map((preview) => this.api.mediaUrl(preview));
+      .map((preview) => ({ url: this.api.mediaUrl(preview) }));
 
     if (previews.length === this.muzzleImageCount) {
       this.muzzlePreviews = previews;
@@ -1110,6 +1460,53 @@ export class AppComponent implements OnDestroy {
         this.message = this.errorMessage(error);
       }
     });
+  }
+
+  private updateOfficerNamesForFilter(): void {
+    const officers = new Set<string>();
+    for (const r of this.allMatchReviews) {
+      if (r.fieldOfficerName) officers.add(r.fieldOfficerName);
+    }
+    this.officerNamesForFilter = Array.from(officers).sort();
+  }
+
+  loadMatchedCattleImages(cattleId: string): void {
+    if (this.loadedMatchedImages[cattleId]) return;
+    const cattle = this.cattleInventory.find((item) => item.cattleId === cattleId);
+    const images = cattle?.sessions?.flatMap((session) => session.images || []) || [];
+
+    if (images.length) {
+      this.loadedMatchedImages[cattleId] = images;
+      this.message = 'Matched cattle images loaded.';
+    } else {
+      this.message = 'No enrolled images found for this cow. Refresh cattle records and try again.';
+    }
+  }
+
+  exportReviewsCsv(): void {
+    if (!this.matchReviews.length) return;
+    const headers = ['Cattle ID', 'Date', 'Officer', 'Farmer', 'App Decision', 'Review Status', 'Top Match ID', 'Confidence', 'Correct?'];
+    const rows = this.matchReviews.map(r => {
+      return [
+        r.finalCattleId,
+        new Date(r.captureDate).toISOString(),
+        r.fieldOfficerName || 'NA',
+        r.farmerName || 'NA',
+        r.decision,
+        r.reviewStatus || 'pending',
+        r.topMatches?.[0]?.cattleId || '',
+        r.topMatches?.[0]?.confidencePercent || '',
+        this.reviewResultLabel(r)
+      ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(',');
+    });
+    const csvContent = "data:text/csv;charset=utf-8," + headers.join(',') + "\n" + rows.join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `vacapay_reviews_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   }
 
   downloadSelectedImages(): void {
@@ -1358,6 +1755,20 @@ export class AppComponent implements OnDestroy {
     return this.isCattleSearchFlow ? 'Start Cattle Search' : 'Add New Cow Under Selected Farmer';
   }
 
+  get farmerNavTarget(): AgentScreen {
+    if (this.agentScreen === 'home') return 'farmer';
+    if (this.isCattleSearchFlow || this.selectedFarmerKey || this.enrollment) return 'location';
+    return 'farmer';
+  }
+
+  get farmerNavLabel(): string {
+    return this.isCattleSearchFlow ? 'Find' : 'Farmer';
+  }
+
+  get completeButtonLabel(): string {
+    return this.isCattleSearchFlow ? 'Save Cattle Search Result' : 'Save Registered Cow';
+  }
+
   get locationPrimaryHelp(): string {
     return this.isCattleSearchFlow
       ? 'This saves a cattle search record only. It checks this farmer first, then all registered cattle.'
@@ -1432,7 +1843,7 @@ export class AppComponent implements OnDestroy {
     switch (this.agentScreen) {
       case 'farmer': return 'Add a new farmer or search an existing farmer by GPS/name.';
       case 'location': return 'Find the farmer by name and GPS, then muzzle matching selects the correct cow.';
-      case 'muzzle': return `Take ${this.muzzleImageCount} good muzzle photos. Phone YOLO rejects bad muzzles, crops the muzzle, applies contrast, then uploads only the crop.`;
+      case 'muzzle': return `Take ${this.muzzleImageCount} good muzzle photos. Phone muzzle gate rejects bad muzzles, crops the muzzle, applies contrast, then uploads only the crop.`;
       case 'evidence': return 'Add face, side, back and udder photos for the same cattle.';
       case 'review': return 'Check the record once, then save and return home.';
       default: return 'Start capture, continue pending work, or check recent cattle.';
@@ -1501,6 +1912,7 @@ export class AppComponent implements OnDestroy {
     if (clearOwnerDetails) {
       this.farmerId = '';
       this.farmerName = '';
+      this.farmerSearchQuery = '';
       this.locationLat = null;
       this.locationLon = null;
     }

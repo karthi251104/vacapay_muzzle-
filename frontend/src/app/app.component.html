@@ -244,25 +244,62 @@
           <h2>Muzzle Match History</h2>
         </div>
         <div class="compact-actions">
+          <select [(ngModel)]="reviewFilterDecision" (change)="applyReviewFilter()" class="ghost-select">
+            <option value="all">All Results</option>
+            <option value="matched_existing">App: Cattle Found</option>
+            <option value="new_cattle">App: No Cattle Found</option>
+            <option value="pending">Needs Review</option>
+          </select>
+          <select [(ngModel)]="reviewFilterOfficer" (change)="applyReviewFilter()" class="ghost-select">
+            <option value="all">All Officers</option>
+            <option *ngFor="let officer of officerNamesForFilter" [value]="officer">{{ officer }}</option>
+          </select>
           <button type="button" class="ghost" (click)="toggleReviewMode()">{{ showAllReviews ? 'Open Only' : 'Show All' }}</button>
           <button type="button" class="ghost" (click)="loadMatchReviews()">Refresh</button>
+          <button type="button" class="primary-action" (click)="exportReviewsCsv()">Export CSV</button>
         </div>
       </div>
 
       <section class="field-results" *ngIf="allMatchReviews.length">
-        <div class="field-result-grid">
-          <article><span>Registered Cattle</span><strong>{{ fieldTestMetrics.registeredCattle }}</strong></article>
-          <article><span>Cattle Searches</span><strong>{{ fieldTestMetrics.cattleSearches }}</strong></article>
-          <article><span>Reviewed Searches</span><strong>{{ fieldTestMetrics.reviewedSearches }}</strong></article>
-          <article><span>Cattle Found Results</span><strong>{{ fieldTestMetrics.cattleFoundResults }}</strong></article>
-          <article><span>Found Correct</span><strong>{{ fieldTestMetrics.cattleFoundCorrect }}</strong></article>
-          <article><span>Found Incorrect</span><strong>{{ fieldTestMetrics.cattleFoundIncorrect }}</strong></article>
-          <article><span>No Cattle Found Results</span><strong>{{ fieldTestMetrics.noCattleFoundResults }}</strong></article>
-          <article><span>No Found Correct</span><strong>{{ fieldTestMetrics.noCattleFoundCorrect }}</strong></article>
-          <article><span>No Found Incorrect</span><strong>{{ fieldTestMetrics.noCattleFoundIncorrect }}</strong></article>
-          <article><span>Top-1 Accuracy</span><strong>{{ fieldTestMetrics.top1Accuracy }}%</strong></article>
-          <article><span>Top-5 Accuracy</span><strong>{{ fieldTestMetrics.top5Accuracy }}%</strong></article>
-          <article><span>Pending Review</span><strong>{{ fieldTestMetrics.pendingReview }}</strong></article>
+
+        <div class="dashboard-top-row">
+          <div class="field-result-grid">
+            <article><span>Registered Cattle</span><strong>{{ fieldTestMetrics.registeredCattle }}</strong></article>
+            <article><span>Cattle Searches</span><strong>{{ fieldTestMetrics.cattleSearches }}</strong></article>
+            <article><span>Reviewed Searches</span><strong>{{ fieldTestMetrics.reviewedSearches }}</strong></article>
+            <article><span>Top-1 Accuracy</span><strong>{{ fieldTestMetrics.top1Accuracy }}%</strong></article>
+            <article><span>Top-5 Accuracy</span><strong>{{ fieldTestMetrics.top5Accuracy }}%</strong></article>
+            <article><span>Pending Review</span><strong>{{ fieldTestMetrics.pendingReview }}</strong></article>
+          </div>
+
+          <div class="confusion-matrix-card">
+            <h3>Confusion Matrix</h3>
+            <div class="cm-grid">
+              <div class="cm-cell cm-header"></div>
+              <div class="cm-cell cm-header">App: Found</div>
+              <div class="cm-cell cm-header">App: Not Found</div>
+
+              <div class="cm-cell cm-header">Actually Found</div>
+              <div class="cm-cell cm-value cm-tp">
+                <strong>{{ fieldTestMetrics.cattleFoundCorrect }}</strong>
+                <span>True Positives</span>
+              </div>
+              <div class="cm-cell cm-value cm-fn">
+                <strong>{{ fieldTestMetrics.noCattleFoundIncorrect }}</strong>
+                <span>False Negatives</span>
+              </div>
+
+              <div class="cm-cell cm-header">Actually Not Found</div>
+              <div class="cm-cell cm-value cm-fp">
+                <strong>{{ fieldTestMetrics.cattleFoundIncorrect }}</strong>
+                <span>False Positives</span>
+              </div>
+              <div class="cm-cell cm-value cm-tn">
+                <strong>{{ fieldTestMetrics.noCattleFoundCorrect }}</strong>
+                <span>True Negatives</span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="field-note">
@@ -299,29 +336,59 @@
       </section>
       <div class="empty-state" *ngIf="!matchReviews.length">No match history found.</div>
 
-      <article class="review-card" *ngFor="let review of matchReviews">
-        <div>
-          <strong>{{ review.finalCattleId }}</strong>
-          <p>{{ review.farmerName || 'NA' }} / {{ review.fieldOfficerName || 'NA' }}</p>
-          <small>{{ review.decision === 'matched_existing' ? 'App result: Cattle found' : 'App result: No cattle found' }} / {{ review.confidencePercent }}% / {{ reviewResultLabel(review) }}</small>
-        </div>
-        <div class="review-evidence">
-          <div class="review-tags">
-            <button type="button" *ngFor="let match of metricTopMatches(review).slice(0, 20); let rank = index" [class.expected]="expectedCattleId(review) === match.cattleId" (click)="confirmMatchReview(review, match.cattleId)">#{{ rank + 1 }} {{ shortId(match.cattleId) }} {{ match.confidencePercent }}% / {{ matchSourceLabel(match.searchScope) }}</button>
+      <article class="review-card side-by-side" *ngFor="let review of matchReviews">
+
+        <!-- Left: Search Query -->
+        <div class="sbs-pane query-pane">
+          <div class="sbs-header">
+            <strong>Search Capture: {{ shortId(review.finalCattleId) }}</strong>
+            <p>{{ review.farmerName || 'NA' }} / Officer: {{ review.fieldOfficerName || 'NA' }}</p>
+            <p>Date: {{ review.captureDate | date:'medium' }}</p>
+            <p class="status-badge" [class.needs-review]="!review.reviewStatus">{{ reviewResultLabel(review) }}</p>
           </div>
-          <div class="review-images" *ngIf="review.images.length">
+          <div class="sbs-images">
             <button type="button" *ngFor="let image of review.images" (click)="openImage(image.imageType, image.cloudinaryUrl || image.previewUrl)">
               <img [src]="image.cloudinaryUrl || image.previewUrl" [alt]="image.imageType">
               <span>{{ image.imageType }}</span>
             </button>
           </div>
         </div>
-        <div class="compact-actions review-actions">
-          <button type="button" *ngIf="review.decision === 'matched_existing'" (click)="confirmMatchReview(review)">Correct - Cattle Found</button>
-          <button type="button" class="danger-action" *ngIf="review.decision === 'matched_existing'" (click)="markFoundIncorrect(review)">Incorrect - Cattle Found</button>
-          <button type="button" *ngIf="review.decision === 'new_cattle'" (click)="confirmNoCattleFound(review)">Correct - No Cattle Found</button>
-          <button type="button" class="danger-action" *ngIf="review.decision === 'new_cattle'" (click)="markNoCattleFoundIncorrect(review)">Incorrect - Cattle Exists</button>
-          <button type="button" class="ghost" *ngIf="review.decision === 'matched_existing'" (click)="moveWrongMatchToRegistered(review)">Register As New Cow</button>
+
+        <!-- Right: Matched Cattle -->
+        <div class="sbs-pane match-pane" *ngIf="review.decision === 'matched_existing' && review.topMatches?.length">
+          <div class="sbs-header">
+            <strong>App Matched With: {{ shortId(review.topMatches[0].cattleId) }}</strong>
+            <p>{{ review.topMatches[0].farmerName || 'NA' }} / Officer: {{ review.topMatches[0].fieldOfficerName || 'NA' }}</p>
+            <p>Confidence: {{ review.topMatches[0].confidencePercent }}%</p>
+            <button type="button" class="ghost small-btn" (click)="loadMatchedCattleImages(review.topMatches[0].cattleId)">Load Enrolled Images</button>
+          </div>
+          <div class="sbs-images" *ngIf="loadedMatchedImages[review.topMatches[0].cattleId]">
+            <button type="button" *ngFor="let image of loadedMatchedImages[review.topMatches[0].cattleId]" (click)="openImage(image.imageType, image.cloudinaryUrl || image.previewUrl)">
+              <img [src]="image.cloudinaryUrl || image.previewUrl" [alt]="image.imageType">
+              <span>{{ image.imageType }}</span>
+            </button>
+          </div>
+        </div>
+        <div class="sbs-pane match-pane no-match" *ngIf="review.decision === 'new_cattle'">
+          <div class="sbs-header">
+            <strong>App Result: No Cattle Found</strong>
+            <p>The model did not find any matching cattle above the confidence threshold.</p>
+          </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="sbs-controls">
+          <div class="compact-actions review-actions">
+            <button type="button" *ngIf="review.decision === 'matched_existing'" (click)="confirmMatchReview(review)">Correct - Same Cow</button>
+            <button type="button" class="danger-action" *ngIf="review.decision === 'matched_existing'" (click)="markFoundIncorrect(review)">Incorrect - Different Cow</button>
+            <button type="button" *ngIf="review.decision === 'new_cattle'" (click)="confirmNoCattleFound(review)">Correct - Is New Cow</button>
+            <button type="button" class="danger-action" *ngIf="review.decision === 'new_cattle'" (click)="markNoCattleFoundIncorrect(review)">Incorrect - Exists In DB</button>
+            <button type="button" class="ghost" *ngIf="review.decision === 'matched_existing'" (click)="moveWrongMatchToRegistered(review)">Register As New Cow</button>
+          </div>
+          <div class="review-tags" *ngIf="(review.topMatches?.length || 0) > 1">
+            <p>Other candidates:</p>
+            <button type="button" *ngFor="let match of metricTopMatches(review).slice(1, 10); let rank = index" [class.expected]="expectedCattleId(review) === match.cattleId" (click)="confirmMatchReview(review, match.cattleId)">#{{ rank + 2 }} {{ shortId(match.cattleId) }} {{ match.confidencePercent }}%</button>
+          </div>
         </div>
       </article>
     </section>
@@ -367,6 +434,12 @@
   </nav>
 
   <div class="toast page-enter delay-3"><span [class.live]="autoCaptureOn"></span>{{ message }}</div>
+  <div class="toast page-enter delay-3" *ngIf="isOffline" style="background: #4a1515; color: #ffcccc;"><span style="background: #ff4444; animation: none;"></span>Offline: Captures will be saved locally.</div>
+
+  <div class="toast page-enter delay-3 sync-toast" *ngIf="pendingSyncCount > 0" (click)="manualSync()">
+    <span class="sync-spinner" *ngIf="syncService.syncing"></span>
+    {{ pendingSyncCount }} capture(s) pending sync. {{ isOffline ? 'Will upload when online.' : 'Tap to sync now.' }}
+  </div>
 
   <section class="screen-stage">
     <section class="screen-card home-screen page-enter" *ngIf="agentScreen === 'home'">
@@ -390,6 +463,11 @@
           <span>Search</span>
           <strong>Cattle Search</strong>
           <small>Check a cow against registered cattle without creating a new record</small>
+        </button>
+        <button type="button" class="choice-card primary-choice" *ngIf="farmerId" (click)="quickEnrolNextCow()">
+          <span>Quick Add</span>
+          <strong>Enrol Next Cow</strong>
+          <small>Quickly add another cow for {{ farmerName }}</small>
         </button>
       </div>
       <div class="flow-warning" *ngIf="!registeredCattleCount">
@@ -461,7 +539,7 @@
       </div>
 
       <div class="location-card farmer-search-card">
-        <label><span>Farmer Name or ID</span><input name="farmerSearch" [(ngModel)]="farmerName" placeholder="Type farmer name or ID"></label>
+        <label><span>Farmer Name or ID</span><input name="farmerSearch" [(ngModel)]="farmerSearchQuery" placeholder="Type farmer name or ID"></label>
         <label><span>Latitude</span><input name="locationLat" type="number" [(ngModel)]="locationLat"></label>
         <label><span>Longitude</span><input name="locationLon" type="number" [(ngModel)]="locationLon"></label>
         <label><span>Radius</span><select name="radiusKm" [(ngModel)]="radiusKm"><option [ngValue]="5">5 km</option><option [ngValue]="7">7 km</option></select></label>
@@ -520,6 +598,12 @@
       <div class="camera-screen" [class.detecting]="isDetecting" [class.live]="cameraOn">
         <video #video muted playsinline></video>
         <div class="scan-layer" *ngIf="autoCaptureOn"><i></i></div>
+        <div class="camera-guide" *ngIf="autoCaptureOn && (!detectionBox || detectionBox.confidence < 0.5)">
+          <div class="guide-dot tl"></div>
+          <div class="guide-dot tr"></div>
+          <div class="guide-dot bl"></div>
+          <div class="guide-dot br"></div>
+        </div>
         <div
           class="detection-box"
           *ngIf="detectionBox"
@@ -543,13 +627,20 @@
       </div>
 
       <div class="model-grid">
-        <article [class.ready]="yoloStatus?.ok"><strong>{{ yoloStatus?.ok ? 'Phone YOLO Ready' : 'Phone YOLO' }}</strong><span>{{ yoloStatus?.ok ? 'Good/bad muzzle check runs before upload' : (yoloStatus?.error || 'Check model') }}</span><button type="button" class="ghost" (click)="checkYoloStatus()">Check</button></article>
+        <article [class.ready]="yoloStatus?.ok"><strong>{{ yoloStatus?.ok ? 'Phone Muzzle Gate Ready' : 'Phone Muzzle Gate' }}</strong><span>{{ yoloStatus?.ok ? 'Good/bad muzzle check, crop and contrast happen before upload' : (yoloStatus?.error || 'Check model') }}</span><button type="button" class="ghost" (click)="checkYoloStatus()">Check</button></article>
         <article [class.ready]="embeddingStatus?.ok"><strong>{{ embeddingStatus?.ok ? 'Same-Cattle Check Ready' : 'Same-Cattle Check' }}</strong><span>{{ embeddingStatus?.ok ? 'Ready to compare cattle' : 'Check compare service' }}</span><button type="button" class="ghost" (click)="checkEmbeddingStatus()">Check</button></article>
         <article [class.ready]="pineconeStatus?.ok"><strong>{{ pineconeStatus?.ok ? 'Record Search Ready' : 'Record Search' }}</strong><span>{{ pineconeStatus?.totalVectorCount || 0 }} vectors</span><button type="button" class="ghost" (click)="checkPineconeStatus()">Check</button></article>
       </div>
 
       <div class="thumb-strip">
-        <div class="thumb saved" *ngFor="let preview of muzzlePreviews; let i = index"><img [src]="preview" [alt]="'Muzzle ' + (i + 1)"><span>{{ i + 1 }}</span></div>
+        <div class="thumb saved" *ngFor="let preview of muzzlePreviews; let i = index">
+          <img [src]="preview.url" [alt]="'Muzzle ' + (i + 1)">
+          <span>{{ i + 1 }}</span>
+          <div class="quality-badges" *ngIf="preview.confidence || preview.sharpness">
+            <span class="badge conf" *ngIf="preview.confidence" title="Confidence">{{ preview.confidence | percent:'1.0-0' }}</span>
+            <span class="badge sharp" *ngIf="preview.sharpness" title="Sharpness">{{ preview.sharpness }}</span>
+          </div>
+        </div>
         <div class="thumb" *ngFor="let slot of missingMuzzleSlots"><span>{{ slot }}</span></div>
       </div>
     </section>
@@ -563,7 +654,28 @@
         <span>{{ capturedOtherImages }}/7</span>
       </div>
 
-      <div class="slot-grid">
+      <div class="action-row" *ngIf="!evidenceCameraActive && capturedOtherImages < requiredImages.length">
+        <button type="button" class="primary-action big" (click)="startEvidenceCamera()">Start Quick Camera Capture</button>
+      </div>
+
+      <div class="camera-screen evidence-camera" [class.live]="cameraOn" *ngIf="evidenceCameraActive">
+        <video #video muted playsinline></video>
+        <div class="camera-empty" *ngIf="!cameraOn">
+          <strong>Camera Ready</strong>
+          <span>Start camera to capture evidence photos</span>
+        </div>
+        <div class="camera-guide-text" *ngIf="cameraOn">
+          {{ requiredImages[evidenceCameraIndex].label }}
+        </div>
+      </div>
+
+      <div class="action-row camera-actions" *ngIf="evidenceCameraActive">
+        <button type="button" class="ghost" (click)="cameraOn ? stopEvidenceCamera() : startCamera()">{{ cameraOn ? 'Stop Camera' : 'Start Camera' }}</button>
+        <button type="button" class="ghost" *ngIf="cameraOn" (click)="skipEvidencePhoto()">Skip</button>
+        <button type="button" class="primary-action" *ngIf="cameraOn" (click)="captureEvidencePhoto()">Capture Photo</button>
+      </div>
+
+      <div class="slot-grid" *ngIf="!evidenceCameraActive">
         <label class="slot-card" *ngFor="let item of requiredImages" [class.saved]="item.previewUrl" [class.uploading]="item.uploading">
           <input type="file" accept="image/*" capture="environment" (change)="uploadRequiredImage($event, item)">
           <img *ngIf="item.previewUrl" [src]="item.previewUrl" [alt]="item.label">
@@ -600,17 +712,23 @@
         <p *ngIf="matchResolution.decision === 'new_cattle'">No enrolled cattle was found in selected farmer cattle or all saved muzzle records. If this cow is new, this is a correct no-cattle-found result.</p>
       </div>
       <div class="final-gallery">
-        <img *ngFor="let preview of muzzlePreviews.slice(0, muzzleImageCount)" [src]="preview" alt="Muzzle preview">
+        <div class="final-thumb" *ngFor="let preview of muzzlePreviews.slice(0, muzzleImageCount)">
+          <img [src]="preview.url" alt="Muzzle preview">
+          <div class="quality-badges" *ngIf="preview.confidence || preview.sharpness">
+            <span class="badge conf" *ngIf="preview.confidence">{{ preview.confidence | percent:'1.0-0' }}</span>
+            <span class="badge sharp" *ngIf="preview.sharpness">S:{{ preview.sharpness }}</span>
+          </div>
+        </div>
         <img *ngFor="let item of requiredImages" [src]="item.previewUrl" [alt]="item.label" [hidden]="!item.previewUrl">
       </div>
 
-      <button type="button" class="primary-action big" [disabled]="!canComplete" (click)="completeEnrollment()">Save Record & Continue Same Farmer</button>
+      <button type="button" class="primary-action big" [disabled]="!canComplete" (click)="completeEnrollment()">{{ completeButtonLabel }}</button>
     </section>
   </section>
 
   <nav class="bottom-nav">
     <button type="button" [class.active]="agentScreen === 'home'" (click)="goAgentScreen('home')">Home</button>
-    <button type="button" [class.active]="agentScreen === 'farmer' || agentScreen === 'location'" (click)="goAgentScreen('farmer')">Owner</button>
+    <button type="button" [class.active]="agentScreen === 'farmer' || agentScreen === 'location'" (click)="goAgentScreen(farmerNavTarget)">{{ farmerNavLabel }}</button>
     <button type="button" [class.active]="agentScreen === 'muzzle'" (click)="goAgentScreen('muzzle')">Camera</button>
     <button type="button" [class.active]="agentScreen === 'review'" (click)="goAgentScreen('review')">Review</button>
   </nav>

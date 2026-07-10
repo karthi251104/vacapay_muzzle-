@@ -17,6 +17,33 @@ Use cattle enrolment to create clean registered cattle identities. Use cattle se
 - Backend: [backend/src/server.js](backend/src/server.js)
 - Agent/Admin UI: [frontend/src/app/app.component.html](frontend/src/app/app.component.html)
 - Phone TFLite muzzle check: [frontend/src/app/tflite-muzzle-detector.service.ts](frontend/src/app/tflite-muzzle-detector.service.ts)
+- Offline storage: [frontend/src/app/offline-storage.service.ts](frontend/src/app/offline-storage.service.ts)
+- Offline sync: [frontend/src/app/sync.service.ts](frontend/src/app/sync.service.ts)
+
+## Production Hardening Added
+
+The current build includes these verified hardening changes:
+
+```text
+JWT login for admin and field agents
+protected farmer, cattle, enrolment, capture, review and download APIs
+offline browser capture storage using IndexedDB
+automatic sync retry when the phone comes back online
+PWA manifest and service worker asset caching
+GPS caching for repeated captures in the same location
+low battery warning where the browser Battery API is available
+vibration and short beep feedback after capture
+capture duration saved when a record is completed
+admin filters and CSV export for match review
+side-by-side admin review of search images and matched registered cattle images
+```
+
+Production note:
+
+```text
+The browser app now has a phone-side TFLite muzzle gate.
+The final native Android app should keep the same flow but run the model from Android assets.
+```
 
 ## Agent Flow
 
@@ -87,7 +114,7 @@ udder
 
 The muzzle images are used for embeddings. Supporting images are used by admin to verify whether the app result is correct.
 
-## Phone YOLO And Blur Check
+## Phone Muzzle Gate And Blur Check
 
 The browser field app uses:
 
@@ -112,6 +139,28 @@ minimum blur/sharpness score: 18
 ```
 
 Only good, sharp muzzle crops are uploaded. Blurry images are rejected before they can affect the DINOv2 embedding average.
+
+The accepted crop also receives local contrast enhancement before upload.
+
+## Offline Capture And Sync
+
+If the phone loses internet during field work:
+
+```text
+new capture is saved in IndexedDB
+muzzle crops are stored locally
+supporting images are stored locally
+pending count appears in the UI
+sync retries when the browser goes online again
+failed sync records are kept for retry
+```
+
+Important:
+
+```text
+Offline capture is a browser/PWA safety layer.
+For final production Android, the same records should be saved in native local storage and uploaded from a dedicated upload screen.
+```
 
 ## Embedding And Search
 

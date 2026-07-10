@@ -11,6 +11,7 @@ export interface LocalMuzzleDetection {
   accepted: boolean;
   reason: string;
   confidence: number;
+  sharpness?: number;
   className: string;
   bbox: [number, number, number, number] | null;
   imageSize: [number, number];
@@ -115,6 +116,7 @@ export class TfliteMuzzleDetectorService {
         accepted: false,
         reason: `Image is blurry (${Math.round(cropQuality)} sharpness).`,
         confidence: best.confidence,
+        sharpness: Math.round(cropQuality),
         className: best.className,
         bbox: best.bbox,
         imageSize: [sourceWidth, sourceHeight]
@@ -126,6 +128,7 @@ export class TfliteMuzzleDetectorService {
       accepted: true,
       reason: 'Good muzzle accepted.',
       confidence: best.confidence,
+      sharpness: Math.round(cropQuality),
       className: best.className,
       bbox: best.bbox,
       imageSize: [sourceWidth, sourceHeight],
@@ -153,17 +156,23 @@ export class TfliteMuzzleDetectorService {
   private async warmupModel(model: TfliteModel): Promise<void> {
     const tf = window.tf;
     if (!tf?.zeros) return;
-    const input = tf.zeros([1, 3, this.modelInputSize, this.modelInputSize], 'float32');
-    let output: unknown;
+    let input: unknown;
     try {
-      output = model.predict(input);
-      const firstOutput = (Array.isArray(output) ? output[0] : output) as any;
-      if (firstOutput?.data) {
-        await firstOutput.data();
+      input = tf.zeros([1, 3, this.modelInputSize, this.modelInputSize], 'float32');
+      let output: unknown;
+      try {
+        output = model.predict(input);
+        const firstOutput = (Array.isArray(output) ? output[0] : output) as any;
+        if (firstOutput?.data) {
+          await firstOutput.data();
+        }
+      } finally {
+        this.disposeOutput(output);
       }
+    } catch {
+      // Shape mismatch is acceptable — first real inference will still work
     } finally {
-      tf.dispose(input);
-      this.disposeOutput(output);
+      if (input) tf.dispose(input);
     }
   }
 
@@ -442,21 +451,90 @@ export class TfliteMuzzleDetectorService {
   private applyLocalContrast(context: CanvasRenderingContext2D, width: number, height: number): void {
     const image = context.getImageData(0, 0, width, height);
     const data = image.data;
-    let min = 255;
-    let max = 0;
-    for (let index = 0; index < data.length; index += 4) {
-      const gray = Math.round((data[index] + data[index + 1] + data[index + 2]) / 3);
-      min = Math.min(min, gray);
-      max = Math.max(max, gray);
-    }
+    const tilesX = 4;
+    const tilesY = 4;
+    const clipLimit = 2.0;
 
-    const range = Math.max(24, max - min);
-    for (let index = 0; index < data.length; index += 4) {
-      for (let channel = 0; channel < 3; channel += 1) {
-        const stretched = ((data[index + channel] - min) / range) * 255;
-        data[index + channel] = Math.max(0, Math.min(255, stretched));
+    const tileW = Math.ceil(width / tilesX);
+    const tileH = Math.ceil(height / tilesY);
+
+    const tileHistograms = new Array(tilesY * tilesX).fill(0).map(() => new Float32Array(256));
+    const tileCdfs = new Array(tilesY * tilesX).fill(0).map(() => new Float32Array(256));
+
+    for (let ty = 0; ty < tilesY; ty++) {
+      for (let tx = 0; tx < tilesX; tx++) {
+        const hist = tileHistograms[ty * tilesX + tx];
+        const startX = tx * tileW;
+        const startY = ty * tileH;
+        const endX = Math.min(startX + tileW, width);
+        const endY = Math.min(startY + tileH, height);
+        let count = 0;
+
+        for (let y = startY; y < endY; y++) {
+          for (let x = startX; x < endX; x++) {
+            const idx = (y * width + x) * 4;
+            const luma = Math.round(0.299 * data[idx] + 0.587 * data[idx+1] + 0.114 * data[idx+2]);
+            hist[Math.min(255, Math.max(0, luma))]++;
+            count++;
+          }
+        }
+
+        const actualClip = Math.max(1, Math.round(clipLimit * (count / 256)));
+        let excess = 0;
+        for (let i = 0; i < 256; i++) {
+          if (hist[i] > actualClip) {
+            excess += hist[i] - actualClip;
+            hist[i] = actualClip;
+          }
+        }
+
+        const redist = excess / 256;
+        let cdf = 0;
+        const cdfArray = tileCdfs[ty * tilesX + tx];
+        for (let i = 0; i < 256; i++) {
+          hist[i] += redist;
+          cdf += hist[i];
+          cdfArray[i] = cdf / count;
+        }
       }
     }
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        const r = data[idx];
+        const g = data[idx+1];
+        const b = data[idx+2];
+        const luma = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+        const lumaClamped = Math.min(255, Math.max(0, luma));
+
+        const tx = (x / tileW) - 0.5;
+        const ty = (y / tileH) - 0.5;
+
+        const tx1 = Math.max(0, Math.floor(tx));
+        const ty1 = Math.max(0, Math.floor(ty));
+        const tx2 = Math.min(tilesX - 1, tx1 + 1);
+        const ty2 = Math.min(tilesY - 1, ty1 + 1);
+
+        const xFrac = Math.max(0, Math.min(1, tx - tx1));
+        const yFrac = Math.max(0, Math.min(1, ty - ty1));
+
+        const cdf11 = tileCdfs[ty1 * tilesX + tx1][lumaClamped];
+        const cdf12 = tileCdfs[ty1 * tilesX + tx2][lumaClamped];
+        const cdf21 = tileCdfs[ty2 * tilesX + tx1][lumaClamped];
+        const cdf22 = tileCdfs[ty2 * tilesX + tx2][lumaClamped];
+
+        const cdf1 = cdf11 * (1 - xFrac) + cdf12 * xFrac;
+        const cdf2 = cdf21 * (1 - xFrac) + cdf22 * xFrac;
+        const mappedLuma = cdf1 * (1 - yFrac) + cdf2 * yFrac;
+
+        const factor = mappedLuma * 255 / (luma + 0.001);
+        data[idx] = Math.min(255, Math.max(0, r * factor));
+        data[idx+1] = Math.min(255, Math.max(0, g * factor));
+        data[idx+2] = Math.min(255, Math.max(0, b * factor));
+      }
+    }
+
     context.putImageData(image, 0, 0);
   }
 }

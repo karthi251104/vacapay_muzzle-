@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { Buffer } from 'node:buffer';
-import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual, createHmac } from 'node:crypto';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
 
@@ -19,6 +19,7 @@ const uploadDir = path.join(dataDir, '_uploads');
 const metadataPath = path.join(dataDir, 'enrollments.json');
 const matchAuditsPath = path.join(dataDir, 'match_audits.json');
 const usersPath = path.join(dataDir, 'users.json');
+const sessionsPath = path.join(dataDir, 'sessions.json');
 const frontendDistDir = path.join(rootDir, 'frontend', 'dist', 'vacapay', 'browser');
 
 const app = express();
@@ -58,7 +59,42 @@ const SUPPORT_IMAGE_FILES = [
   'udder.jpg'
 ];
 const REQUIRED_IMAGES = [...MUZZLE_IMAGE_FILES, ...SUPPORT_IMAGE_FILES];
-const sessions = new Map();
+const JWT_SECRET = process.env.JWT_SECRET || randomUUID();
+let writeLock = Promise.resolve();
+
+function base64url(bufferOrString) {
+  return Buffer.from(bufferOrString).toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function signJwt(payload, secret) {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const b64Header = base64url(JSON.stringify(header));
+  const b64Payload = base64url(JSON.stringify(payload));
+  const signature = createHmac('sha256', secret).update(b64Header + '.' + b64Payload).digest('base64');
+  return `${b64Header}.${b64Payload}.${base64url(Buffer.from(signature, 'base64'))}`;
+}
+
+function verifyJwt(token, secret) {
+  const [b64Header, b64Payload, signature] = (token || '').split('.');
+  if (!b64Header || !b64Payload || !signature) return null;
+
+  const expectedSig = createHmac('sha256', secret).update(b64Header + '.' + b64Payload).digest('base64');
+  const expectedSigB64 = base64url(Buffer.from(expectedSig, 'base64'));
+
+  if (signature === expectedSigB64) {
+    try {
+      const payload = JSON.parse(Buffer.from(b64Payload, 'base64').toString('utf8'));
+      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+      return payload;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 let mongoClient = null;
 let mongoDb = null;
 let MongoClientCtor = null;
@@ -73,12 +109,26 @@ if (cloudinaryEnabled) {
 }
 
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '5mb' }));
 app.use('/media', express.static(dataDir));
 
 console.log(`Starting storage setup. Mongo ${mongoEnabled ? 'enabled' : 'disabled'}. Data: ${dataDir}`);
 await ensureStorage();
 console.log('Storage setup complete.');
+
+function withWriteLock(fn) {
+  const next = writeLock.then(fn, fn);
+  writeLock = next.catch(() => {});
+  return next;
+}
+
+function safeCattleId(cattleId) {
+  const id = String(cattleId || '').trim();
+  if (!id || /[\/\\:*?"<>|]/.test(id) || id.includes('..') || id.includes('~')) {
+    throw new Error('Invalid cattle ID.');
+  }
+  return id;
+}
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -192,9 +242,9 @@ app.post('/api/auth/login', async (req, res, next) => {
       return;
     }
 
-    const token = randomUUID();
     const publicUser = toPublicUser(user);
-    sessions.set(token, publicUser);
+    const exp = Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60);
+    const token = signJwt({ ...publicUser, exp }, JWT_SECRET);
     res.json({ token, user: publicUser });
   } catch (error) {
     next(error);
@@ -323,7 +373,7 @@ app.post('/api/agents', requireAuth, requireAdmin, async (req, res, next) => {
   }
 });
 
-app.get('/api/farmers', async (req, res, next) => {
+app.get('/api/farmers', requireAuth, async (req, res, next) => {
   try {
     const q = normalizeSearchText(req.query.q);
     const lat = Number(req.query.lat);
@@ -389,7 +439,7 @@ app.get('/api/farmers', async (req, res, next) => {
   }
 });
 
-app.get('/api/cattle/search', async (req, res, next) => {
+app.get('/api/cattle/search', requireAuth, async (req, res, next) => {
   try {
     const farmerId = normalizeSearchText(req.query.farmerId);
     const farmerName = normalizeSearchText(req.query.farmerName);
@@ -548,8 +598,8 @@ app.post('/api/cattle/merge', requireAuth, requireAdmin, async (req, res, next) 
 
       targetRow.farmerId = targetRow.farmerId || sourceRow.farmerId || '';
       targetRow.farmerName = targetRow.farmerName || sourceRow.farmerName || '';
-      targetRow.fieldOfficerId = sourceRow.fieldOfficerId || targetRow.fieldOfficerId || '';
-      targetRow.fieldOfficerName = sourceRow.fieldOfficerName || targetRow.fieldOfficerName || '';
+      targetRow.fieldOfficerId = targetRow.fieldOfficerId || sourceRow.fieldOfficerId || '';
+      targetRow.fieldOfficerName = targetRow.fieldOfficerName || sourceRow.fieldOfficerName || '';
       targetRow.locationLat = targetRow.locationLat ?? sourceRow.locationLat ?? null;
       targetRow.locationLon = targetRow.locationLon ?? sourceRow.locationLon ?? null;
       targetRow.status = 'admin_merged';
@@ -580,7 +630,7 @@ app.post('/api/cattle/merge', requireAuth, requireAdmin, async (req, res, next) 
     next(error);
   }
 });
-app.post('/api/enrollments', async (req, res, next) => {
+app.post('/api/enrollments', requireAuth, async (req, res, next) => {
   try {
     const now = new Date().toISOString();
     const requestLat = Number(req.body.locationLat);
@@ -643,14 +693,15 @@ app.post('/api/enrollments', async (req, res, next) => {
   }
 });
 
-app.post('/api/enrollments/:cattleId/muzzle', upload.single('image'), async (req, res, next) => {
+app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'), async (req, res, next) => {
   try {
     if (!req.file) {
       res.status(400).json({ error: 'image is required' });
       return;
     }
 
-    const { folder, mediaPrefix } = await getActiveCaptureFolder(req.params.cattleId);
+    const cattleId = safeCattleId(req.params.cattleId);
+    const { folder, mediaPrefix } = await getActiveCaptureFolder(cattleId);
     const requestedSlot = Number(req.body.slot || 0);
     const slot = requestedSlot > 0 ? requestedSlot : (await nextSlot(folder, 'muzzle', MUZZLE_IMAGE_COUNT));
     const fileName = `muzzle${slot}.jpg`;
@@ -679,12 +730,12 @@ app.post('/api/enrollments/:cattleId/muzzle', upload.single('image'), async (req
     await fs.unlink(req.file.path).catch(() => {});
     const previewUrl = `/media/${mediaPrefix}/${fileName}`;
     const imageRef = await saveImageReference({
-      cattleId: req.params.cattleId,
+      cattleId,
       imageType: `muzzle${slot}`,
       localPath: outPath,
       previewUrl
     });
-    const matchResolution = slot === MUZZLE_IMAGE_COUNT ? await resolveMuzzleMatch(req.params.cattleId) : null;
+    const matchResolution = slot === MUZZLE_IMAGE_COUNT ? await resolveMuzzleMatch(cattleId) : null;
 
     res.json({
       slot,
@@ -700,7 +751,7 @@ app.post('/api/enrollments/:cattleId/muzzle', upload.single('image'), async (req
   }
 });
 
-app.post('/api/enrollments/:cattleId/images', upload.single('image'), async (req, res, next) => {
+app.post('/api/enrollments/:cattleId/images', requireAuth, upload.single('image'), async (req, res, next) => {
   try {
     if (!req.file) {
       res.status(400).json({ error: 'image is required' });
@@ -715,7 +766,8 @@ app.post('/api/enrollments/:cattleId/images', upload.single('image'), async (req
       return;
     }
 
-    const { folder, mediaPrefix } = await getActiveCaptureFolder(req.params.cattleId);
+    const cattleIdSafe = safeCattleId(req.params.cattleId);
+    const { folder, mediaPrefix } = await getActiveCaptureFolder(cattleIdSafe);
     const fileName = `${imageType}.jpg`;
     const outPath = path.join(folder, fileName);
 
@@ -723,7 +775,7 @@ app.post('/api/enrollments/:cattleId/images', upload.single('image'), async (req
     await fs.unlink(req.file.path).catch(() => {});
     const previewUrl = `/media/${mediaPrefix}/${fileName}`;
     const imageRef = await saveImageReference({
-      cattleId: req.params.cattleId,
+      cattleId: cattleIdSafe,
       imageType,
       localPath: outPath,
       previewUrl
@@ -740,9 +792,9 @@ app.post('/api/enrollments/:cattleId/images', upload.single('image'), async (req
   }
 });
 
-app.post('/api/enrollments/:cattleId/complete', async (req, res, next) => {
+app.post('/api/enrollments/:cattleId/complete', requireAuth, async (req, res, next) => {
   try {
-    const cattleId = req.params.cattleId;
+    const cattleId = safeCattleId(req.params.cattleId);
     const rows = await readMetadata();
     const row = normalizeRecord(rows.find((item) => item.cattleId === cattleId));
 
@@ -779,6 +831,11 @@ app.post('/api/enrollments/:cattleId/complete', async (req, res, next) => {
       row.workflow = 'cattle_enrolment';
       session.workflow = 'cattle_enrolment';
     }
+
+    if (req.body.captureDurationSeconds) {
+      session.captureDurationSeconds = Number(req.body.captureDurationSeconds);
+    }
+
     row.uploadDateTime = new Date().toISOString();
     await writeMetadata(rows);
     res.json({ enrollment: row });
@@ -787,9 +844,9 @@ app.post('/api/enrollments/:cattleId/complete', async (req, res, next) => {
   }
 });
 
-app.post('/api/enrollments/:cattleId/resolve-muzzle-match', async (req, res, next) => {
+app.post('/api/enrollments/:cattleId/resolve-muzzle-match', requireAuth, async (req, res, next) => {
   try {
-    const matchResolution = await resolveMuzzleMatch(req.params.cattleId);
+    const matchResolution = await resolveMuzzleMatch(safeCattleId(req.params.cattleId));
     res.json({ matchResolution });
   } catch (error) {
     next(error);
@@ -931,28 +988,35 @@ function isStaleMergedRecord(row, liveIds) {
 }
 
 async function writeMetadata(rows) {
-  if (mongoDb) {
-    const collection = mongoDb.collection('cattle');
-    const cleanRows = rows.map(normalizeRecord).filter(Boolean);
-    const cattleIds = cleanRows.map((row) => row.cattleId).filter(Boolean);
+  return withWriteLock(async () => {
+    if (mongoDb) {
+      const collection = mongoDb.collection('cattle');
+      const cleanRows = rows.map(normalizeRecord).filter(Boolean);
+      const cattleIds = cleanRows.map((row) => row.cattleId).filter(Boolean);
 
-    if (!cleanRows.length) {
-      await collection.deleteMany({});
+      if (!cleanRows.length) {
+        await collection.deleteMany({});
+        return;
+      }
+
+      const existingCount = await collection.countDocuments();
+      if (existingCount > 0 && cleanRows.length < existingCount * 0.5) {
+        console.warn(`Safety: refusing to delete ${existingCount - cleanRows.length} records (${cleanRows.length} remaining vs ${existingCount} existing).`);
+      } else {
+        await collection.deleteMany({ cattleId: { $nin: cattleIds } });
+      }
+      await collection.bulkWrite(cleanRows.map((row) => ({
+        replaceOne: {
+          filter: { cattleId: row.cattleId },
+          replacement: addMongoGeoPoint(stripMongoId(row)),
+          upsert: true
+        }
+      })));
       return;
     }
 
-    await collection.deleteMany({ cattleId: { $nin: cattleIds } });
-    await collection.bulkWrite(cleanRows.map((row) => ({
-      replaceOne: {
-        filter: { cattleId: row.cattleId },
-        replacement: addMongoGeoPoint(stripMongoId(row)),
-        upsert: true
-      }
-    })));
-    return;
-  }
-
-  await fs.writeFile(metadataPath, `${JSON.stringify(rows, null, 2)}\n`, 'utf8');
+    await fs.writeFile(metadataPath, `${JSON.stringify(rows, null, 2)}\n`, 'utf8');
+  });
 }
 
 async function readUsers() {
@@ -1055,10 +1119,10 @@ function addMongoGeoPoint(record) {
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  const user = sessions.get(token);
+  const user = verifyJwt(token, JWT_SECRET);
 
   if (!user) {
-    res.status(401).json({ error: 'Login required.' });
+    res.status(401).json({ error: 'Login required or session expired.' });
     return;
   }
 
@@ -1227,42 +1291,39 @@ async function resolveMuzzleMatch(cattleId) {
   const queryEmbedding = await ensureSessionEmbedding(queryRow, querySession);
 
   const ownerNumberMap = buildOwnerCattleNumberMap(rows.filter((row) => row && !isDuplicateEvidenceRecord(row) && isSearchableCattleRecord(row)));
-  const preparedCandidates = [];
+  let rawCandidates = await queryPineconeMatches({ queryRow, queryEmbedding, ownerNumberMap }).catch(() => []);
 
-  for (let index = 0; index < rows.length; index += 1) {
-    const candidateRow = rows[index];
-    if (!candidateRow || candidateRow.cattleId === cattleId || isDuplicateEvidenceRecord(candidateRow) || !isSearchableCattleRecord(candidateRow)) continue;
-    const searchScope = isSameFarmerCandidate(queryRow, candidateRow) ? 'farmer_cattle' : 'all_other_muzzle';
-    const distanceKm = distanceBetweenRowsKm(queryRow, candidateRow);
+  if (!rawCandidates.length) {
+    const preparedCandidates = [];
+    for (let index = 0; index < rows.length; index += 1) {
+      const candidateRow = rows[index];
+      if (!candidateRow || candidateRow.cattleId === cattleId || isDuplicateEvidenceRecord(candidateRow) || !isSearchableCattleRecord(candidateRow)) continue;
+      const searchScope = isSameFarmerCandidate(queryRow, candidateRow) ? 'farmer_cattle' : 'all_other_muzzle';
+      const distanceKm = distanceBetweenRowsKm(queryRow, candidateRow);
 
-    for (const candidateSession of candidateRow.sessions || []) {
-      const candidateEmbedding = await ensureSessionEmbedding(candidateRow, candidateSession).catch(() => null);
-      if (!candidateEmbedding) continue;
-      await upsertSessionVector(candidateRow, candidateSession, { namespace: PINECONE_ENROLMENT_NAMESPACE, workflow: 'cattle_enrolment' }).catch(() => null);
+      for (const candidateSession of candidateRow.sessions || []) {
+        const candidateEmbedding = candidateSession.embedding?.average;
+        if (!candidateEmbedding) continue;
 
-      preparedCandidates.push({
-        cattleId: candidateRow.cattleId,
-        cattleNumber: ownerNumberMap.get(candidateRow.cattleId) || null,
-        cattleLabel: cattleDisplayLabel(ownerNumberMap.get(candidateRow.cattleId)),
-        searchScope,
-        sessionId: candidateSession.sessionId,
-        farmerName: candidateRow.farmerName,
-        fieldOfficerName: candidateRow.fieldOfficerName,
-        locationLat: candidateRow.locationLat,
-        locationLon: candidateRow.locationLon,
-        distanceKm,
-        score: cosineSimilarity(queryEmbedding, candidateEmbedding),
-        rowIndex: index
-      });
+        preparedCandidates.push({
+          cattleId: candidateRow.cattleId,
+          cattleNumber: ownerNumberMap.get(candidateRow.cattleId) || null,
+          cattleLabel: cattleDisplayLabel(ownerNumberMap.get(candidateRow.cattleId)),
+          searchScope,
+          sessionId: candidateSession.sessionId,
+          farmerName: candidateRow.farmerName,
+          fieldOfficerName: candidateRow.fieldOfficerName,
+          locationLat: candidateRow.locationLat,
+          locationLon: candidateRow.locationLon,
+          distanceKm,
+          score: cosineSimilarity(queryEmbedding, candidateEmbedding),
+          rowIndex: index
+        });
+      }
     }
+    rawCandidates = preparedCandidates;
   }
 
-  const pineconeMatches = await queryPineconeMatches({
-    queryRow,
-    queryEmbedding,
-    preparedCandidates
-  }).catch(() => []);
-  const rawCandidates = pineconeMatches.length ? pineconeMatches : preparedCandidates;
   rawCandidates.sort((a, b) => b.score - a.score);
   const candidates = bestCandidatePerCattle(rawCandidates);
   const bestFarmerMatch = candidates.find((candidate) => candidate.searchScope === 'farmer_cattle' && candidate.score >= EMBEDDING_MATCH_THRESHOLD) || null;
@@ -1346,16 +1407,18 @@ async function resolveMuzzleMatch(cattleId) {
     workflow: queryWorkflow
   }).catch(() => null);
   await writeMetadata(rows.filter(Boolean));
-  await storeMatchAudit({
-    cattleId: queryRow.cattleId,
-    finalCattleId: queryRow.cattleId,
-    session: querySession,
-    matchResult,
-    farmerName: queryRow.farmerName,
-    fieldOfficerName: queryRow.fieldOfficerName,
-    locationLat: queryRow.locationLat,
-    locationLon: queryRow.locationLon
-  });
+  if (queryWorkflow === 'cattle_search') {
+    await storeMatchAudit({
+      cattleId: queryRow.cattleId,
+      finalCattleId: queryRow.cattleId,
+      session: querySession,
+      matchResult,
+      farmerName: queryRow.farmerName,
+      fieldOfficerName: queryRow.fieldOfficerName,
+      locationLat: queryRow.locationLat,
+      locationLon: queryRow.locationLon
+    });
+  }
 
   return {
     ...matchResult,
@@ -1534,11 +1597,16 @@ function hasCompletedSession(row) {
   return (row?.sessions || []).some((session) => sessionHasRequiredImages(session));
 }
 
+const VISIBLE_REGISTERED_STATUSES = new Set([
+  'ready_for_embedding', 'admin_merged', 'muzzle_matched_existing',
+  'muzzle_no_match_new_cattle', 'merged_into_existing'
+]);
+
 function isVisibleInventoryRecord(row) {
   if (!row?.cattleId) return false;
   if (row.status === 'draft' || row.status === 'cattle_search_draft' || row.status === 'cattle_search_manual_folder') return false;
   if (isDuplicateEvidenceRecord(row)) return hasCompletedSession(row);
-  return hasCompletedSession(row) && row.status === 'ready_for_embedding';
+  return hasCompletedSession(row) && VISIBLE_REGISTERED_STATUSES.has(row.status);
 }
 
 function isRegisteredInventoryRecord(row) {
@@ -1825,67 +1893,7 @@ function toPublicMatchResult(match) {
   };
 }
 
-async function mergeSessionIntoExistingCattle({ rows, queryIndex, targetIndex, topMatches }) {
-  const queryRow = rows[queryIndex];
-  const targetRow = rows[targetIndex];
-  const session = getActiveSession(queryRow);
-  const previousCattleId = queryRow.cattleId;
-  const targetRoot = await ensureCattleFolder(targetRow.cattleId);
-  const nextFolder = await nextSessionFolder(targetRoot, session.captureDate);
-  const oldFolder = session.folderLocation;
-
-  await fs.mkdir(path.dirname(nextFolder), { recursive: true });
-  await fs.rename(oldFolder, nextFolder);
-
-  session.sessionId = path.basename(nextFolder);
-  session.folderLocation = nextFolder;
-  session.status = 'muzzle_matched_existing';
-  session.matchedFromCattleId = previousCattleId;
-  rebaseSessionImageRefs(session, targetRow.cattleId);
-
-  if (cloudinaryEnabled && session.images) {
-    await refreshCloudinaryRefs(targetRow.cattleId, session);
-  }
-
-  const now = new Date().toISOString();
-  session.matchResult = {
-    resolved: true,
-    decision: 'matched_existing',
-    confidence: topMatches[0]?.score || 0,
-    confidencePercent: topMatches[0]?.confidencePercent || 0,
-    threshold: EMBEDDING_MATCH_THRESHOLD,
-    thresholdPercent: Math.round(EMBEDDING_MATCH_THRESHOLD * 100),
-    matchedCattleId: targetRow.cattleId,
-    previousCattleId,
-    topMatches,
-    resolvedAt: now
-  };
-
-  targetRow.sessions = [...(targetRow.sessions || []), session];
-  targetRow.activeSessionId = session.sessionId;
-  targetRow.folderLocation = session.folderLocation;
-  targetRow.captureDateTime = session.captureDateTime;
-  targetRow.uploadDateTime = now;
-  targetRow.status = 'muzzle_matched_existing';
-  targetRow.fieldOfficerId = queryRow.fieldOfficerId || targetRow.fieldOfficerId;
-  targetRow.fieldOfficerName = queryRow.fieldOfficerName || targetRow.fieldOfficerName;
-  targetRow.embedding = session.embedding || targetRow.embedding;
-
-  const remainingSessions = (queryRow.sessions || []).filter((item) => item.sessionId !== queryRow.activeSessionId);
-  if (remainingSessions.length) {
-    queryRow.sessions = remainingSessions;
-    queryRow.activeSessionId = remainingSessions.at(-1).sessionId;
-    queryRow.status = 'merged_into_existing';
-  } else {
-    rows[queryIndex] = null;
-    if (mongoDb) {
-      await mongoDb.collection('cattle').deleteOne({ cattleId: previousCattleId });
-    }
-    await fs.rm(path.join(dataDir, previousCattleId), { recursive: true, force: true }).catch(() => {});
-  }
-
-  return targetRow;
-}
+// mergeSessionIntoExistingCattle removed (BUG-028: was dead code, never called)
 
 async function moveSessionIntoTargetCattle({ sourceRow, targetRow, session }) {
   const targetRoot = await ensureCattleFolder(targetRow.cattleId);
@@ -2026,7 +2034,7 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
     auditId,
     cattleId,
     finalCattleId,
-    workflow: matchResult.workflow || session.workflow || 'cattle_search',
+    workflow: matchResult.workflow || session.workflow || row?.workflow || 'cattle_search',
     sessionId: session.sessionId,
     decision: matchResult.decision,
     confidence,
@@ -2117,36 +2125,46 @@ async function upsertSessionVector(row, session, { namespace = PINECONE_ENROLMEN
   return session.embedding.pinecone;
 }
 
-async function queryPineconeMatches({ queryRow, queryEmbedding, preparedCandidates }) {
-  if (!pineconeEnabled || !preparedCandidates.length) {
+async function queryPineconeMatches({ queryRow, queryEmbedding, ownerNumberMap }) {
+  if (!pineconeEnabled) {
     return [];
   }
 
-  const candidateByVectorId = new Map(
-    preparedCandidates.map((candidate) => [pineconeVectorId(candidate.cattleId, candidate.sessionId), candidate])
-  );
   const payload = {
     vector: queryEmbedding,
-    topK: Math.max(50, preparedCandidates.length + 5),
+    topK: 50,
     includeMetadata: true,
     namespace: PINECONE_ENROLMENT_NAMESPACE
   };
   const result = await pineconeFetch('/query', {
     method: 'POST',
     body: JSON.stringify(payload)
-  });
+  }).catch(() => ({ matches: [] }));
 
   return (result.matches || [])
     .map((match) => {
-      const candidate = candidateByVectorId.get(match.id);
-      if (!candidate) return null;
+      const meta = match.metadata || {};
+      const searchScope = (
+        (normalizeSearchText(queryRow.farmerId) && normalizeSearchText(queryRow.farmerId) === normalizeSearchText(meta.farmerId || meta.farmerIdNorm)) ||
+        (normalizeSearchText(queryRow.farmerName) && normalizeSearchText(queryRow.farmerName) === normalizeSearchText(meta.farmerName || meta.farmerNameNorm))
+      ) ? 'farmer_cattle' : 'all_other_muzzle';
+      const distanceKm = haversineKm(queryRow.locationLat, queryRow.locationLon, meta.locationLat, meta.locationLon);
       return {
-        ...candidate,
+        cattleId: meta.cattleId,
+        cattleNumber: ownerNumberMap.get(meta.cattleId) || null,
+        cattleLabel: cattleDisplayLabel(ownerNumberMap.get(meta.cattleId)),
+        searchScope,
+        sessionId: meta.sessionId,
+        farmerName: meta.farmerName,
+        fieldOfficerName: meta.fieldOfficerName,
+        locationLat: meta.locationLat,
+        locationLon: meta.locationLon,
+        distanceKm,
         score: Number(match.score || 0),
         vectorId: match.id
       };
     })
-    .filter(Boolean);
+    .filter((candidate) => candidate.cattleId !== queryRow.cattleId);
 }
 
 async function pineconeFetch(pathname, options = {}) {

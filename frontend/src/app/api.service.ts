@@ -343,7 +343,7 @@ export class ApiService {
   }
 
   createEnrollment(payload: Partial<Enrollment> & { matchRadiusKm?: number; newFarmer?: boolean; workflow?: 'cattle_enrolment' | 'cattle_search' }): Observable<{ enrollment: Enrollment }> {
-    return this.http.post<{ enrollment: Enrollment }>(`${this.baseUrl}/enrollments`, payload);
+    return this.http.post<{ enrollment: Enrollment }>(`${this.baseUrl}/enrollments`, payload, { headers: this.authHeaders() });
   }
 
   searchFarmers(params: {
@@ -357,7 +357,7 @@ export class ApiService {
     if (params.lat !== null && params.lat !== undefined) query.set('lat', String(params.lat));
     if (params.lon !== null && params.lon !== undefined) query.set('lon', String(params.lon));
     if (params.radiusKm) query.set('radiusKm', String(params.radiusKm));
-    return this.http.get<{ farmers: FarmerMatch[] }>(`${this.baseUrl}/farmers?${query.toString()}`);
+    return this.http.get<{ farmers: FarmerMatch[] }>(`${this.baseUrl}/farmers?${query.toString()}`, { headers: this.authHeaders() });
   }
   searchRegisteredCattle(params: {
     farmerId?: string;
@@ -372,7 +372,7 @@ export class ApiService {
     if (params.lat !== null && params.lat !== undefined) query.set('lat', String(params.lat));
     if (params.lon !== null && params.lon !== undefined) query.set('lon', String(params.lon));
     if (params.radiusKm) query.set('radiusKm', String(params.radiusKm));
-    return this.http.get<{ cattle: CattleMatch[] }>(`${this.baseUrl}/cattle/search?${query.toString()}`);
+    return this.http.get<{ cattle: CattleMatch[] }>(`${this.baseUrl}/cattle/search?${query.toString()}`, { headers: this.authHeaders() });
   }
 
   captureMuzzle(cattleId: string, file: Blob, slot: number, clientProcessed = false): Observable<MuzzleCaptureResponse> {
@@ -380,22 +380,22 @@ export class ApiService {
     formData.append('image', file, `muzzle${slot}.jpg`);
     formData.append('slot', String(slot));
     if (clientProcessed) formData.append('clientProcessed', 'true');
-    return this.http.post<MuzzleCaptureResponse>(`${this.baseUrl}/enrollments/${cattleId}/muzzle`, formData);
+    return this.http.post<MuzzleCaptureResponse>(`${this.baseUrl}/enrollments/${cattleId}/muzzle`, formData, { headers: this.authHeaders() });
   }
 
   saveImage(cattleId: string, type: string, file: File | Blob): Observable<ManualImageResponse> {
     const formData = new FormData();
     formData.append('image', file, `${type}.jpg`);
     formData.append('type', type);
-    return this.http.post<ManualImageResponse>(`${this.baseUrl}/enrollments/${cattleId}/images`, formData);
+    return this.http.post<ManualImageResponse>(`${this.baseUrl}/enrollments/${cattleId}/images`, formData, { headers: this.authHeaders() });
   }
 
-  complete(cattleId: string): Observable<{ enrollment: Enrollment }> {
-    return this.http.post<{ enrollment: Enrollment }>(`${this.baseUrl}/enrollments/${cattleId}/complete`, {});
+  complete(cattleId: string, durationSeconds?: number): Observable<{ enrollment: Enrollment }> {
+    return this.http.post<{ enrollment: Enrollment }>(`${this.baseUrl}/enrollments/${cattleId}/complete`, { captureDurationSeconds: durationSeconds }, { headers: this.authHeaders() });
   }
 
   resolveMuzzleMatch(cattleId: string): Observable<{ matchResolution: MuzzleMatchResolution }> {
-    return this.http.post<{ matchResolution: MuzzleMatchResolution }>(`${this.baseUrl}/enrollments/${cattleId}/resolve-muzzle-match`, {});
+    return this.http.post<{ matchResolution: MuzzleMatchResolution }>(`${this.baseUrl}/enrollments/${cattleId}/resolve-muzzle-match`, {}, { headers: this.authHeaders() });
   }
 
   mediaUrl(path: string): string {

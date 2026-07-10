@@ -23,6 +23,8 @@ Admin reviews every cattle search result later and marks whether the app result 
 
 The agent starts from three clear choices.
 
+All agent and admin API calls are protected after login. The frontend stores the login token and sends it with farmer search, cattle search, enrolment, image upload, completion, review and download requests.
+
 ### Add Farmer + Enrol Cow
 
 Use this when the farmer is new.
@@ -148,7 +150,7 @@ The 3 muzzle images are used for embeddings and matching.
 
 The 7 supporting images are for admin human verification when checking whether the app result was correct.
 
-## 6. Phone YOLO And Quality Check
+## 6. Phone Muzzle Gate And Quality Check
 
 The current browser field app loads the TFLite model from:
 
@@ -176,7 +178,7 @@ Capture logic:
 
 ```text
 camera frame
--> YOLO detects muzzle box
+-> TFLite muzzle detector finds muzzle box
 -> if best class is bad muzzle, reject
 -> if good confidence is too low, reject
 -> crop the detected muzzle
@@ -276,7 +278,41 @@ averaging 3 good crops gives a more stable cattle representation
 
 Bad or blurry images should not enter this average.
 
-## 10. Pinecone Namespaces
+## 10. Offline Browser Capture And Sync
+
+The current browser/PWA field app has an offline safety layer.
+
+When the phone is offline:
+
+```text
+agent can start a capture
+record metadata is stored in IndexedDB
+accepted muzzle crops are stored locally
+supporting images are stored locally
+pending sync count is shown
+record is completed locally
+```
+
+When the phone comes online:
+
+```text
+sync service creates the server enrolment/search record
+uploads the saved muzzle crops
+uploads the saved supporting images
+completes the record
+keeps failed records for retry
+```
+
+This protects field testing from temporary network drops.
+
+Important production boundary:
+
+```text
+This is browser/PWA offline storage.
+The final native Android app should implement the same behavior using native local storage and a dedicated upload screen.
+```
+
+## 11. Pinecone Namespaces
 
 The app keeps enrolment and search evidence separate.
 
@@ -299,7 +335,7 @@ Not used as the main identity gallery.
 
 This prevents test/search captures from polluting the registered cattle database.
 
-## 11. Cattle Search Matching
+## 12. Cattle Search Matching
 
 When a cattle search is captured:
 
@@ -331,7 +367,7 @@ all_other_muzzle
 
 The app keeps one best rank per cattle identity, so the same cow should not fill multiple Top-K positions.
 
-## 12. Cattle Search Results
+## 13. Cattle Search Results
 
 The app result can be:
 
@@ -362,7 +398,7 @@ If no cattle found is incorrect, admin marks it incorrect.
 If cattle found is incorrect, admin marks it incorrect.
 ```
 
-## 13. Admin Dashboard
+## 14. Admin Dashboard
 
 The main admin dashboard answers the field testing question:
 
@@ -392,7 +428,17 @@ Top-5 Accuracy
 
 Top-1 and Top-5 are still useful model metrics, but the main business result is found/not-found correct or incorrect.
 
-## 14. Admin Review
+Additional production review tools:
+
+```text
+decision filter
+field officer filter
+CSV export
+side-by-side review layout
+loaded enrolled-cattle images for matched candidates
+```
+
+## 15. Admin Review
 
 Admin reviews each cattle search record.
 
@@ -428,7 +474,35 @@ Use `Incorrect - Cattle Exists` when the app said no cattle found but the cow ex
 
 Use `Register As New Cow` only when admin wants to move a search record into registered cattle after review.
 
-## 15. Officer Field Test Target
+## 16. Security And Access
+
+The backend uses signed login tokens.
+
+Protected actions include:
+
+```text
+farmer search
+cattle list/search
+cattle enrolment creation
+muzzle upload
+supporting image upload
+record completion
+admin review
+agent creation
+ZIP download
+merge/correction actions
+```
+
+Public status endpoints remain available for operational checks:
+
+```text
+/api/health
+/api/yolo/status
+/api/embedding/status
+/api/pinecone/status
+```
+
+## 17. Officer Field Test Target
 
 For field testing, a simple target per officer is:
 
@@ -451,7 +525,7 @@ already enrolled cows where correct answer is cattle found
 new cows where correct answer is no cattle found
 ```
 
-## 16. Correct Usage Examples
+## 18. Correct Usage Examples
 
 ### New farmer, first cow
 
@@ -498,7 +572,7 @@ Cattle Search
 -> registered cattle count does not increase
 ```
 
-## 17. Why The UI Was Changed
+## 19. Why The UI Was Changed
 
 The previous UI mixed these ideas:
 
