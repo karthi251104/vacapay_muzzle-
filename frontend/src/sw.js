@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vacapay-v2';
+const CACHE_NAME = 'vacapay-v3-scroll-fix';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

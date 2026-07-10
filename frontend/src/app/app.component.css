@@ -2645,3 +2645,37 @@ select:focus {
   background: #f9f9f9;
   border-color: #ddd;
 }
+
+/* Authoritative mobile layout: content scrolls above the fixed bottom navigation. */
+@media (max-width: 768px) {
+  .mobile-flow {
+    min-height: 100dvh;
+    overflow: visible;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) calc(112px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    touch-action: pan-y;
+  }
+
+  .screen-stage,
+  .screen-card,
+  .location-screen,
+  .camera-card {
+    max-height: none;
+    overflow: visible;
+    touch-action: pan-y;
+  }
+
+  .location-screen,
+  .camera-card {
+    padding-bottom: 18px;
+  }
+
+  .location-primary-action {
+    bottom: auto;
+    left: auto;
+    margin-top: 4px;
+    min-height: 58px;
+    position: static;
+    right: auto;
+    width: 100%;
+  }
+}
