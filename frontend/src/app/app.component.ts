@@ -180,6 +180,8 @@ export class AppComponent implements OnInit, OnDestroy {
   reviewFilterOfficer = 'all';
   officerNamesForFilter: string[] = [];
   loadedMatchedImages: Record<string, CattleImageSummary[]> = {};
+  expandedReviewId = '';
+  readonly isNativeFieldApp = Boolean((window as any).Capacitor?.isNativePlatform?.());
 
   agentName = '';
   agentPhone = '';
@@ -254,9 +256,17 @@ export class AppComponent implements OnInit, OnDestroy {
     private readonly offlineStorage: OfflineStorageService,
     public readonly syncService: SyncService
   ) {
+    if (!this.isNativeFieldApp) this.loginMode = 'admin';
     const savedUser = localStorage.getItem('vacapay_user');
     if (savedUser) {
       this.currentUser = JSON.parse(savedUser) as AppUser;
+      if (this.currentUser.role === 'agent' && !this.isNativeFieldApp) {
+        this.api.clearToken();
+        localStorage.removeItem('vacapay_user');
+        this.currentUser = undefined;
+        this.message = 'Field officer access is available in the Android app. This website is for administrators.';
+        return;
+      }
       if (this.currentUser.role === 'agent') {
         this.fieldOfficerName = this.currentUser.name;
       }
@@ -280,6 +290,14 @@ export class AppComponent implements OnInit, OnDestroy {
     this.message = 'Signing in...';
     this.api.login(this.loginIdentifier, this.loginPassword).subscribe({
       next: ({ token, user }) => {
+        if (user.role === 'agent' && !this.isNativeFieldApp) {
+          this.api.clearToken();
+          localStorage.removeItem('vacapay_user');
+          this.currentUser = undefined;
+          this.loginPassword = '';
+          this.message = 'Use the Vacapay Field Android app for field officer access.';
+          return;
+        }
         this.api.setToken(token);
         this.currentUser = user;
         localStorage.setItem('vacapay_user', JSON.stringify(user));
@@ -515,6 +533,7 @@ export class AppComponent implements OnInit, OnDestroy {
         } else {
           this.selectedAdminCattle = visibleRecords[0];
         }
+        this.preloadExpandedReviewImages();
       },
       error: (error) => {
         this.message = this.errorMessage(error);
@@ -530,6 +549,10 @@ export class AppComponent implements OnInit, OnDestroy {
         );
         this.updateOfficerNamesForFilter();
         this.applyReviewFilter();
+        if (!this.expandedReviewId && this.matchReviews.length) {
+          this.expandedReviewId = this.matchReviews[0].auditId;
+        }
+        this.preloadExpandedReviewImages();
       },
       error: (error) => {
         this.message = this.errorMessage(error);
@@ -555,6 +578,13 @@ export class AppComponent implements OnInit, OnDestroy {
     }
 
     this.matchReviews = filtered;
+    if (this.expandedReviewId && !filtered.some((review) => review.auditId === this.expandedReviewId)) {
+      this.expandedReviewId = '';
+    }
+    if (!this.expandedReviewId && filtered.length) {
+      this.expandedReviewId = filtered[0].auditId;
+    }
+    this.preloadExpandedReviewImages();
   }
 
   isClosedReview(review: MatchReview): boolean {
@@ -1508,16 +1538,59 @@ export class AppComponent implements OnInit, OnDestroy {
     this.officerNamesForFilter = Array.from(officers).sort();
   }
 
-  loadMatchedCattleImages(cattleId: string): void {
+  loadMatchedCattleImages(cattleId: string, silent = false): void {
     if (this.loadedMatchedImages[cattleId]) return;
     const cattle = this.cattleInventory.find((item) => item.cattleId === cattleId);
     const images = cattle?.sessions?.flatMap((session) => session.images || []) || [];
 
     if (images.length) {
       this.loadedMatchedImages[cattleId] = images;
-      this.message = 'Matched cattle images loaded.';
-    } else {
+      if (!silent) this.message = 'Matched cattle images loaded.';
+    } else if (!silent) {
+      this.loadedMatchedImages[cattleId] = [];
       this.message = 'No enrolled images found for this cow. Refresh cattle records and try again.';
+    } else {
+      this.loadedMatchedImages[cattleId] = [];
+    }
+  }
+
+  toggleReviewDetails(review: MatchReview): void {
+    this.expandedReviewId = this.expandedReviewId === review.auditId ? '' : review.auditId;
+    if (this.expandedReviewId) this.preloadReviewCandidateImages(review);
+  }
+
+  isReviewExpanded(review: MatchReview): boolean {
+    return this.expandedReviewId === review.auditId;
+  }
+
+  topReviewCandidates(review: MatchReview, limit = 20): MatchReview['topMatches'] {
+    return this.metricTopMatches(review).slice(0, limit);
+  }
+
+  candidateMuzzleImages(cattleId: string): CattleImageSummary[] {
+    return this.candidateImages(cattleId).filter((image) => /^muzzle\d+$/i.test(image.imageType));
+  }
+
+  candidateEvidenceImages(cattleId: string): CattleImageSummary[] {
+    const order = ['face1', 'face2', 'face3', 'leftside', 'rightside', 'back', 'udder'];
+    return this.candidateImages(cattleId)
+      .filter((image) => order.includes(image.imageType))
+      .sort((a, b) => order.indexOf(a.imageType) - order.indexOf(b.imageType));
+  }
+
+  private candidateImages(cattleId: string): CattleImageSummary[] {
+    if (!this.loadedMatchedImages[cattleId]) this.loadMatchedCattleImages(cattleId, true);
+    return this.loadedMatchedImages[cattleId] || [];
+  }
+
+  private preloadExpandedReviewImages(): void {
+    const review = this.matchReviews.find((item) => item.auditId === this.expandedReviewId);
+    if (review) this.preloadReviewCandidateImages(review);
+  }
+
+  private preloadReviewCandidateImages(review: MatchReview): void {
+    for (const candidate of this.topReviewCandidates(review, 5)) {
+      this.loadMatchedCattleImages(candidate.cattleId, true);
     }
   }
 

@@ -24,6 +24,16 @@
           },
           "configurations": {
             "production": {
+              "assets": [
+                {
+                  "glob": "**/*",
+                  "input": "src/assets",
+                  "output": "assets",
+                  "ignore": ["models/**", "tflite-wasm/**"]
+                },
+                "src/manifest.json",
+                "src/sw.js"
+              ],
               "budgets": [
                 {
                   "type": "initial",
@@ -31,6 +41,12 @@
                   "maximumError": "1MB"
                 }
               ],
+              "outputHashing": "all"
+            },
+            "field": {
+              "optimization": true,
+              "extractLicenses": true,
+              "sourceMap": false,
               "outputHashing": "all"
             },
             "development": {

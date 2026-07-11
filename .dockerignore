@@ -11,7 +11,5 @@ frontend/out-tsc
 data
 *.log
 .env
-best_v4.pt
-backend/dinov2_triplet_v2_best.pt
 tools
 Ultralytics

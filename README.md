@@ -2,6 +2,14 @@
 
 Vacapay Muzzle is a field-testing app for cattle muzzle identification.
 
+## Production Surfaces
+
+- **Admin website:** administrator accounts only. It provides enrolment inventory, cattle-search metrics, query evidence, Top-5 visual cattle comparisons, the full Top-20 ranking, and review decisions.
+- **Android field app:** field officer capture and offline upload. Browser sessions reject field officer accounts; the field workflow is enabled only inside the Capacitor Android application.
+- **Railway backend:** Express, MongoDB Atlas, Cloudinary, DINOv2 and Pinecone run from the repository Dockerfile. See [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md).
+
+The admin review expands each cattle search into query muzzle and side images, Top-5 candidate cattle with enrolled muzzle and body evidence, and Top-20 ranked identities. Selecting a candidate records the expected cattle identity for field accuracy metrics.
+
 The app has two official workflows:
 
 ```text

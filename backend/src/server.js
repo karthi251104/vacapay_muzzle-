@@ -43,6 +43,8 @@ const MONGODB_URI = process.env.MONGODB_URI || '';
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || 'vacapay';
 const DISABLE_MONGO = ['true', '1', 'yes'].includes(String(process.env.DISABLE_MONGO || '').toLowerCase());
 const mongoEnabled = Boolean(MONGODB_URI) && !DISABLE_MONGO;
+const REQUIRE_PRODUCTION_SERVICES = ['true', '1', 'yes'].includes(String(process.env.REQUIRE_PRODUCTION_SERVICES || '').toLowerCase());
+const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '').split(',').map((value) => value.trim()).filter(Boolean);
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY || '';
 const PINECONE_INDEX_HOST = normalizePineconeHost(process.env.PINECONE_INDEX_HOST || '');
 const PINECONE_NAMESPACE = process.env.PINECONE_NAMESPACE || 'vacapay';
@@ -129,10 +131,19 @@ if (cloudinaryEnabled) {
   });
 }
 
-app.use(cors());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || !CORS_ORIGINS.length || CORS_ORIGINS.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error('Origin is not allowed by CORS policy.'));
+  }
+}));
 app.use(express.json({ limit: '5mb' }));
 app.use('/media', express.static(dataDir));
 
+validateProductionConfig();
 console.log(`Starting storage setup. Mongo ${mongoEnabled ? 'enabled' : 'disabled'}. Data: ${dataDir}`);
 await ensureStorage();
 console.log('Storage setup complete.');
@@ -141,6 +152,27 @@ function withWriteLock(fn) {
   const next = writeLock.then(fn, fn);
   writeLock = next.catch(() => {});
   return next;
+}
+
+function validateProductionConfig() {
+  if (!REQUIRE_PRODUCTION_SERVICES) return;
+
+  const required = [
+    'JWT_SECRET',
+    'MONGODB_URI',
+    'CLOUDINARY_CLOUD_NAME',
+    'CLOUDINARY_API_KEY',
+    'CLOUDINARY_API_SECRET',
+    'PINECONE_API_KEY',
+    'PINECONE_INDEX_HOST'
+  ];
+  const missing = required.filter((name) => !String(process.env[name] || '').trim());
+  if (String(process.env.JWT_SECRET || '').length < 32) missing.push('JWT_SECRET (minimum 32 characters)');
+  if (!existsSync(MODEL_PATH)) missing.push(`MODEL_PATH (${MODEL_PATH})`);
+  if (!existsSync(DINOV2_MODEL_PATH)) missing.push(`DINOV2_MODEL_PATH (${DINOV2_MODEL_PATH})`);
+  if (missing.length) {
+    throw new Error(`Production configuration is incomplete: ${[...new Set(missing)].join(', ')}`);
+  }
 }
 
 function safeCattleId(cattleId) {

@@ -307,8 +307,9 @@ export interface MatchReview {
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  private readonly baseUrl = '/api';
-  private readonly mediaBaseUrl = '';
+  private readonly runtimeConfig = (window as any).VACAPAY_CONFIG || {};
+  private readonly baseUrl = String(this.runtimeConfig.apiBaseUrl || '/api').replace(/\/$/, '');
+  private readonly mediaBaseUrl = String(this.runtimeConfig.mediaBaseUrl || this.baseUrl.replace(/\/api$/, '')).replace(/\/$/, '');
   private token = localStorage.getItem('vacapay_token') || '';
 
   constructor(private readonly http: HttpClient) {}
