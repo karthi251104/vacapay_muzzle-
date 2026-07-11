@@ -303,10 +303,15 @@ export interface MatchReview {
   images: MatchReviewImage[];
 }
 
+function normalizeApiBaseUrl(value: unknown): string {
+  const url = String(value || '/api').replace(/\/+$/, '');
+  return /\/api$/i.test(url) ? url : `${url}/api`;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly runtimeConfig = (window as any).VACAPAY_CONFIG || {};
-  private readonly baseUrl = String(this.runtimeConfig.apiBaseUrl || '/api').replace(/\/$/, '');
+  private readonly baseUrl = normalizeApiBaseUrl(this.runtimeConfig.apiBaseUrl);
   private readonly mediaBaseUrl = String(this.runtimeConfig.mediaBaseUrl || this.baseUrl.replace(/\/api$/, '')).replace(/\/$/, '');
   private token = localStorage.getItem('vacapay_token') || '';
 

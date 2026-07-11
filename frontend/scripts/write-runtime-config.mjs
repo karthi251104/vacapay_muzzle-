@@ -5,13 +5,15 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const frontendDir = path.resolve(scriptDir, '..');
 const requireUrl = process.argv.includes('--require-url');
-const apiBaseUrl = String(process.env.VACAPAY_API_BASE_URL || '').trim().replace(/\/$/, '');
+const configuredApiUrl = String(process.env.VACAPAY_API_BASE_URL || '').trim().replace(/\/+$/, '');
 
-if (requireUrl && !/^https:\/\//i.test(apiBaseUrl)) {
+if (requireUrl && !/^https:\/\//i.test(configuredApiUrl)) {
   throw new Error('VACAPAY_API_BASE_URL is required and must start with https://');
 }
 
-const resolvedApiUrl = apiBaseUrl || '/api';
+const resolvedApiUrl = configuredApiUrl
+  ? (/\/api$/i.test(configuredApiUrl) ? configuredApiUrl : `${configuredApiUrl}/api`)
+  : '/api';
 const mediaBaseUrl = String(process.env.VACAPAY_MEDIA_BASE_URL || '').trim().replace(/\/$/, '')
   || resolvedApiUrl.replace(/\/api$/, '');
 const outputDir = path.join(frontendDir, 'generated');
