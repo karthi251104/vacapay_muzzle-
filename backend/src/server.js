@@ -1907,14 +1907,25 @@ async function ensureSessionEmbedding(row, session) {
 async function muzzleImagePaths(session) {
   const files = [];
   for (let slot = 1; slot <= MUZZLE_IMAGE_COUNT; slot += 1) {
-    files.push(path.join(session.folderLocation, `muzzle${slot}.jpg`));
+    const imageType = `muzzle${slot}`;
+    const file = path.join(session.folderLocation, `${imageType}.jpg`);
+    if (!await pathExists(file)) {
+      const cloudinaryUrl = session.images?.[imageType]?.cloudinary?.secureUrl;
+      if (cloudinaryUrl) {
+        const response = await fetch(cloudinaryUrl);
+        if (response.ok) {
+          await fs.mkdir(session.folderLocation, { recursive: true });
+          await fs.writeFile(file, Buffer.from(await response.arrayBuffer()));
+        }
+      }
+    }
+    files.push(file);
   }
 
   const missing = [];
   for (const file of files) {
     if (!await pathExists(file)) missing.push(path.basename(file));
   }
-
   if (missing.length) {
     throw new Error(`Need ${MUZZLE_IMAGE_COUNT} muzzle crops before DINOv2 matching. Missing: ${missing.join(', ')}`);
   }
