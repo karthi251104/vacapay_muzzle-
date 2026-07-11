@@ -884,11 +884,21 @@ app.post('/api/enrollments/:cattleId/complete', requireAuth, async (req, res, ne
 
     let session = getActiveSession(row);
     const folder = session.folderLocation;
-    const files = await fs.readdir(folder);
-    const missing = REQUIRED_IMAGES.filter((file) => !files.includes(file));
+    const files = new Set(await fs.readdir(folder).catch(() => []));
+    const missing = REQUIRED_IMAGES.filter((file) => {
+      const imageType = path.basename(file, path.extname(file));
+      const reference = session.images?.[imageType];
+      const hasDurableUpload = Boolean(reference?.cloudinary?.secureUrl);
+      const hasLocalFile = files.has(file) || Boolean(reference?.localPath && existsSync(reference.localPath));
+      return !hasDurableUpload && !hasLocalFile;
+    });
 
     if (missing.length) {
-      res.status(409).json({ error: 'Enrollment is incomplete.', missing });
+      res.status(409).json({
+        error: 'Enrollment is incomplete.',
+        missing,
+        savedImageTypes: Object.keys(session.images || {})
+      });
       return;
     }
 
