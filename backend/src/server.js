@@ -132,6 +132,7 @@ app.use(cors({
   origin(origin, callback) {
     if (!origin || !CORS_ORIGINS.length || CORS_ORIGINS.includes(origin)) {
       callback(null, true);
+      console.log("Blocked Origin:", origin);
       return;
     }
     callback(new Error('Origin is not allowed by CORS policy.'));
