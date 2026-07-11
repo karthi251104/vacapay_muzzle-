@@ -62,7 +62,13 @@ def build_head(config: dict[str, Any] | None) -> nn.Module:
 def load_model(weights_path: Path, device: torch.device) -> tuple[nn.Module, dict[str, Any] | None]:
     checkpoint = torch.load(weights_path, map_location="cpu")
     config = checkpoint.get("config") if isinstance(checkpoint, dict) else None
-    backbone = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14", pretrained=False)
+    backbone = torch.hub.load(
+        "facebookresearch/dinov2",
+        "dinov2_vitb14",
+        pretrained=False,
+        skip_validation=True,
+        trust_repo=True,
+    )
     model = DINOv2FineTuned(backbone, build_head(config))
 
     if isinstance(checkpoint, dict) and "model_state" in checkpoint:

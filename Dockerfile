@@ -33,7 +33,12 @@ COPY backend/src/ /app/backend/src/
 COPY backend/scripts/ /app/backend/scripts/
 RUN mkdir -p /app/models /app/data/embedding_runtime/torch/hub
 COPY backend/dinov2_triplet_v2_best.pt /app/models/dinov2_triplet_v2_best.pt
-RUN /app/.venv/bin/python -c "import torch; torch.hub.set_dir('/app/data/embedding_runtime/torch/hub'); torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14', pretrained=False)"
+RUN for attempt in 1 2 3; do \
+      /app/.venv/bin/python -c "import torch; torch.hub.set_dir('/app/data/embedding_runtime/torch/hub'); torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14', pretrained=False, skip_validation=True, trust_repo=True)" \
+      && break; \
+      if [ "$attempt" = "3" ]; then exit 1; fi; \
+      sleep 5; \
+    done
 COPY --from=frontend-build /app/frontend/dist /app/frontend/dist
 
 EXPOSE 3000
