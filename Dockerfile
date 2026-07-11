@@ -9,14 +9,12 @@ FROM node:24-bookworm
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-pip python3-venv libgl1 libglib2.0-0 \
+    && apt-get install -y --no-install-recommends python3 python3-pip python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHON_BIN=/app/.venv/bin/python
-ENV MODEL_PATH=/app/models/best_v4.pt
 ENV DINOV2_MODEL_PATH=/app/models/dinov2_triplet_v2_best.pt
 ENV TORCH_HOME=/app/data/embedding_runtime/torch
-ENV YOLO_CONFIG_DIR=/app/data/ultralytics
 ENV MPLCONFIGDIR=/app/data/matplotlib
 ENV PORT=3000
 ENV REQUIRE_PRODUCTION_SERVICES=true
@@ -34,7 +32,6 @@ RUN npm install --omit=dev
 COPY backend/src/ /app/backend/src/
 COPY backend/scripts/ /app/backend/scripts/
 RUN mkdir -p /app/models /app/data/embedding_runtime/torch/hub
-COPY best_v4.pt /app/models/best_v4.pt
 COPY backend/dinov2_triplet_v2_best.pt /app/models/dinov2_triplet_v2_best.pt
 RUN /app/.venv/bin/python -c "import torch; torch.hub.set_dir('/app/data/embedding_runtime/torch/hub'); torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14', pretrained=False)"
 COPY --from=frontend-build /app/frontend/dist /app/frontend/dist

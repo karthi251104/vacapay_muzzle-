@@ -28,9 +28,7 @@ const upload = multer({ dest: uploadDir });
 
 const PORT = Number(process.env.PORT || 3000);
 const PYTHON_BIN = resolvePythonBin();
-const MODEL_PATH = process.env.MODEL_PATH || path.join(rootDir, 'best_v4.pt');
 const DINOV2_MODEL_PATH = process.env.DINOV2_MODEL_PATH || path.join(__dirname, '..', 'dinov2_triplet_v2_best.pt');
-const YOLO_IMGSZ = Number(process.env.YOLO_IMGSZ || 640);
 const MUZZLE_CONF = Number(process.env.MUZZLE_CONF || 0.55);
 const MUZZLE_IMAGE_COUNT = Math.max(1, Number(process.env.MUZZLE_IMAGE_COUNT || 3));
 const EMBEDDING_MATCH_THRESHOLD = Number(process.env.EMBEDDING_MATCH_THRESHOLD || 0.70);
@@ -53,7 +51,6 @@ const PINECONE_SEARCH_NAMESPACE = process.env.PINECONE_SEARCH_NAMESPACE || `${PI
 const pineconeEnabled = Boolean(PINECONE_API_KEY && PINECONE_INDEX_HOST);
 const APP_VERSION = process.env.APP_VERSION || 'field-test-2026-07-10';
 const TFLITE_MUZZLE_MODEL_VERSION = process.env.TFLITE_MUZZLE_MODEL_VERSION || path.basename(process.env.TFLITE_MUZZLE_MODEL_PATH || 'best.tflite');
-const YOLO_MODEL_VERSION = process.env.YOLO_MODEL_VERSION || path.basename(MODEL_PATH);
 const DINOV2_MODEL_VERSION = process.env.DINOV2_MODEL_VERSION || path.basename(DINOV2_MODEL_PATH);
 const MUZZLE_IMAGE_FILES = Array.from({ length: MUZZLE_IMAGE_COUNT }, (_, index) => `muzzle${index + 1}.jpg`);
 const SUPPORT_IMAGE_FILES = [
@@ -168,7 +165,6 @@ function validateProductionConfig() {
   ];
   const missing = required.filter((name) => !String(process.env[name] || '').trim());
   if (String(process.env.JWT_SECRET || '').length < 32) missing.push('JWT_SECRET (minimum 32 characters)');
-  if (!existsSync(MODEL_PATH)) missing.push(`MODEL_PATH (${MODEL_PATH})`);
   if (!existsSync(DINOV2_MODEL_PATH)) missing.push(`DINOV2_MODEL_PATH (${DINOV2_MODEL_PATH})`);
   if (missing.length) {
     throw new Error(`Production configuration is incomplete: ${[...new Set(missing)].join(', ')}`);
@@ -187,11 +183,9 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     appVersion: APP_VERSION,
-    modelPath: MODEL_PATH,
     dinov2ModelPath: DINOV2_MODEL_PATH,
     pythonRuntime: PYTHON_BIN,
     embeddingMatchThreshold: EMBEDDING_MATCH_THRESHOLD,
-    yoloImageSize: YOLO_IMGSZ,
     muzzleImageCount: MUZZLE_IMAGE_COUNT,
     storage: dataDir,
     cloudinary: {
@@ -218,7 +212,6 @@ app.get('/api/version', (_req, res) => {
     appVersion: APP_VERSION,
     captureWorkflowVersion: 'cattle-enrolment-search-v2',
     tfliteMuzzleModelVersion: TFLITE_MUZZLE_MODEL_VERSION,
-    yoloModelVersion: YOLO_MODEL_VERSION,
     dinov2ModelVersion: DINOV2_MODEL_VERSION,
     muzzleImageCount: MUZZLE_IMAGE_COUNT,
     thresholds: {
@@ -264,23 +257,6 @@ app.get('/api/pinecone/status', async (_req, res) => {
       namespace: PINECONE_ENROLMENT_NAMESPACE,
       indexHost: PINECONE_INDEX_HOST,
       error: error.message || 'Pinecone status check failed.'
-    });
-  }
-});
-
-app.get('/api/yolo/status', async (_req, res) => {
-  try {
-    const result = await runPythonJson([
-      path.join(__dirname, '..', 'scripts', 'yolo_status.py'),
-      '--model',
-      MODEL_PATH
-    ]);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({
-      ok: false,
-      modelPath: MODEL_PATH,
-      error: publicErrorMessage(error)
     });
   }
 });
@@ -803,13 +779,14 @@ app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'
 
     const clientProcessed = ['true', '1', 'yes'].includes(String(req.body.clientProcessed || req.body.preprocessed || '').toLowerCase());
     const outPath = path.join(folder, fileName);
-    const result = clientProcessed
-      ? await saveClientProcessedMuzzle(req.file.path, outPath)
-      : await runYoloCrop({
-          inputPath: req.file.path,
-          outputDir: folder,
-          outputName: fileName
-        });
+    if (!clientProcessed) {
+      await fs.unlink(req.file.path).catch(() => {});
+      res.status(422).json({
+        error: 'Upload rejected. Muzzle images must pass the phone TFLite check, crop and CLAHE before upload.'
+      });
+      return;
+    }
+    const result = await saveClientProcessedMuzzle(req.file.path, outPath);
 
     if (!result.detected) {
       await fs.unlink(req.file.path).catch(() => {});
@@ -2160,7 +2137,6 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
     appVersion: APP_VERSION,
     captureWorkflowVersion: 'cattle-enrolment-search-v2',
     tfliteMuzzleModelVersion: TFLITE_MUZZLE_MODEL_VERSION,
-    yoloModelVersion: YOLO_MODEL_VERSION,
     dinov2ModelVersion: DINOV2_MODEL_VERSION,
     captureDurationSeconds: Number(session.captureDurationSeconds || 0) || null,
     muzzleImageCount: MUZZLE_IMAGE_COUNT,
@@ -2402,21 +2378,6 @@ async function resizeAndSave(inputPath, outputPath) {
   const args = [scriptPath, '--input', inputPath, '--output', outputPath];
 
   await runPythonJson(args);
-}
-
-function runYoloCrop({ inputPath, outputDir, outputName }) {
-  const scriptPath = path.join(__dirname, '..', 'scripts', 'yolo_crop_clahe.py');
-  const args = [
-    scriptPath,
-    '--model', MODEL_PATH,
-    '--input', inputPath,
-    '--output-dir', outputDir,
-    '--output-name', outputName,
-    '--imgsz', String(YOLO_IMGSZ),
-    '--conf', String(MUZZLE_CONF)
-  ];
-
-  return runPythonJson(args);
 }
 
 function runPythonJson(args) {

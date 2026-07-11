@@ -6,7 +6,6 @@ from pathlib import Path
 workspace_data = Path(__file__).resolve().parents[2] / "data"
 runtime_dir = workspace_data / "embedding_runtime"
 os.environ.setdefault("TORCH_HOME", str(runtime_dir / "torch"))
-os.environ.setdefault("YOLO_CONFIG_DIR", str(workspace_data / "ultralytics"))
 os.environ.setdefault("MPLCONFIGDIR", str(workspace_data / "matplotlib"))
 
 

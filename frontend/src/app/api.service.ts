@@ -253,7 +253,6 @@ export interface AppVersionStatus {
   appVersion: string;
   captureWorkflowVersion: string;
   tfliteMuzzleModelVersion: string;
-  yoloModelVersion: string;
   dinov2ModelVersion: string;
   muzzleImageCount: number;
   thresholds: {
@@ -286,7 +285,6 @@ export interface MatchReview {
   appVersion?: string;
   captureWorkflowVersion?: string;
   tfliteMuzzleModelVersion?: string;
-  yoloModelVersion?: string;
   dinov2ModelVersion?: string;
   captureDurationSeconds?: number | null;
   muzzleImageCount?: number;
@@ -316,10 +314,6 @@ export class ApiService {
 
   login(identifier: string, password: string): Observable<{ token: string; user: AppUser }> {
     return this.http.post<{ token: string; user: AppUser }>(`${this.baseUrl}/auth/login`, { identifier, password });
-  }
-
-  yoloStatus(): Observable<YoloStatus> {
-    return this.http.get<YoloStatus>(`${this.baseUrl}/yolo/status`);
   }
 
   embeddingStatus(): Observable<EmbeddingStatus> {

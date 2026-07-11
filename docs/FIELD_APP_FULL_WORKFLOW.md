@@ -537,7 +537,6 @@ Public status endpoints remain available for operational checks:
 ```text
 /api/health
 /api/version
-/api/yolo/status
 /api/embedding/status
 /api/pinecone/status
 ```

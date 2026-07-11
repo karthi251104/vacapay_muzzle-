@@ -19,16 +19,18 @@ For every cattle search, the admin website shows:
 
 Admin confirmation is ground truth. Top-1 and Top-5 accuracy are calculated only from reviewed cattle searches.
 
-## Railway
+## Container Backend (Render or Railway)
 
 Railway uses `railway.json` and the root `Dockerfile`. The image contains:
 
 - Angular admin build.
 - Node/Express API.
 - CPU-only PyTorch and torchvision.
-- OpenCV and Ultralytics.
-- `best_v4.pt` and `dinov2_triplet_v2_best.pt`.
+- Pillow and NumPy for DINOv2 image preparation.
+- `dinov2_triplet_v2_best.pt`.
 - A preloaded DINOv2 backbone cache.
+
+The backend intentionally contains no YOLO model. Android `best.tflite` performs the good/bad decision, crop and CLAHE before upload. The API rejects muzzle files that are not marked as phone processed.
 
 Create a Railway service from the GitHub repository and set these variables:
 

@@ -5,10 +5,8 @@ for %%I in ("%SCRIPT_DIR%..") do set ROOT_DIR=%%~fI
 set PYTHON_BIN=%ROOT_DIR%\.venv-llm-muzzle\Scripts\python.exe
 if not exist "%PYTHON_BIN%" set PYTHON_BIN=%ROOT_DIR%\.venv\Scripts\python.exe
 if not exist "%PYTHON_BIN%" set PYTHON_BIN=python
-set MODEL_PATH=%ROOT_DIR%\best_v4.pt
 set DINOV2_MODEL_PATH=%ROOT_DIR%\backend\dinov2_triplet_v2_best.pt
 set EMBEDDING_MATCH_THRESHOLD=0.70
-set YOLO_CONFIG_DIR=%ROOT_DIR%\data\ultralytics
 set MPLCONFIGDIR=%ROOT_DIR%\data\matplotlib
 rem Optional Cloudinary storage. Set CLOUDINARY_API_SECRET in this terminal before running.
 if "%CLOUDINARY_CLOUD_NAME%"=="" set CLOUDINARY_CLOUD_NAME=dcoblsomz
