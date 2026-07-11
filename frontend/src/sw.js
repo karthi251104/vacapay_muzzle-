@@ -31,6 +31,12 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
+  // Deployment/API configuration must never be served from an old cache.
+  if (url.pathname.endsWith('/assets/runtime-config.js')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   // Never cache API calls or media
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) {
     return;

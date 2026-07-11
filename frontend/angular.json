@@ -29,7 +29,12 @@
                   "glob": "**/*",
                   "input": "src/assets",
                   "output": "assets",
-                  "ignore": ["models/**", "tflite-wasm/**"]
+                  "ignore": ["models/**", "tflite-wasm/**", "runtime-config.js"]
+                },
+                {
+                  "glob": "runtime-config.js",
+                  "input": "generated",
+                  "output": "assets"
                 },
                 "src/manifest.json",
                 "src/sw.js"
@@ -44,6 +49,21 @@
               "outputHashing": "all"
             },
             "field": {
+              "assets": [
+                {
+                  "glob": "**/*",
+                  "input": "src/assets",
+                  "output": "assets",
+                  "ignore": ["runtime-config.js"]
+                },
+                {
+                  "glob": "runtime-config.js",
+                  "input": "generated",
+                  "output": "assets"
+                },
+                "src/manifest.json",
+                "src/sw.js"
+              ],
               "optimization": true,
               "extractLicenses": true,
               "sourceMap": false,

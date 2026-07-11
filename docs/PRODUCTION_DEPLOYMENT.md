@@ -78,6 +78,36 @@ window.VACAPAY_CONFIG = {
 
 The Android application must bundle `best.tflite`, keep unsynced images in app-private storage, and upload records using stable `offlineCaptureId` values.
 
+## Netlify Admin Website
+
+Netlify uses `netlify.toml` and publishes only `frontend/dist/vacapay/browser`. Add this environment variable before deploying:
+
+```text
+VACAPAY_API_BASE_URL=https://<railway-domain>/api
+```
+
+Optionally set `VACAPAY_MEDIA_BASE_URL=https://<railway-domain>`. Add the final Netlify origin to Railway `CORS_ORIGINS`, for example:
+
+```text
+CORS_ORIGINS=https://<site-name>.netlify.app,capacitor://localhost,http://localhost
+```
+
+Netlify builds the admin-only production target. It does not upload `best.tflite` or the TFLite WASM runtime.
+
+## Android Scaffold
+
+The Capacitor Android project is in `frontend/android` with package ID `com.vacapay.muzzlefield`. It requires Java and Android Studio/SDK 36 on the build machine.
+
+Build and synchronize it after setting the Railway API URL:
+
+```powershell
+$env:VACAPAY_API_BASE_URL="https://<railway-domain>/api"
+pnpm --dir frontend run android:sync
+pnpm --dir frontend run android:open
+```
+
+The field build includes the local TFLite model and WASM runtime. Camera, network and location permissions are declared in the Android manifest. A signed release APK still requires an Android release keystore.
+
 ## Release Verification
 
 Before field release, verify:

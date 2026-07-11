@@ -16,12 +16,5 @@
   <body>
     <script src="assets/runtime-config.js"></script>
     <app-root></app-root>
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {});
-        });
-      }
-    </script>
   </body>
 </html>
