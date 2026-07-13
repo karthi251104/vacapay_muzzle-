@@ -469,11 +469,16 @@ Additional production review tools:
 ```text
 decision filter
 field officer filter
+enrolment coverage by field officer
+searched/not-searched cattle filter
+cow-level search count and last search date
 CSV export
 CSV includes capture duration and model/build versions
 side-by-side review layout
 loaded enrolled-cattle images for matched candidates
 ```
+
+Enrollment Search Coverage counts unique registered cattle identities, not raw search attempts. If one cow is searched three times, its row shows three searches but it contributes one searched cow to coverage. Before review, a valid matched cattle ID counts provisionally. After review, the admin-confirmed cattle ID is authoritative. A search confirmed as a genuinely new cow does not reduce the not-searched count for any enrolled cow.
 
 ## 15. Admin Review
 

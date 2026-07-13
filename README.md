@@ -256,6 +256,19 @@ Top-1 accuracy
 Top-5 accuracy
 ```
 
+The **Enrollment Search Coverage** section tracks field progress separately from model accuracy:
+
+```text
+Total cows enrolled
+Unique enrolled cows searched
+Enrolled cows not yet searched
+Search coverage percentage
+Officer-wise enrolled/searched/not-searched totals
+Cow-by-cow searched/not-searched status and search count
+```
+
+The officer and status filters make it possible to check each officer's enrolment target and see exactly which enrolled cows still need a Cattle Search. A matched cow counts provisionally; after admin review, the admin-confirmed cattle identity is used. A correctly reviewed new-cow result does not count as an enrolled cow being searched.
+
 Admin review actions:
 
 ```text

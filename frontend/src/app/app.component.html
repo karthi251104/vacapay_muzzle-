@@ -237,6 +237,67 @@
       </div>
     </section>
 
+    <section class="panel coverage-panel">
+      <div class="panel-title">
+        <div>
+          <p class="eyebrow">Field Progress</p>
+          <h2>Enrollment Search Coverage</h2>
+          <p class="muted">See which enrolled cows have been checked through Cattle Search and which still need testing.</p>
+        </div>
+        <div class="compact-actions">
+          <select [(ngModel)]="coverageFilterOfficer" class="ghost-select" aria-label="Filter enrollment coverage by field officer">
+            <option value="all">All Officers</option>
+            <option *ngFor="let officer of coverageOfficerNames" [value]="officer">{{ officer }}</option>
+          </select>
+          <select [(ngModel)]="coverageFilterStatus" class="ghost-select" aria-label="Filter cattle by search status">
+            <option value="all">All Cattle</option>
+            <option value="searched">Searched</option>
+            <option value="not_searched">Not Searched</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="coverage-metrics">
+        <article><span>Total Cows Enrolled</span><strong>{{ selectedCoverageMetrics.enrolled }}</strong></article>
+        <article><span>Cows Searched</span><strong>{{ selectedCoverageMetrics.searched }}</strong></article>
+        <article><span>Not Yet Searched</span><strong>{{ selectedCoverageMetrics.notSearched }}</strong></article>
+        <article><span>Search Coverage</span><strong>{{ selectedCoverageMetrics.coveragePercent }}%</strong></article>
+      </div>
+
+      <div class="coverage-table" *ngIf="officerEnrollmentCoverage.length">
+        <div class="coverage-row coverage-head">
+          <span>Field Officer</span><span>Enrolled</span><span>Searched</span><span>Not Searched</span><span>Coverage</span>
+        </div>
+        <button type="button" class="coverage-row" *ngFor="let officer of officerEnrollmentCoverage" (click)="coverageFilterOfficer = officer.officer">
+          <strong>{{ officer.officer }}</strong>
+          <span>{{ officer.enrolled }}</span>
+          <span>{{ officer.searched }}</span>
+          <span>{{ officer.notSearched }}</span>
+          <span>{{ officer.coveragePercent }}%</span>
+        </button>
+      </div>
+
+      <div class="coverage-cattle-list" *ngIf="filteredCattleSearchCoverageRows.length; else noCoverageCattle">
+        <article *ngFor="let cattle of filteredCattleSearchCoverageRows" [class.searched]="cattle.searchCount > 0">
+          <div>
+            <strong>{{ cattle.cattleLabel || shortId(cattle.cattleId) }}</strong>
+            <span>{{ cattle.farmerName || 'Unknown farmer' }} / {{ cattle.farmerId || 'No farmer ID' }}</span>
+          </div>
+          <div>
+            <span>Enrolled by {{ cattle.fieldOfficerName }}</span>
+            <small *ngIf="cattle.lastSearchDate">Last search {{ cattle.lastSearchDate | date:'mediumDate' }}</small>
+          </div>
+          <b>{{ cattle.searchCount > 0 ? cattle.searchCount + ' search' + (cattle.searchCount === 1 ? '' : 'es') : 'Not searched' }}</b>
+        </article>
+      </div>
+      <ng-template #noCoverageCattle><div class="empty-state">No enrolled cattle match these filters.</div></ng-template>
+
+      <div class="field-note coverage-note">
+        <strong>How this is counted</strong>
+        <span>A cow is marked searched when a Cattle Search matches it, or when admin confirms it as the correct cow. New-cow searches with a correct "No Cattle Found" result do not reduce enrolled-cow coverage.</span>
+      </div>
+    </section>
+
     <section class="panel review-panel">
       <div class="panel-title">
         <div>

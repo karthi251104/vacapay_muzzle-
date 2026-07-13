@@ -54,6 +54,24 @@ interface OfficerFieldSummary {
   avgScore: number;
   captureQuality: string;
 }
+
+interface CattleSearchCoverageRow {
+  cattleId: string;
+  cattleLabel: string;
+  farmerId: string;
+  farmerName: string;
+  fieldOfficerName: string;
+  searchCount: number;
+  lastSearchDate: string | null;
+}
+
+interface OfficerEnrollmentCoverage {
+  officer: string;
+  enrolled: number;
+  searched: number;
+  notSearched: number;
+  coveragePercent: number;
+}
 interface AgentStep {
   key: AgentScreen;
   label: string;
@@ -176,6 +194,8 @@ export class AppComponent implements OnInit, OnDestroy {
   showAllReviews = false;
   reviewFilterDecision = 'all';
   reviewFilterOfficer = 'all';
+  coverageFilterOfficer = 'all';
+  coverageFilterStatus: 'all' | 'searched' | 'not_searched' = 'all';
   officerNamesForFilter: string[] = [];
   loadedMatchedImages: Record<string, CattleImageSummary[]> = {};
   expandedReviewId = '';
@@ -1685,6 +1705,84 @@ export class AppComponent implements OnInit, OnDestroy {
 
   get visibleCattleInventory(): CattleSummary[] {
     return this.adminRegistryView === 'duplicates' ? this.duplicateCattleInventory : this.uniqueCattleInventory;
+  }
+
+  get cattleSearchCoverageRows(): CattleSearchCoverageRow[] {
+    const registeredIds = new Set(this.uniqueCattleInventory.map((cattle) => cattle.cattleId));
+    const searchesByCattle = new Map<string, MatchReview[]>();
+
+    for (const review of this.allMatchReviews.filter((item) => this.isCattleSearchCandidate(item))) {
+      const cattleId = this.coverageCattleId(review, registeredIds);
+      if (!cattleId) continue;
+      searchesByCattle.set(cattleId, [...(searchesByCattle.get(cattleId) || []), review]);
+    }
+
+    return this.uniqueCattleInventory
+      .map((cattle) => {
+        const searches = searchesByCattle.get(cattle.cattleId) || [];
+        const latestSearch = searches.reduce<MatchReview | null>((latest, review) => {
+          if (!latest) return review;
+          return new Date(review.captureDate).getTime() > new Date(latest.captureDate).getTime() ? review : latest;
+        }, null);
+        return {
+          cattleId: cattle.cattleId,
+          cattleLabel: cattle.cattleLabel || `Cattle ${cattle.cattleNumber || ''}`.trim(),
+          farmerId: cattle.farmerId,
+          farmerName: cattle.farmerName,
+          fieldOfficerName: cattle.fieldOfficerName || 'Unknown officer',
+          searchCount: searches.length,
+          lastSearchDate: latestSearch?.captureDate || null
+        };
+      })
+      .sort((a, b) => b.searchCount - a.searchCount || a.fieldOfficerName.localeCompare(b.fieldOfficerName) || a.cattleLabel.localeCompare(b.cattleLabel));
+  }
+
+  get filteredCattleSearchCoverageRows(): CattleSearchCoverageRow[] {
+    return this.cattleSearchCoverageRows.filter((row) => {
+      const officerMatches = this.coverageFilterOfficer === 'all' || row.fieldOfficerName === this.coverageFilterOfficer;
+      const statusMatches = this.coverageFilterStatus === 'all'
+        || (this.coverageFilterStatus === 'searched' && row.searchCount > 0)
+        || (this.coverageFilterStatus === 'not_searched' && row.searchCount === 0);
+      return officerMatches && statusMatches;
+    });
+  }
+
+  get coverageOfficerNames(): string[] {
+    return Array.from(new Set(this.uniqueCattleInventory.map((cattle) => cattle.fieldOfficerName || 'Unknown officer'))).sort();
+  }
+
+  get selectedCoverageMetrics(): { enrolled: number; searched: number; notSearched: number; coveragePercent: number } {
+    const rows = this.cattleSearchCoverageRows.filter((row) => this.coverageFilterOfficer === 'all' || row.fieldOfficerName === this.coverageFilterOfficer);
+    const searched = rows.filter((row) => row.searchCount > 0).length;
+    return {
+      enrolled: rows.length,
+      searched,
+      notSearched: rows.length - searched,
+      coveragePercent: this.percent(searched, rows.length)
+    };
+  }
+
+  get officerEnrollmentCoverage(): OfficerEnrollmentCoverage[] {
+    return this.coverageOfficerNames.map((officer) => {
+      const rows = this.cattleSearchCoverageRows.filter((row) => row.fieldOfficerName === officer);
+      const searched = rows.filter((row) => row.searchCount > 0).length;
+      return {
+        officer,
+        enrolled: rows.length,
+        searched,
+        notSearched: rows.length - searched,
+        coveragePercent: this.percent(searched, rows.length)
+      };
+    }).sort((a, b) => b.enrolled - a.enrolled || a.officer.localeCompare(b.officer));
+  }
+
+  private coverageCattleId(review: MatchReview, registeredIds: Set<string>): string | null {
+    if (review.correctCattleId && registeredIds.has(review.correctCattleId)) return review.correctCattleId;
+    if (this.isReviewedCattleSearch(review) && (this.isCattleFoundIncorrect(review) || this.isNoCattleFoundCorrect(review))) return null;
+    if (review.decision === 'matched_existing' && review.matchedCattleId && registeredIds.has(review.matchedCattleId)) {
+      return review.matchedCattleId;
+    }
+    return null;
   }
 
   get fieldTestMetrics(): FieldTestMetrics {
