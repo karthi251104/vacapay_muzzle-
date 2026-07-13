@@ -261,7 +261,19 @@ export class AppComponent implements OnInit, OnDestroy {
     if (!this.isNativeFieldApp) this.loginMode = 'admin';
     const savedUser = localStorage.getItem('vacapay_user');
     if (savedUser) {
-      this.currentUser = JSON.parse(savedUser) as AppUser;
+      try {
+        const parsedUser = JSON.parse(savedUser) as Partial<AppUser>;
+        if (parsedUser.role !== 'admin' && parsedUser.role !== 'agent') {
+          throw new Error('Saved user role is no longer supported.');
+        }
+        this.currentUser = parsedUser as AppUser;
+      } catch {
+        this.api.clearToken();
+        localStorage.removeItem('vacapay_user');
+        this.currentUser = undefined;
+        this.message = 'Please sign in again after the app update.';
+        return;
+      }
       if (this.currentUser.role === 'agent' && !this.isNativeFieldApp) {
         this.api.clearToken();
         localStorage.removeItem('vacapay_user');

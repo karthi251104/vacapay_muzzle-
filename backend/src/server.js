@@ -131,11 +131,11 @@ if (cloudinaryEnabled) {
 
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || !CORS_ORIGINS.length || CORS_ORIGINS.includes(origin)) {
+    if (!origin || !CORS_ORIGINS.length || CORS_ORIGINS.includes('*') || CORS_ORIGINS.includes(origin)) {
       callback(null, true);
-      console.log("Blocked Origin:", origin);
       return;
     }
+    console.warn('Blocked Origin:', origin);
     callback(new Error('Origin is not allowed by CORS policy.'));
   }
 }));
