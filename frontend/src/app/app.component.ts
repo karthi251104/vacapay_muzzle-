@@ -79,18 +79,16 @@ export class AppComponent implements OnInit, OnDestroy {
   private batteryManager?: EventTarget;
   private readonly onOnline = () => {
     this.isOffline = false;
-    this.message = 'Back online. Syncing pending captures...';
-    this.syncService.syncAll().then((result) => {
-      this.pendingSyncCount = this.syncService.pendingCount;
-      if (result.synced > 0) {
-        this.message = `${result.synced} offline capture(s) synced successfully.`;
-        this.loadCattleInventory();
-      }
+    this.syncService.refreshPendingCount().then((count) => {
+      this.pendingSyncCount = count;
+      this.message = count > 0
+        ? `Back online. ${count} completed record(s) are ready to upload.`
+        : 'Back online.';
     });
   };
   private readonly onOffline = () => {
     this.isOffline = true;
-    this.message = 'You are offline. Captures will be saved locally and synced when internet returns.';
+    this.message = 'You are offline. Capture continues on this phone; upload later from Home.';
   };
   private readonly onBatteryLevelChange = () => {
     const battery = this.batteryManager as { level?: number } | undefined;
@@ -733,7 +731,7 @@ export class AppComponent implements OnInit, OnDestroy {
       });
   }
 
-  createEnrollment(): void {
+  async createEnrollment(): Promise<void> {
     if (!this.farmerId.trim()) {
       this.farmerId = this.generateFarmerId();
     }
@@ -749,29 +747,28 @@ export class AppComponent implements OnInit, OnDestroy {
     }
 
     const newFarmer = !this.selectedFarmerKey;
-    const isSearch = this.captureWorkflow === 'cattle_search';
+    this.offlineCaptureId = `field_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    this.cattleId = `local_cow_${this.offlineCaptureId}`;
+    this.enrollment = {
+      cattleId: this.cattleId,
+      farmerId: this.farmerId,
+      farmerName: this.farmerName,
+      fieldOfficerName: this.currentUser?.name || this.fieldOfficerName,
+      fieldOfficerId: this.currentUser?.agentId || '',
+      locationLat: this.locationLat,
+      locationLon: this.locationLon,
+      workflow: this.captureWorkflow,
+      rootFolderLocation: 'On phone',
+      folderLocation: 'On phone - not uploaded',
+      activeSessionId: this.offlineCaptureId,
+      captureDateTime: new Date().toISOString(),
+      uploadDateTime: '',
+      status: 'local_draft'
+    };
 
-    if (this.isOffline) {
-      this.offlineCaptureId = `offline_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-      this.cattleId = `offline_cow_${this.offlineCaptureId}`;
-      this.enrollment = {
-        cattleId: this.cattleId,
-        farmerId: this.farmerId,
-        farmerName: this.farmerName,
-        fieldOfficerName: this.currentUser?.name || this.fieldOfficerName,
-        fieldOfficerId: this.currentUser?.agentId || '',
-        locationLat: this.locationLat,
-        locationLon: this.locationLon,
-        workflow: this.captureWorkflow,
-        rootFolderLocation: 'offline',
-        folderLocation: 'offline',
-        activeSessionId: 'offline',
-        captureDateTime: new Date().toISOString(),
-        uploadDateTime: new Date().toISOString(),
-        status: 'offline_pending'
-      };
-
-      this.offlineStorage.saveCapture({
+    this.message = 'Preparing secure phone storage...';
+    try {
+      await this.offlineStorage.saveCapture({
         id: this.offlineCaptureId,
         cattleId: this.cattleId,
         farmerId: this.farmerId,
@@ -786,58 +783,23 @@ export class AppComponent implements OnInit, OnDestroy {
         muzzleBlobs: [],
         evidenceBlobs: [],
         createdAt: new Date().toISOString(),
-        syncStatus: 'pending',
+        syncStatus: 'draft',
         retryCount: 0
-      }).catch((error) => {
-        this.message = `Could not save offline capture: ${error instanceof Error ? error.message : 'IndexedDB failed.'}`;
       });
-
-      this.muzzlePreviews = [];
-      this.matchResolution = undefined;
-      this.requiredImages.forEach(item => { item.previewUrl = undefined; item.uploading = false; });
-      this.agentScreen = 'muzzle';
-      this.message = 'Offline mode: Ready to capture. Photos will be saved to your device.';
+    } catch (error) {
+      this.enrollment = undefined;
+      this.offlineCaptureId = undefined;
+      this.message = `Could not start phone capture: ${error instanceof Error ? error.message : 'Phone storage failed.'}`;
       return;
     }
 
-    this.message = isSearch
-      ? 'Starting cattle search capture...'
-      : (newFarmer ? 'Creating farmer and starting first cow enrolment...' : 'Starting cattle enrolment capture...');
-    this.api
-      .createEnrollment({
-        farmerId: this.farmerId.trim(),
-        farmerName: this.farmerName.trim(),
-        fieldOfficerName: this.currentUser?.name || this.fieldOfficerName,
-        fieldOfficerId: this.currentUser?.agentId,
-        locationLat: this.locationLat,
-        locationLon: this.locationLon,
-        matchRadiusKm: this.radiusKm,
-        newFarmer,
-        workflow: this.captureWorkflow
-      })
-      .subscribe({
-        next: ({ enrollment }) => {
-          this.enrollment = enrollment;
-          this.cattleId = enrollment.cattleId;
-          this.farmerId = enrollment.farmerId || this.farmerId;
-          this.farmerName = enrollment.farmerName || this.farmerName;
-          this.selectedFarmerKey = [this.farmerId, this.farmerName].join(':');
-          this.muzzlePreviews = [];
-          this.matchResolution = undefined;
-          this.requiredImages.forEach((item) => {
-            item.previewUrl = undefined;
-            item.uploading = false;
-          });
-          this.agentScreen = 'muzzle';
-          this.message = this.captureWorkflow === 'cattle_search'
-            ? 'Cattle search ready. Capture 3 clear muzzle photos.'
-            : 'Cattle enrolment ready. Capture 3 clear muzzle photos.';
-          this.loadCattleInventory();
-        },
-        error: (error) => {
-          this.message = this.errorMessage(error);
-        }
-      });
+    this.muzzlePreviews = [];
+    this.matchResolution = undefined;
+    this.requiredImages.forEach(item => { item.previewUrl = undefined; item.uploading = false; });
+    this.agentScreen = 'muzzle';
+    this.message = this.captureWorkflow === 'cattle_search'
+      ? 'Cattle search ready. Photos stay on this phone until you upload.'
+      : 'Cattle enrolment ready. Photos stay on this phone until you upload.';
   }
 
   useGps(): void {
@@ -1180,7 +1142,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.muzzleGateState = 'good';
     this.muzzleGateLabel = 'Good muzzle';
 
-    if (this.isOffline && this.offlineCaptureId) {
+    if (this.offlineCaptureId) {
       if (navigator.vibrate) navigator.vibrate(200);
       this.playBeep(true);
 
@@ -1196,14 +1158,14 @@ export class AppComponent implements OnInit, OnDestroy {
           confidence: localResult.confidence,
           sharpness: localResult.sharpness
         });
-        this.message = `Offline: Good muzzle ${slot}/${this.muzzleImageCount} saved locally.`;
+        this.message = `Good muzzle ${slot}/${this.muzzleImageCount} saved on phone.`;
         this.muzzleGateState = 'good';
         this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
         this.isDetecting = false;
         if (this.muzzlePreviews.length >= this.muzzleImageCount && this.autoCaptureOn) {
           this.toggleAutoCapture();
           this.agentScreen = 'evidence';
-          this.message = `Offline: all ${this.muzzleImageCount} muzzle photos saved. Add supporting photos next.`;
+          this.message = `All ${this.muzzleImageCount} muzzle photos saved on phone. Add supporting photos next.`;
         }
       });
       return;
@@ -1265,12 +1227,12 @@ export class AppComponent implements OnInit, OnDestroy {
     const file = input.files?.[0];
     if (!file) return;
 
-    if (this.isOffline && this.offlineCaptureId) {
+    if (this.offlineCaptureId) {
       item.uploading = true;
       this.offlineStorage.addEvidenceToCapture(this.offlineCaptureId, item.type, file).then(() => {
         item.previewUrl = URL.createObjectURL(file);
         item.uploading = false;
-        this.message = `Offline: ${item.label} saved locally.`;
+        this.message = `${item.label} saved on phone.`;
         if (this.capturedOtherImages === this.requiredImages.length && this.muzzlePreviews.length === this.muzzleImageCount) {
           this.agentScreen = 'review';
         }
@@ -1303,18 +1265,27 @@ export class AppComponent implements OnInit, OnDestroy {
     const savedFarmerName = this.farmerName || this.enrollment.farmerName || '';
     const captureDurationSeconds = this.captureStartTime ? Math.round((Date.now() - this.captureStartTime) / 1000) : undefined;
 
-    if (this.isOffline && this.offlineCaptureId) {
+    if (this.offlineCaptureId) {
+      const captureId = this.offlineCaptureId;
+      this.message = 'Finalizing record on phone...';
       this.offlineStorage
-        .setCaptureDuration(this.offlineCaptureId, captureDurationSeconds)
+        .setCaptureDuration(captureId, captureDurationSeconds)
+        .then(() => this.offlineStorage.markReadyForSync(captureId))
         .then(() => this.syncService.refreshPendingCount())
-        .then(c => this.pendingSyncCount = c)
-        .catch(() => {});
-      this.resetCaptureState(false);
-      this.farmerId = savedFarmerId;
-      this.farmerName = savedFarmerName;
-      this.selectedFarmerKey = `${savedFarmerId}:${savedFarmerName}`;
-      this.agentScreen = 'home';
-      this.message = 'Offline capture complete. It will automatically upload when you get internet.';
+        .then((count) => {
+          this.pendingSyncCount = count;
+          this.resetCaptureState(false);
+          this.farmerId = savedFarmerId;
+          this.farmerName = savedFarmerName;
+          this.selectedFarmerKey = `${savedFarmerId}:${savedFarmerName}`;
+          this.agentScreen = 'home';
+          this.message = navigator.onLine
+            ? 'Record saved on phone. Tap Upload Pending Records when you are ready.'
+            : 'Record saved on phone. Upload it later when internet is available.';
+        })
+        .catch((error) => {
+          this.message = `Could not finalize record on phone: ${error instanceof Error ? error.message : 'Phone storage failed.'}`;
+        });
       return;
     }
 
@@ -1375,7 +1346,7 @@ export class AppComponent implements OnInit, OnDestroy {
     try {
       const blob = await this.frameBlob();
 
-      if (this.isOffline && this.offlineCaptureId) {
+      if (this.offlineCaptureId) {
         item.uploading = true;
         this.offlineStorage.addEvidenceToCapture(this.offlineCaptureId, item.type, blob).then(() => {
            item.previewUrl = URL.createObjectURL(blob);
@@ -1386,11 +1357,11 @@ export class AppComponent implements OnInit, OnDestroy {
            const nextIndex = this.requiredImages.findIndex((img, idx) => idx > this.evidenceCameraIndex && !img.previewUrl);
            if (nextIndex >= 0) {
              this.evidenceCameraIndex = nextIndex;
-             this.message = `Offline: ${item.label} saved! Now point camera at: ${this.requiredImages[nextIndex].label}`;
+             this.message = `${item.label} saved on phone. Now capture: ${this.requiredImages[nextIndex].label}`;
            } else {
              this.evidenceCameraActive = false;
              this.stopCamera();
-             this.message = 'Offline: All evidence photos captured! Review your record.';
+             this.message = 'All evidence photos saved on phone. Review your record.';
              if (this.muzzlePreviews.length >= this.muzzleImageCount) {
                this.agentScreen = 'review';
              }
@@ -1450,6 +1421,10 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   async manualSync(): Promise<void> {
+    if (this.syncService.syncing) {
+      this.message = 'Upload is already running.';
+      return;
+    }
     if (!navigator.onLine) {
       this.message = 'Still offline. Cannot sync now.';
       return;

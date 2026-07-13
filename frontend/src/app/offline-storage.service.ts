@@ -17,12 +17,13 @@ export interface PendingCapture {
   evidenceBlobs: { type: string; blob: Blob }[];
   createdAt: string;
   captureDurationSeconds?: number;
-  syncStatus: 'pending' | 'syncing' | 'failed';
+  syncStatus: 'draft' | 'pending' | 'syncing' | 'failed';
   lastError?: string;
   retryCount: number;
 }
 
-const DB_NAME = 'vacapay_offline';
+// New field-test cycle: do not sync stale captures left by earlier test builds.
+const DB_NAME = 'vacapay_offline_v2';
 const DB_VERSION = 1;
 const STORE_NAME = 'pending_captures';
 
@@ -169,6 +170,14 @@ export class OfflineStorageService {
     if (captureDurationSeconds !== undefined) {
       capture.captureDurationSeconds = captureDurationSeconds;
     }
+    await this.saveCapture(capture);
+  }
+
+  async markReadyForSync(id: string): Promise<void> {
+    const capture = await this.getCapture(id);
+    if (!capture) throw new Error('Capture not found in offline storage');
+    capture.syncStatus = 'pending';
+    delete capture.lastError;
     await this.saveCapture(capture);
   }
 }

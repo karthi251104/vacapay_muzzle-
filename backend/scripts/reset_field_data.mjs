@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { v2 as cloudinary } from 'cloudinary';
 import { MongoClient } from 'mongodb';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,6 +25,9 @@ const pineconeNamespaces = [
   process.env.PINECONE_ENROLMENT_NAMESPACE || `${pineconeNamespace}-cattle-enrolment`,
   process.env.PINECONE_SEARCH_NAMESPACE || `${pineconeNamespace}-cattle-search`
 ];
+const cloudinaryRootFolder = process.env.CLOUDINARY_ROOT_FOLDER || 'vacapay';
+
+await fs.mkdir(dataDir, { recursive: true });
 
 await fs.writeFile(metadataPath, '[]\n', 'utf8');
 await fs.writeFile(matchAuditsPath, '[]\n', 'utf8');
@@ -53,6 +57,18 @@ if (pineconeApiKey && pineconeHost) {
   }
 } else {
   console.log('pinecone: skipped because it is not configured');
+}
+
+if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true
+  });
+  await deleteCloudinaryPrefix(`${cloudinaryRootFolder}/cattle/`);
+} else {
+  console.log('cloudinary: skipped because it is not configured');
 }
 
 console.log('reset complete');
@@ -87,6 +103,23 @@ async function deletePineconeNamespace(namespace) {
     throw new Error(`pinecone ${namespace}: ${response.status} ${text}`);
   }
   console.log(`pinecone: cleared namespace ${namespace}`);
+}
+
+async function deleteCloudinaryPrefix(prefix) {
+  let deleted = 0;
+  let nextCursor;
+  do {
+    const result = await cloudinary.api.delete_resources_by_prefix(prefix, {
+      resource_type: 'image',
+      type: 'upload',
+      max_results: 1000,
+      next_cursor: nextCursor,
+      invalidate: true
+    });
+    deleted += Object.keys(result.deleted || {}).length;
+    nextCursor = result.next_cursor;
+  } while (nextCursor);
+  console.log(`cloudinary: deleted ${deleted} image(s) under ${prefix}`);
 }
 
 function normalizePineconeHost(value) {

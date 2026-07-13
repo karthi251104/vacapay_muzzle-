@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vacapay-v6-session-recovery';
+const CACHE_NAME = 'vacapay-v7-fresh-field-test';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

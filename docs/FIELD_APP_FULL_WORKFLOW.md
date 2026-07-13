@@ -311,24 +311,27 @@ averaging 3 good crops gives a more stable cattle representation
 
 Bad or blurry images should not enter this average.
 
-## 10. Offline Browser Capture And Sync
+## 10. Local-First Capture And Manual Upload
 
-The current browser/PWA field app has an offline safety layer.
+The Android field app saves capture data on the phone first, whether internet is available or not.
 
-When the phone is offline:
+During capture:
 
 ```text
 agent can start a capture
 record metadata is stored in IndexedDB
 accepted muzzle crops are stored locally
 supporting images are stored locally
-pending sync count is shown
+the record remains a draft and cannot upload
 record is completed locally
 ```
 
-When the phone comes online:
+After the officer finishes all 10 images:
 
 ```text
+the draft becomes ready to upload
+Home shows Upload Pending Records
+the officer uploads only when internet is reliable
 sync service creates the server enrolment/search record
 uploads the saved muzzle crops
 uploads the saved supporting images
@@ -336,7 +339,7 @@ completes the record
 keeps failed records for retry
 ```
 
-This protects field testing from temporary network drops.
+This keeps camera capture fast and protects field testing from temporary network drops. Reconnecting to internet does not upload records automatically.
 
 Important production boundary:
 

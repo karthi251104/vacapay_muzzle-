@@ -471,11 +471,11 @@
   </nav>
 
   <div class="toast page-enter delay-3"><span [class.live]="autoCaptureOn"></span>{{ message }}</div>
-  <div class="toast page-enter delay-3" *ngIf="isOffline" style="background: #4a1515; color: #ffcccc;"><span style="background: #ff4444; animation: none;"></span>Offline: Captures will be saved locally.</div>
+  <div class="toast page-enter delay-3" *ngIf="isOffline" style="background: #4a1515; color: #ffcccc;"><span style="background: #ff4444; animation: none;"></span>Offline: capture still works. Upload is disabled until internet returns.</div>
 
   <div class="toast page-enter delay-3 sync-toast" *ngIf="pendingSyncCount > 0" (click)="manualSync()">
     <span class="sync-spinner" *ngIf="syncService.syncing"></span>
-    {{ pendingSyncCount }} capture(s) pending sync. {{ isOffline ? 'Will upload when online.' : 'Tap to sync now.' }}
+    {{ pendingSyncCount }} completed record(s) ready. {{ isOffline ? 'Upload when online.' : 'Tap to upload now.' }}
   </div>
 
   <section class="screen-stage">
@@ -511,6 +511,9 @@
         <strong>No registered cattle yet</strong>
         <span>First use Cattle Enrolment. Cattle Search can only find cows that already exist as registered cattle.</span>
       </div>
+      <button type="button" class="primary-action big upload-pending-action" *ngIf="pendingSyncCount > 0" [disabled]="isOffline || syncService.syncing" (click)="manualSync()">
+        {{ syncService.syncing ? 'Uploading Records...' : 'Upload Pending Records (' + pendingSyncCount + ')' }}
+      </button>
       <div class="flow-warning version-strip" *ngIf="appVersion">
         <strong>Field build {{ appVersion.appVersion }}</strong>
         <span>{{ appVersion.tfliteMuzzleModelVersion }} / DINOv2 {{ appVersion.dinov2ModelVersion }} / match {{ appVersion.thresholds.embeddingMatchPercent }}% / {{ appVersion.muzzleImageCount }} muzzle photos</span>

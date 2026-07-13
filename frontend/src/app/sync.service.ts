@@ -10,24 +10,12 @@ export class SyncService {
   pendingCount = 0;
 
   private syncInProgress = false;
-  private onlineListener?: () => void;
-
   constructor(
     private readonly api: ApiService,
     private readonly offlineStorage: OfflineStorageService
   ) {
-    this.setupOnlineListener();
     void this.offlineStorage.resetStuckSyncingToPending();
     this.refreshPendingCount();
-  }
-
-  private setupOnlineListener(): void {
-    this.onlineListener = () => {
-      if (navigator.onLine) {
-        void this.syncAll();
-      }
-    };
-    window.addEventListener('online', this.onlineListener);
   }
 
   async refreshPendingCount(): Promise<number> {
@@ -120,8 +108,6 @@ export class SyncService {
   }
 
   destroy(): void {
-    if (this.onlineListener) {
-      window.removeEventListener('online', this.onlineListener);
-    }
+    // Reserved for future native sync lifecycle hooks.
   }
 }

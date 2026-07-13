@@ -37,7 +37,8 @@ The current build includes these verified hardening changes:
 JWT login for admin and field agents
 protected farmer, cattle, enrolment, capture, review and download APIs
 offline browser capture storage using IndexedDB
-automatic sync retry when the phone comes back online
+completed records remain on the phone until the officer explicitly uploads them
+incomplete drafts are excluded from upload
 PWA manifest and service worker asset caching
 GPS caching for repeated captures in the same location
 low battery warning where the browser Battery API is available
@@ -58,6 +59,16 @@ admin field-test metrics count only workflow=cattle_search records
 admin review API returns up to 5000 records for field-test batches
 CSV export uses Blob download to avoid broken exports with special characters
 ```
+
+## Fresh Field-Test Reset
+
+Run this only when starting a new test cycle:
+
+```powershell
+pnpm --dir backend run reset:field-data
+```
+
+It preserves admin and field-officer accounts while clearing cattle enrolments, cattle searches, review decisions, local capture folders, both Pinecone namespaces, and Cloudinary cattle images. A fresh field APK uses a new IndexedDB queue so captures from an older test build cannot upload into the new cycle.
 
 Production note:
 
