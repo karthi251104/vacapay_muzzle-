@@ -1324,6 +1324,7 @@ export class AppComponent implements OnInit, OnDestroy {
         }
       },
       error: (error) => {
+        this.prepareMissingImageRetakes(error);
         this.message = this.errorMessage(error);
       }
     });
@@ -2072,6 +2073,32 @@ export class AppComponent implements OnInit, OnDestroy {
       return error.error.error;
     }
     return 'Something went wrong.';
+  }
+
+  private prepareMissingImageRetakes(error: unknown): void {
+    if (!(error instanceof HttpErrorResponse) || !Array.isArray(error.error?.missing)) return;
+    const missing = error.error.missing.map((file: unknown) => String(file));
+    const missingTypes = new Set(missing.map((file: string) => file.replace(/\.jpg$/i, '')));
+    const hasMissingMuzzle = missing.some((file: string) => /^muzzle\d+\.jpg$/i.test(file));
+
+    this.requiredImages.forEach((item) => {
+      if (missingTypes.has(item.type)) item.previewUrl = undefined;
+    });
+
+    if (hasMissingMuzzle) {
+      this.muzzlePreviews.forEach((preview) => {
+        if (preview.url.startsWith('blob:')) URL.revokeObjectURL(preview.url);
+      });
+      this.muzzlePreviews = [];
+      this.agentScreen = 'muzzle';
+      return;
+    }
+
+    if (missing.length) {
+      this.agentScreen = 'evidence';
+      this.evidenceCameraActive = false;
+      this.evidenceCameraIndex = this.requiredImages.findIndex((item) => !item.previewUrl);
+    }
   }
 
   private toDetectionBox(bbox: number[] | undefined, imageSize: number[] | undefined, confidence: number): DetectionBox | undefined {
