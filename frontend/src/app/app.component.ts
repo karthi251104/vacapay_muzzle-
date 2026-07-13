@@ -2066,6 +2066,9 @@ export class AppComponent implements OnInit, OnDestroy {
   }
   private errorMessage(error: unknown): string {
     if (error instanceof HttpErrorResponse && error.error?.error) {
+      if (Array.isArray(error.error.missing) && error.error.missing.length) {
+        return `${error.error.error} Missing on server: ${error.error.missing.join(', ')}. Retake only these photos.`;
+      }
       return error.error.error;
     }
     return 'Something went wrong.';

@@ -803,6 +803,13 @@ app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'
       localPath: outPath,
       previewUrl
     });
+    if (cloudinaryEnabled && !imageRef.cloudinary?.secureUrl) {
+      res.status(503).json({
+        error: `Muzzle ${slot} was processed but durable upload failed. Keep this screen open and retake this slot.`,
+        cloudinaryError: imageRef.cloudinaryError || 'Cloudinary upload failed.'
+      });
+      return;
+    }
     res.json({
       slot,
       savedAs: fileName,
@@ -848,6 +855,13 @@ app.post('/api/enrollments/:cattleId/images', requireAuth, upload.single('image'
       localPath: outPath,
       previewUrl
     });
+    if (cloudinaryEnabled && !imageRef.cloudinary?.secureUrl) {
+      res.status(503).json({
+        error: `${fileName} was processed but durable upload failed. Retake this photo before completing the record.`,
+        cloudinaryError: imageRef.cloudinaryError || 'Cloudinary upload failed.'
+      });
+      return;
+    }
 
     res.json({
       savedAs: fileName,
@@ -872,15 +886,15 @@ app.post('/api/enrollments/:cattleId/complete', requireAuth, async (req, res, ne
     }
 
     let session = getActiveSession(row);
-    const folder = session.folderLocation;
-    const files = new Set(await fs.readdir(folder).catch(() => []));
-    const missing = REQUIRED_IMAGES.filter((file) => {
-      const imageType = path.basename(file, path.extname(file));
-      const reference = session.images?.[imageType];
-      const hasDurableUpload = Boolean(reference?.cloudinary?.secureUrl);
-      const hasLocalFile = files.has(file) || Boolean(reference?.localPath && existsSync(reference.localPath));
-      return !hasDurableUpload && !hasLocalFile;
-    });
+    let missing = await findMissingRequiredImages(session);
+
+    if (missing.length && cloudinaryEnabled) {
+      await recoverCloudinaryImageReferences(cattleId, session, missing);
+      rows = await readMetadata();
+      row = normalizeRecord(rows.find((item) => item.cattleId === cattleId));
+      session = getActiveSession(row);
+      missing = await findMissingRequiredImages(session);
+    }
 
     if (missing.length) {
       res.status(409).json({
@@ -1345,15 +1359,84 @@ async function saveImageReference({ cattleId, imageType, localPath, previewUrl }
     }
   }
 
-  session.images = {
-    ...(session.images || {}),
-    [imageType]: reference
-  };
-  row.uploadDateTime = reference.uploadedAt;
-  session.uploadDateTime = reference.uploadedAt;
-  rows[rowIndex] = row;
-  await writeMetadata(rows);
+  await persistImageReference(cattleId, session.sessionId, reference);
   return reference;
+}
+
+async function persistImageReference(cattleId, sessionId, reference) {
+  if (mongoDb) {
+    const imagePath = `sessions.$[session].images.${reference.imageType}`;
+    const result = await mongoDb.collection('cattle').updateOne(
+      { cattleId },
+      {
+        $set: {
+          [imagePath]: reference,
+          'sessions.$[session].uploadDateTime': reference.uploadedAt,
+          uploadDateTime: reference.uploadedAt
+        }
+      },
+      { arrayFilters: [{ 'session.sessionId': sessionId }] }
+    );
+    if (!result.matchedCount) throw new Error('Active capture session was not found while saving the image.');
+    return;
+  }
+
+  await withWriteLock(async () => {
+    const rows = JSON.parse(await fs.readFile(metadataPath, 'utf8'));
+    const rowIndex = rows.findIndex((item) => item.cattleId === cattleId);
+    const row = normalizeRecord(rows[rowIndex]);
+    if (!row) throw new Error('Enrollment not found. Create enrollment first.');
+    const session = row.sessions.find((item) => item.sessionId === sessionId);
+    if (!session) throw new Error('Active capture session was not found while saving the image.');
+
+    session.images = { ...(session.images || {}), [reference.imageType]: reference };
+    session.uploadDateTime = reference.uploadedAt;
+    row.uploadDateTime = reference.uploadedAt;
+    rows[rowIndex] = row;
+    await fs.writeFile(metadataPath, `${JSON.stringify(rows, null, 2)}\n`, 'utf8');
+  });
+}
+
+async function findMissingRequiredImages(session) {
+  const files = new Set(await fs.readdir(session.folderLocation).catch(() => []));
+  return REQUIRED_IMAGES.filter((file) => {
+    const imageType = path.basename(file, path.extname(file));
+    const reference = session.images?.[imageType];
+    const hasDurableUpload = Boolean(reference?.cloudinary?.secureUrl);
+    const hasLocalFile = files.has(file) || Boolean(reference?.localPath && existsSync(reference.localPath));
+    return !hasDurableUpload && !hasLocalFile;
+  });
+}
+
+async function recoverCloudinaryImageReferences(cattleId, session, missingFiles) {
+  for (const fileName of missingFiles) {
+    const imageType = path.basename(fileName, path.extname(fileName));
+    const publicId = `${CLOUDINARY_ROOT_FOLDER}/cattle/${cattleId}/${session.sessionId}/${imageType}`;
+    try {
+      const resource = await cloudinary.api.resource(publicId, { resource_type: 'image' });
+      const reference = {
+        imageType,
+        fileName,
+        localPath: path.join(session.folderLocation, fileName),
+        previewUrl: resource.secure_url,
+        uploadedAt: resource.created_at || new Date().toISOString(),
+        cloudinary: {
+          publicId: resource.public_id,
+          secureUrl: resource.secure_url,
+          format: resource.format,
+          bytes: resource.bytes,
+          width: resource.width,
+          height: resource.height
+        },
+        recoveredAt: new Date().toISOString()
+      };
+      await persistImageReference(cattleId, session.sessionId, reference);
+    } catch (error) {
+      if (error?.http_code !== 404) {
+        console.error(`Could not recover ${imageType} for ${cattleId}:`, error);
+      }
+    }
+  }
 }
 
 async function resolveMuzzleMatch(cattleId) {
