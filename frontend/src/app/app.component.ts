@@ -2072,6 +2072,9 @@ export class AppComponent implements OnInit, OnDestroy {
       }
       return error.error.error;
     }
+    if (error instanceof HttpErrorResponse && [0, 502, 503, 504].includes(error.status)) {
+      return 'Matching server is unavailable or restarting. Your uploaded photos are saved. Wait one minute and try Save again. If this repeats, the backend needs more memory.';
+    }
     return 'Something went wrong.';
   }
 

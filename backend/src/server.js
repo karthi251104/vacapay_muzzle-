@@ -32,6 +32,7 @@ const DINOV2_MODEL_PATH = process.env.DINOV2_MODEL_PATH || path.join(__dirname, 
 const MUZZLE_CONF = Number(process.env.MUZZLE_CONF || 0.55);
 const MUZZLE_IMAGE_COUNT = Math.max(1, Number(process.env.MUZZLE_IMAGE_COUNT || 3));
 const EMBEDDING_MATCH_THRESHOLD = Number(process.env.EMBEDDING_MATCH_THRESHOLD || 0.70);
+const MIN_EMBEDDING_MEMORY_MB = Math.max(512, Number(process.env.MIN_EMBEDDING_MEMORY_MB || 1200));
 const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || '';
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || '';
 const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || '';
@@ -974,7 +975,12 @@ app.get('*', async (_req, res, next) => {
 
 app.use((error, _req, res, _next) => {
   console.error(error);
-  res.status(500).json({ error: publicErrorMessage(error) });
+  const status = Number(error?.statusCode || error?.status || 500);
+  res.status(status >= 400 && status <= 599 ? status : 500).json({
+    error: publicErrorMessage(error),
+    code: error?.code || undefined,
+    retryable: Boolean(error?.retryable)
+  });
 });
 
 app.listen(PORT, () => {
@@ -1959,6 +1965,7 @@ async function ensureSessionEmbedding(row, session) {
   }
 
   const imagePaths = await muzzleImagePaths(session);
+  await assertEmbeddingMemoryCapacity();
   const result = await runAverageEmbedding(imagePaths);
   if (!result.ok || !result.embedding?.length) {
     throw new Error(result.error || 'Could not generate DINOv2 muzzle embedding.');
@@ -1974,6 +1981,46 @@ async function ensureSessionEmbedding(row, session) {
   };
   row.embedding = session.embedding;
   return session.embedding.average;
+}
+
+async function assertEmbeddingMemoryCapacity() {
+  if (['true', '1', 'yes'].includes(String(process.env.SKIP_EMBEDDING_MEMORY_CHECK || '').toLowerCase())) {
+    return;
+  }
+
+  const limitBytes = await containerMemoryLimitBytes();
+  const requiredBytes = MIN_EMBEDDING_MEMORY_MB * 1024 * 1024;
+  if (!limitBytes || limitBytes >= requiredBytes) return;
+
+  const availableMb = Math.round(limitBytes / 1024 / 1024);
+  const error = new Error(
+    `Matching server memory is too low (${availableMb} MB). Your photos are saved. ` +
+    `Upgrade the backend to at least ${MIN_EMBEDDING_MEMORY_MB} MB RAM, then press Save Registered Cow again.`
+  );
+  error.statusCode = 503;
+  error.code = 'EMBEDDING_MEMORY_LIMIT';
+  error.retryable = true;
+  throw error;
+}
+
+async function containerMemoryLimitBytes() {
+  const paths = [
+    '/sys/fs/cgroup/memory.max',
+    '/sys/fs/cgroup/memory/memory.limit_in_bytes'
+  ];
+
+  for (const file of paths) {
+    try {
+      const value = String(await fs.readFile(file, 'utf8')).trim();
+      if (!value || value === 'max') continue;
+      const bytes = Number(value);
+      if (Number.isFinite(bytes) && bytes > 0 && bytes < Number.MAX_SAFE_INTEGER) return bytes;
+    } catch {
+      // Windows and hosts without cgroup limits do not expose these files.
+    }
+  }
+
+  return null;
 }
 
 async function muzzleImagePaths(session) {
