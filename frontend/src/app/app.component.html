@@ -641,7 +641,7 @@
         <span>{{ muzzlePreviews.length }}/{{ muzzleImageCount }}</span>
       </div>
 
-      <div class="camera-screen" [class.detecting]="isDetecting" [class.live]="cameraOn">
+      <div class="camera-screen" [class.detecting]="isDetecting" [class.live]="cameraOn" [class.gate-good]="muzzleGateState === 'good'" [class.gate-bad]="muzzleGateState === 'bad' || muzzleGateState === 'error'" [class.gate-uploading]="muzzleGateState === 'uploading'">
         <video #video muted playsinline></video>
         <div class="scan-layer" *ngIf="autoCaptureOn"><i></i></div>
         <div class="camera-guide" *ngIf="autoCaptureOn && (!detectionBox || detectionBox.confidence < 0.5)">
@@ -652,13 +652,18 @@
         </div>
         <div
           class="detection-box"
+          [class.good]="muzzleGateState === 'good' || muzzleGateState === 'uploading'"
+          [class.bad]="muzzleGateState === 'bad' || muzzleGateState === 'error'"
           *ngIf="detectionBox"
           [style.left.%]="detectionBox.left"
           [style.top.%]="detectionBox.top"
           [style.width.%]="detectionBox.width"
           [style.height.%]="detectionBox.height"
         >
-          <span>Muzzle {{ detectionBox.confidence | percent:'1.0-0' }}</span>
+          <span>{{ muzzleGateLabel }} {{ detectionBox.confidence | percent:'1.0-0' }}</span>
+        </div>
+        <div class="muzzle-gate-status" [class.good]="muzzleGateState === 'good'" [class.bad]="muzzleGateState === 'bad' || muzzleGateState === 'error'" [class.uploading]="muzzleGateState === 'uploading'" *ngIf="cameraOn">
+          {{ muzzleGateLabel }}
         </div>
         <div class="camera-empty" *ngIf="!cameraOn">
           <strong>Camera Ready</strong>

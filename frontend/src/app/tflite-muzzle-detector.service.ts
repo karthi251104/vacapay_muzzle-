@@ -47,6 +47,9 @@ export class TfliteMuzzleDetectorService {
   private modelPromise?: Promise<TfliteModel>;
   private scriptsPromise?: Promise<void>;
   private preprocessMeta = { scale: 1, padX: 0, padY: 0 };
+  private readonly frameCanvas = document.createElement('canvas');
+  private readonly letterboxCanvas = document.createElement('canvas');
+  private readonly sharpnessCanvas = document.createElement('canvas');
 
   async isReady(): Promise<boolean> {
     await this.loadModel();
@@ -58,7 +61,7 @@ export class TfliteMuzzleDetectorService {
     const tf = window.tf;
     const sourceWidth = video.videoWidth || 1280;
     const sourceHeight = video.videoHeight || 720;
-    const frameCanvas = document.createElement('canvas');
+    const frameCanvas = this.frameCanvas;
     frameCanvas.width = sourceWidth;
     frameCanvas.height = sourceHeight;
     const frameContext = frameCanvas.getContext('2d', { willReadFrequently: true });
@@ -210,7 +213,7 @@ export class TfliteMuzzleDetectorService {
 
   private frameToTensor(canvas: HTMLCanvasElement): unknown {
     const tf = window.tf;
-    const letterbox = document.createElement('canvas');
+    const letterbox = this.letterboxCanvas;
     letterbox.width = this.modelInputSize;
     letterbox.height = this.modelInputSize;
     const context = letterbox.getContext('2d');
@@ -397,12 +400,15 @@ export class TfliteMuzzleDetectorService {
   private async cropApplyClaheAndBlob(frameCanvas: HTMLCanvasElement, bbox: [number, number, number, number]): Promise<Blob> {
     const [x1, y1, x2, y2] = bbox.map((value) => Math.round(value)) as [number, number, number, number];
     const cropCanvas = document.createElement('canvas');
-    cropCanvas.width = Math.max(1, x2 - x1);
-    cropCanvas.height = Math.max(1, y2 - y1);
+    const sourceWidth = Math.max(1, x2 - x1);
+    const sourceHeight = Math.max(1, y2 - y1);
+    const outputScale = Math.min(1, 640 / Math.max(sourceWidth, sourceHeight));
+    cropCanvas.width = Math.max(1, Math.round(sourceWidth * outputScale));
+    cropCanvas.height = Math.max(1, Math.round(sourceHeight * outputScale));
     const context = cropCanvas.getContext('2d', { willReadFrequently: true });
     if (!context) throw new Error('Could not crop muzzle.');
 
-    context.drawImage(frameCanvas, x1, y1, cropCanvas.width, cropCanvas.height, 0, 0, cropCanvas.width, cropCanvas.height);
+    context.drawImage(frameCanvas, x1, y1, sourceWidth, sourceHeight, 0, 0, cropCanvas.width, cropCanvas.height);
     this.applyLocalContrast(context, cropCanvas.width, cropCanvas.height);
 
     return new Promise((resolve, reject) => {
@@ -417,7 +423,7 @@ export class TfliteMuzzleDetectorService {
     const [x1, y1, x2, y2] = bbox.map((value) => Math.round(value)) as [number, number, number, number];
     const width = Math.max(1, x2 - x1);
     const height = Math.max(1, y2 - y1);
-    const sampleCanvas = document.createElement('canvas');
+    const sampleCanvas = this.sharpnessCanvas;
     const sampleWidth = 96;
     const sampleHeight = 96;
     sampleCanvas.width = sampleWidth;

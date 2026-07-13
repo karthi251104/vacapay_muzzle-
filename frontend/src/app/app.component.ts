@@ -215,6 +215,8 @@ export class AppComponent implements OnInit, OnDestroy {
   message = 'Start a new cattle capture.';
   lastConfidence?: number;
   detectionBox?: DetectionBox;
+  muzzleGateState: 'idle' | 'scanning' | 'good' | 'bad' | 'uploading' | 'error' = 'idle';
+  muzzleGateLabel = 'Ready';
   yoloStatus?: YoloStatus;
   embeddingStatus?: EmbeddingStatus;
   pineconeStatus?: PineconeStatus;
@@ -1095,6 +1097,8 @@ export class AppComponent implements OnInit, OnDestroy {
     this.autoCaptureOn = false;
     this.cameraOn = false;
     this.detectionBox = undefined;
+    this.muzzleGateState = 'idle';
+    this.muzzleGateLabel = 'Ready';
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = undefined;
   }
@@ -1104,15 +1108,20 @@ export class AppComponent implements OnInit, OnDestroy {
       window.clearInterval(this.captureTimer);
       this.captureTimer = undefined;
       this.autoCaptureOn = false;
+      this.muzzleGateState = 'idle';
+      this.muzzleGateLabel = 'Paused';
       this.message = 'Auto capture paused.';
       return;
     }
 
     this.autoCaptureOn = true;
     this.message = 'Looking for clear muzzle...';
+    this.muzzleGateState = 'scanning';
+    this.muzzleGateLabel = 'Scanning';
     this.captureTimer = window.setInterval(() => {
       void this.tryCaptureMuzzle();
-    }, 900);
+    }, 350);
+    void this.tryCaptureMuzzle();
   }
 
   async tryCaptureMuzzle(): Promise<void> {
@@ -1122,6 +1131,8 @@ export class AppComponent implements OnInit, OnDestroy {
     }
 
     this.isDetecting = true;
+    this.muzzleGateState = 'scanning';
+    this.muzzleGateLabel = 'Scanning';
     const slot = this.muzzlePreviews.length + 1;
     if (this.video.nativeElement.videoWidth <= 0 || this.video.nativeElement.videoHeight <= 0) {
       this.isDetecting = false;
@@ -1137,6 +1148,8 @@ export class AppComponent implements OnInit, OnDestroy {
     } catch (error) {
       this.detectionBox = undefined;
       this.isDetecting = false;
+      this.muzzleGateState = 'error';
+      this.muzzleGateLabel = 'Model error';
       this.message = `Phone muzzle check error: ${error instanceof Error ? error.message : 'TFLite failed.'}`;
       return;
     }
@@ -1146,9 +1159,14 @@ export class AppComponent implements OnInit, OnDestroy {
 
     if (!localResult.accepted || !localResult.cropBlob) {
       this.isDetecting = false;
+      this.muzzleGateState = 'bad';
+      this.muzzleGateLabel = localResult.className === 'goodmuzzle' ? 'Hold steady' : 'Bad muzzle';
       this.message = `${localResult.reason} Hold steady and show a clean straight muzzle.`;
       return;
     }
+
+    this.muzzleGateState = 'good';
+    this.muzzleGateLabel = 'Good muzzle';
 
     if (this.isOffline && this.offlineCaptureId) {
       if (navigator.vibrate) navigator.vibrate(200);
@@ -1167,6 +1185,8 @@ export class AppComponent implements OnInit, OnDestroy {
           sharpness: localResult.sharpness
         });
         this.message = `Offline: Good muzzle ${slot}/${this.muzzleImageCount} saved locally.`;
+        this.muzzleGateState = 'good';
+        this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
         this.isDetecting = false;
         if (this.muzzlePreviews.length >= this.muzzleImageCount && this.autoCaptureOn) {
           this.toggleAutoCapture();
@@ -1177,6 +1197,8 @@ export class AppComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.muzzleGateState = 'uploading';
+    this.muzzleGateLabel = `Saving ${slot}/${this.muzzleImageCount}`;
     this.api.captureMuzzle(this.enrollment.cattleId, localResult.cropBlob, slot, true).subscribe({
       next: (response) => {
         if (navigator.vibrate) navigator.vibrate(200);
@@ -1190,6 +1212,8 @@ export class AppComponent implements OnInit, OnDestroy {
         });
         this.message = `Good muzzle ${slot}/${this.muzzleImageCount} saved from phone crop.`;
         this.isDetecting = false;
+        this.muzzleGateState = 'good';
+        this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
 
         if (response.matchResolution) {
           this.applyMatchResolution(response.matchResolution);
@@ -1198,7 +1222,7 @@ export class AppComponent implements OnInit, OnDestroy {
         if (this.muzzlePreviews.length >= this.muzzleImageCount && this.autoCaptureOn) {
           this.toggleAutoCapture();
           if (response.matchPending) {
-            this.message = `All ${this.muzzleImageCount} muzzle photos are saved. Matching will retry when you complete this record.`;
+            this.message = `All ${this.muzzleImageCount} muzzle photos are saved. Matching runs when you save the completed record.`;
           } else if (!response.matchResolution) {
             this.message = `All ${this.muzzleImageCount} muzzle photos captured. Checking farmer cattle and all saved muzzle records.`;
           }
@@ -1209,6 +1233,8 @@ export class AppComponent implements OnInit, OnDestroy {
         if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
         this.playBeep(false);
         this.detectionBox = undefined;
+        this.muzzleGateState = 'error';
+        this.muzzleGateLabel = `Save failed ${slot}/${this.muzzleImageCount}`;
         this.message = error.status === 422
           ? `Muzzle was not clear for photo ${slot}/${this.muzzleImageCount}. Hold steady and show the full muzzle.`
           : `Capture error: ${this.errorMessage(error)}`;

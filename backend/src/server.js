@@ -803,26 +803,15 @@ app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'
       localPath: outPath,
       previewUrl
     });
-    let matchResolution = null;
-    let matchError = null;
-    if (slot === MUZZLE_IMAGE_COUNT) {
-      try {
-        matchResolution = await resolveMuzzleMatch(cattleId);
-      } catch (error) {
-        matchError = error;
-        console.error(`Muzzle ${slot} was saved for ${cattleId}, but matching is pending:`, error);
-      }
-    }
-
     res.json({
       slot,
       savedAs: fileName,
       previewUrl,
       cloudinaryUrl: imageRef.cloudinary?.secureUrl || null,
       imageRef,
-      matchResolution,
-      matchPending: Boolean(matchError),
-      matchError: matchError ? publicErrorMessage(matchError) : null,
+      matchResolution: null,
+      matchPending: slot === MUZZLE_IMAGE_COUNT,
+      matchError: null,
       result
     });
   } catch (error) {

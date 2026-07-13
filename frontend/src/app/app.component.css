@@ -1302,6 +1302,18 @@ select:focus {
   box-shadow: 0 0 0 4px rgba(117, 223, 162, 0.14), 0 26px 60px rgba(16, 24, 20, 0.22);
 }
 
+.camera-screen.gate-good {
+  box-shadow: 0 0 0 4px rgba(35, 166, 92, 0.72), 0 26px 60px rgba(16, 24, 20, 0.22);
+}
+
+.camera-screen.gate-bad {
+  box-shadow: 0 0 0 4px rgba(204, 62, 54, 0.78), 0 26px 60px rgba(16, 24, 20, 0.22);
+}
+
+.camera-screen.gate-uploading {
+  box-shadow: 0 0 0 4px rgba(42, 145, 192, 0.76), 0 26px 60px rgba(16, 24, 20, 0.22);
+}
+
 .camera-screen.detecting {
   animation: cameraGlow 1.1s ease-in-out infinite;
 }
@@ -1510,6 +1522,56 @@ select:focus {
   transform: translateX(-50%);
   width: min(100%, 760px);
   z-index: 30;
+}
+
+.detection-box.good {
+  border-color: #36d17c;
+  box-shadow: 0 0 0 2px rgba(11, 16, 13, 0.35), 0 0 30px rgba(54, 209, 124, 0.5);
+}
+
+.detection-box.good span {
+  background: #36d17c;
+}
+
+.detection-box.bad {
+  border-color: #f0645b;
+  box-shadow: 0 0 0 2px rgba(11, 16, 13, 0.35), 0 0 30px rgba(240, 100, 91, 0.5);
+}
+
+.detection-box.bad span {
+  background: #f0645b;
+  color: #280604;
+}
+
+.muzzle-gate-status {
+  background: rgba(10, 31, 42, 0.88);
+  border: 2px solid #d5a33b;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 900;
+  left: 50%;
+  padding: 8px 12px;
+  position: absolute;
+  top: 16px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  z-index: 5;
+}
+
+.muzzle-gate-status.good {
+  background: #137340;
+  border-color: #57e396;
+}
+
+.muzzle-gate-status.bad {
+  background: #9f2822;
+  border-color: #ff8b84;
+}
+
+.muzzle-gate-status.uploading {
+  background: #126b8c;
+  border-color: #82d8f5;
 }
 
 .location-primary-action {
