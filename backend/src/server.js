@@ -317,6 +317,59 @@ app.get('/api/agents', requireAuth, requireAdmin, async (_req, res, next) => {
   }
 });
 
+app.get('/api/farmers/sync', requireAuth, async (_req, res, next) => {
+  try {
+    const rows = (await readCleanMetadata()).filter(isRegisteredInventoryRecord);
+    const groups = new Map();
+
+    for (const row of rows) {
+      const key = ownerGroupKey(row);
+      const sessions = row.sessions || [];
+      const lastSession = sessions.at(-1);
+      const updatedAt = lastSession?.uploadDateTime || lastSession?.captureDateTime || row.uploadDateTime || row.captureDateTime || '';
+      const group = groups.get(key) || {
+        key,
+        farmerId: row.farmerId || '',
+        farmerName: row.farmerName || '',
+        locationLat: Number.isFinite(Number(row.locationLat)) ? Number(row.locationLat) : null,
+        locationLon: Number.isFinite(Number(row.locationLon)) ? Number(row.locationLon) : null,
+        cattleCount: 0,
+        visitCount: 0,
+        imageCount: 0,
+        lastCaptureDate: null,
+        updatedAt: ''
+      };
+
+      group.cattleCount += 1;
+      group.visitCount += sessions.length;
+      group.imageCount += sessions.reduce((total, session) => total + Object.keys(session.images || {}).length, 0);
+      if (updatedAt && (!group.updatedAt || String(updatedAt).localeCompare(String(group.updatedAt)) > 0)) {
+        group.updatedAt = updatedAt;
+        group.locationLat = Number.isFinite(Number(row.locationLat)) ? Number(row.locationLat) : group.locationLat;
+        group.locationLon = Number.isFinite(Number(row.locationLon)) ? Number(row.locationLon) : group.locationLon;
+      }
+      const captureDate = lastSession?.captureDate || row.captureDateTime || null;
+      if (captureDate && (!group.lastCaptureDate || String(captureDate).localeCompare(String(group.lastCaptureDate)) > 0)) {
+        group.lastCaptureDate = captureDate;
+      }
+      groups.set(key, group);
+    }
+
+    const farmers = Array.from(groups.values()).sort((a, b) =>
+      String(a.farmerName || a.farmerId).localeCompare(String(b.farmerName || b.farmerId))
+    );
+    const generatedAt = new Date().toISOString();
+    const datasetVersion = farmers.reduce(
+      (latest, farmer) => String(farmer.updatedAt || '').localeCompare(latest) > 0 ? String(farmer.updatedAt) : latest,
+      ''
+    ) || generatedAt;
+
+    res.json({ farmers, farmerCount: farmers.length, generatedAt, datasetVersion });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/reviews/matches', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const uncertainOnly = String(req.query.uncertainOnly ?? 'true') !== 'false';
@@ -688,6 +741,7 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
     const now = new Date().toISOString();
     const requestLat = Number(req.body.locationLat);
     const requestLon = Number(req.body.locationLon);
+    const requestAccuracy = Number(req.body.locationAccuracyM);
 
     if (!Number.isFinite(requestLat) || !Number.isFinite(requestLon)) {
       res.status(400).json({ error: 'Use GPS first before starting cow capture.' });
@@ -730,12 +784,17 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
     if (offlineCaptureId) session.offlineCaptureId = offlineCaptureId;
 
     const isNewFarmer = req.body.newFarmer === true || req.body.newFarmer === 'true';
-    record.farmerId = isNewFarmer && !existing ? generateUniqueFarmerId(rows) : (String(req.body.farmerId || record.farmerId || '').trim() || generateUniqueFarmerId(rows));
+    const requestedFarmerId = String(req.body.farmerId || record.farmerId || '').trim();
+    record.farmerId = workflow === 'cattle_search'
+      ? requestedFarmerId
+      : (isNewFarmer && !existing ? generateUniqueFarmerId(rows) : (requestedFarmerId || generateUniqueFarmerId(rows)));
     record.farmerName = String(req.body.farmerName || record.farmerName || '').trim();
     record.fieldOfficerName = req.body.fieldOfficerName || record.fieldOfficerName || '';
     record.fieldOfficerId = req.body.fieldOfficerId || record.fieldOfficerId || '';
     record.locationLat = requestLat;
     record.locationLon = requestLon;
+    record.locationAccuracyM = Number.isFinite(requestAccuracy) ? requestAccuracy : null;
+    record.locationCapturedAt = String(req.body.locationCapturedAt || now);
     record.matchRadiusKm = Number(req.body.matchRadiusKm || record.matchRadiusKm || 7);
     record.rootFolderLocation = rootFolder;
     record.folderLocation = session.folderLocation;
@@ -1475,8 +1534,10 @@ async function resolveMuzzleMatch(cattleId) {
     for (let index = 0; index < rows.length; index += 1) {
       const candidateRow = rows[index];
       if (!candidateRow || candidateRow.cattleId === cattleId || isDuplicateEvidenceRecord(candidateRow) || !isSearchableCattleRecord(candidateRow)) continue;
-      const searchScope = isSameFarmerCandidate(queryRow, candidateRow) ? 'farmer_cattle' : 'all_other_muzzle';
       const distanceKm = distanceBetweenRowsKm(queryRow, candidateRow);
+      const searchScope = queryWorkflow === 'cattle_search'
+        ? candidateSearchScope(queryRow, candidateRow, distanceKm)
+        : (isSameFarmerCandidate(queryRow, candidateRow) ? 'farmer_cattle' : 'all_other_muzzle');
 
       for (const candidateSession of candidateRow.sessions || []) {
         const candidateEmbedding = candidateSession.embedding?.average;
@@ -1503,15 +1564,28 @@ async function resolveMuzzleMatch(cattleId) {
 
   rawCandidates.sort((a, b) => b.score - a.score);
   const candidates = bestCandidatePerCattle(rawCandidates);
-  const bestFarmerMatch = candidates.find((candidate) => candidate.searchScope === 'farmer_cattle' && candidate.score >= EMBEDDING_MATCH_THRESHOLD) || null;
-  const bestGlobalMatch = candidates[0] || null;
-  const bestMatch = bestFarmerMatch || bestGlobalMatch;
-  const rankedTopMatches = candidates.slice(0, 20).map(toPublicMatchResult);
-  const orderedMatches = bestFarmerMatch
-    ? [bestFarmerMatch, ...candidates.filter((candidate) => candidate !== bestFarmerMatch)]
-    : candidates;
+  const farmerCandidates = candidates.filter((candidate) => candidate.searchScope === 'farmer_cattle');
+  const nearbyCandidates = candidates.filter((candidate) => candidate.searchScope === 'nearby_location');
+  const hasSelectedFarmer = Boolean(normalizeSearchText(queryRow.farmerId) || normalizeSearchText(queryRow.farmerName));
+  const bestFarmerMatch = hasSelectedFarmer && farmerCandidates[0]?.score >= EMBEDDING_MATCH_THRESHOLD ? farmerCandidates[0] : null;
+  const bestNearbyMatch = queryWorkflow === 'cattle_search' && nearbyCandidates[0]?.score >= EMBEDDING_MATCH_THRESHOLD ? nearbyCandidates[0] : null;
+  const bestGlobalMatch = queryWorkflow === 'cattle_enrolment' ? candidates[0] || null : null;
+  const eligibleSearchCandidates = hasSelectedFarmer ? [...farmerCandidates, ...nearbyCandidates] : nearbyCandidates;
+  const orderedMatches = queryWorkflow === 'cattle_search'
+    ? (bestFarmerMatch
+      ? [...farmerCandidates, ...nearbyCandidates]
+      : (bestNearbyMatch
+        ? [...nearbyCandidates, ...farmerCandidates]
+        : eligibleSearchCandidates.sort((a, b) => b.score - a.score)))
+    : (bestFarmerMatch ? [bestFarmerMatch, ...candidates.filter((candidate) => candidate !== bestFarmerMatch)] : candidates);
+  const bestMatch = queryWorkflow === 'cattle_search'
+    ? bestFarmerMatch || bestNearbyMatch || orderedMatches[0] || null
+    : bestFarmerMatch || bestGlobalMatch;
+  const rankedTopMatches = orderedMatches.slice(0, 20).map(toPublicMatchResult);
   const topMatches = orderedMatches.slice(0, 5).map(toPublicMatchResult);
-  const isMatched = Boolean(bestMatch && bestMatch.score >= EMBEDDING_MATCH_THRESHOLD);
+  const isMatched = queryWorkflow === 'cattle_search'
+    ? Boolean(bestFarmerMatch || bestNearbyMatch)
+    : Boolean(bestMatch && bestMatch.score >= EMBEDDING_MATCH_THRESHOLD);
 
   if (isMatched) {
     const now = new Date().toISOString();
@@ -1553,10 +1627,13 @@ async function resolveMuzzleMatch(cattleId) {
         finalCattleId: queryRow.cattleId,
         session: querySession,
         matchResult,
+        farmerId: queryRow.farmerId,
         farmerName: queryRow.farmerName,
         fieldOfficerName: queryRow.fieldOfficerName,
         locationLat: queryRow.locationLat,
-        locationLon: queryRow.locationLon
+        locationLon: queryRow.locationLon,
+        locationAccuracyM: queryRow.locationAccuracyM,
+        matchRadiusKm: queryRow.matchRadiusKm
       });
     }
     return {
@@ -1595,10 +1672,13 @@ async function resolveMuzzleMatch(cattleId) {
       finalCattleId: queryRow.cattleId,
       session: querySession,
       matchResult,
+      farmerId: queryRow.farmerId,
       farmerName: queryRow.farmerName,
       fieldOfficerName: queryRow.fieldOfficerName,
       locationLat: queryRow.locationLat,
-      locationLon: queryRow.locationLon
+      locationLon: queryRow.locationLon,
+      locationAccuracyM: queryRow.locationAccuracyM,
+      matchRadiusKm: queryRow.matchRadiusKm
     });
   }
 
@@ -2088,6 +2168,12 @@ function distanceBetweenRowsKm(a, b) {
   return haversineKm(aLat, aLon, bLat, bLon);
 }
 
+function candidateSearchScope(queryRow, candidateRow, distanceKm = distanceBetweenRowsKm(queryRow, candidateRow)) {
+  if (isSameFarmerCandidate(queryRow, candidateRow)) return 'farmer_cattle';
+  const radiusKm = Math.max(0.1, Number(queryRow.matchRadiusKm || 7));
+  return distanceKm !== null && distanceKm <= radiusKm ? 'nearby_location' : 'outside_location';
+}
+
 function cosineSimilarity(a, b) {
   let dot = 0;
   let aNorm = 0;
@@ -2115,7 +2201,7 @@ function toPublicMatchResult(match) {
     cattleId: match.cattleId,
     cattleNumber: match.cattleNumber || null,
     cattleLabel: match.cattleLabel || cattleDisplayLabel(match.cattleNumber),
-    searchScope: match.searchScope || 'all_other_muzzle',
+    searchScope: match.searchScope || 'nearby_location',
     sessionId: match.sessionId,
     farmerName: match.farmerName,
     fieldOfficerName: match.fieldOfficerName,
@@ -2257,7 +2343,7 @@ async function moveMatchedVisitOutAsRegistered(audit, { reviewedBy, reviewNotes 
   await writeMetadata(rows);
   return row;
 }
-async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, farmerName, fieldOfficerName, locationLat, locationLon }) {
+async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, farmerId, farmerName, fieldOfficerName, locationLat, locationLon, locationAccuracyM, matchRadiusKm }) {
   const audits = await readMatchAudits();
   const auditId = `${finalCattleId || cattleId}__${session.sessionId}`;
   const existingIndex = audits.findIndex((audit) => audit.auditId === auditId);
@@ -2285,10 +2371,14 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
     previousCattleId: matchResult.previousCattleId || null,
     topMatches: matchResult.topMatches || [],
     rankedTopMatches: matchResult.rankedTopMatches || matchResult.topMatches || [],
+    farmerId: farmerId || '',
     farmerName: farmerName || '',
     fieldOfficerName: fieldOfficerName || '',
     locationLat: locationLat ?? null,
     locationLon: locationLon ?? null,
+    locationAccuracyM: locationAccuracyM ?? null,
+    matchRadiusKm: Number(matchRadiusKm || 7),
+    searchStrategy: farmerId || farmerName ? 'selected_farmer_then_location' : 'location_only',
     folderLocation: session.folderLocation,
     captureDate: session.captureDate,
     resolvedAt: matchResult.resolvedAt || new Date().toISOString(),
@@ -2370,25 +2460,53 @@ async function queryPineconeMatches({ queryRow, queryEmbedding, ownerNumberMap }
     return [];
   }
 
-  const payload = {
+  const queryWorkflow = normalizeWorkflow(queryRow.workflow, 'cattle_enrolment');
+  const farmerIdNorm = normalizeSearchText(queryRow.farmerId);
+  const farmerNameNorm = normalizeSearchText(queryRow.farmerName);
+  const basePayload = {
     vector: queryEmbedding,
-    topK: 50,
     includeMetadata: true,
     namespace: PINECONE_ENROLMENT_NAMESPACE
   };
-  const result = await pineconeFetch('/query', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  }).catch(() => ({ matches: [] }));
+  const resultSets = [];
 
-  return (result.matches || [])
+  if (queryWorkflow === 'cattle_search' && (farmerIdNorm || farmerNameNorm)) {
+    const farmerFilters = [];
+    if (farmerIdNorm) farmerFilters.push({ farmerIdNorm: { '$eq': farmerIdNorm } });
+    if (farmerNameNorm) farmerFilters.push({ farmerNameNorm: { '$eq': farmerNameNorm } });
+    const farmerResult = await pineconeFetch('/query', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...basePayload,
+        topK: 50,
+        filter: farmerFilters.length === 1 ? farmerFilters[0] : { '$or': farmerFilters }
+      })
+    }).catch(() => ({ matches: [] }));
+    resultSets.push(...(farmerResult.matches || []));
+  }
+
+  const locationResult = await pineconeFetch('/query', {
+    method: 'POST',
+    body: JSON.stringify({ ...basePayload, topK: queryWorkflow === 'cattle_search' ? 200 : 50 })
+  }).catch(() => ({ matches: [] }));
+  resultSets.push(...(locationResult.matches || []));
+
+  const uniqueMatches = Array.from(new Map(resultSets.map((match) => [match.id, match])).values());
+
+  return uniqueMatches
     .map((match) => {
       const meta = match.metadata || {};
-      const searchScope = (
+      const sameFarmer = (
         (normalizeSearchText(queryRow.farmerId) && normalizeSearchText(queryRow.farmerId) === normalizeSearchText(meta.farmerId || meta.farmerIdNorm)) ||
         (normalizeSearchText(queryRow.farmerName) && normalizeSearchText(queryRow.farmerName) === normalizeSearchText(meta.farmerName || meta.farmerNameNorm))
-      ) ? 'farmer_cattle' : 'all_other_muzzle';
+      );
       const distanceKm = haversineKm(queryRow.locationLat, queryRow.locationLon, meta.locationLat, meta.locationLon);
+      const radiusKm = Math.max(0.1, Number(queryRow.matchRadiusKm || 7));
+      const searchScope = sameFarmer
+        ? 'farmer_cattle'
+        : (queryWorkflow === 'cattle_search'
+          ? (distanceKm !== null && distanceKm <= radiusKm ? 'nearby_location' : 'outside_location')
+          : 'all_other_muzzle');
       return {
         cattleId: meta.cattleId,
         cattleNumber: ownerNumberMap.get(meta.cattleId) || null,

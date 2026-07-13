@@ -2,9 +2,10 @@ import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
 import { ApiService, AppUser, AppVersionStatus, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, FarmerMatch, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
 import { TfliteMuzzleDetectorService } from './tflite-muzzle-detector.service';
-import { OfflineStorageService, PendingCapture } from './offline-storage.service';
+import { CachedFarmer, FarmerSyncInfo, OfflineStorageService, PendingCapture } from './offline-storage.service';
 import { SyncService } from './sync.service';
 
 interface RequiredImage {
@@ -122,6 +123,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.syncService.refreshPendingCount().then(count => {
       this.pendingSyncCount = count;
     });
+    void this.loadFarmerCacheStatus();
   }
 
   private setupConnectivityListeners(): void {
@@ -138,6 +140,42 @@ export class AppComponent implements OnInit, OnDestroy {
         this.appVersion = undefined;
       }
     });
+  }
+
+  private async loadFarmerCacheStatus(): Promise<void> {
+    try {
+      this.farmerSyncInfo = await this.offlineStorage.getFarmerSyncInfo();
+    } catch {
+      this.farmerSyncInfo = undefined;
+    }
+  }
+
+  async updateFarmerData(): Promise<void> {
+    if (this.updatingFarmerData) return;
+    if (!navigator.onLine) {
+      this.message = 'Connect to the internet once to update farmer data.';
+      return;
+    }
+
+    this.updatingFarmerData = true;
+    this.message = 'Downloading the latest farmer data...';
+    try {
+      const response = await firstValueFrom(this.api.downloadFarmerData());
+      await this.offlineStorage.replaceFarmers(response.farmers, {
+        farmerCount: response.farmerCount,
+        syncedAt: new Date().toISOString(),
+        datasetVersion: response.datasetVersion
+      });
+      await this.loadFarmerCacheStatus();
+      this.message = `${response.farmerCount} farmer record(s) updated on this phone. Offline farmer search is ready.`;
+      if (this.agentScreen === 'location' && this.hasGps) {
+        await this.findFarmersByGps();
+      }
+    } catch (error) {
+      this.message = `Farmer update failed: ${this.errorMessage(error)}`;
+    } finally {
+      this.updatingFarmerData = false;
+    }
   }
 
   private async checkBattery(): Promise<void> {
@@ -215,6 +253,8 @@ export class AppComponent implements OnInit, OnDestroy {
   fieldOfficerName = '';
   locationLat: number | null = null;
   locationLon: number | null = null;
+  locationAccuracyM: number | null = null;
+  locationCapturedAt = '';
   radiusKm = 7;
   selectedFarmerKey = '';
   farmerMatches: FarmerMatch[] = [];
@@ -225,6 +265,8 @@ export class AppComponent implements OnInit, OnDestroy {
   searchingNameFarmers = false;
   cattleMatches: CattleMatch[] = [];
   searchingCattle = false;
+  farmerSyncInfo?: FarmerSyncInfo;
+  updatingFarmerData = false;
 
   muzzlePreviews: { url: string; confidence?: number; sharpness?: number }[] = [];
   cameraOn = false;
@@ -339,6 +381,7 @@ export class AppComponent implements OnInit, OnDestroy {
         if (user.role === 'agent') {
           this.agentScreen = 'home';
           this.fieldOfficerName = user.name;
+          void this.loadFarmerCacheStatus();
           this.checkYoloStatus();
           this.checkEmbeddingStatus();
           this.checkPineconeStatus();
@@ -476,16 +519,17 @@ export class AppComponent implements OnInit, OnDestroy {
     this.captureWorkflow = 'cattle_search';
     this.agentScreen = 'location';
     this.message = this.registeredCattleCount
-      ? 'Cattle search selected. Use GPS/name, select farmer, then capture muzzle photos.'
+      ? 'Getting a fresh GPS location. Farmer selection is optional.'
       : 'No registered cattle yet. First use Cattle Enrolment to save cows, then use Cattle Search to test matches.';
-    this.useGps();
+    this.useGps(true);
   }
 
   findExistingFarmerForEnrollment(): void {
-    this.resetCaptureState(false);
+    this.resetCaptureState(true);
     this.captureWorkflow = 'cattle_enrolment';
     this.agentScreen = 'location';
     this.message = 'Cattle enrolment selected. Search and select a farmer, then enroll the cow under that farmer.';
+    this.useGps(true);
   }
 
   startNewEnrollment(): void {
@@ -516,14 +560,14 @@ export class AppComponent implements OnInit, OnDestroy {
     this.createEnrollment();
   }
   startFromRecent(cattle: CattleSummary): void {
-    this.resetCaptureState(false);
+    this.resetCaptureState(true);
     this.captureWorkflow = 'cattle_enrolment';
     this.farmerId = cattle.farmerId || '';
     this.farmerName = cattle.farmerName || '';
     this.selectedFarmerKey = [this.farmerId, this.farmerName].join(':');
     this.agentScreen = 'location';
-    this.message = 'Farmer loaded for cattle enrolment. Add the next cow under this farmer or choose another farmer.';
-    this.findRegisteredCattle();
+    this.message = 'Farmer loaded. Capturing fresh GPS before enrolling the next cow.';
+    this.useGps(true);
   }
 
   continueToLocation(): void {
@@ -752,13 +796,17 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   async createEnrollment(): Promise<void> {
-    if (!this.farmerId.trim()) {
-      this.farmerId = this.generateFarmerId();
-    }
-
-    if (!this.farmerName.trim()) {
-      this.message = 'Farmer name is required before starting capture.';
-      return;
+    if (this.captureWorkflow === 'cattle_enrolment') {
+      if (!this.farmerId.trim()) {
+        this.farmerId = this.generateFarmerId();
+      }
+      if (!this.farmerName.trim()) {
+        this.message = 'Farmer name is required for cattle enrolment.';
+        return;
+      }
+    } else if (!this.selectedFarmerKey) {
+      this.farmerId = '';
+      this.farmerName = '';
     }
 
     if (!this.hasGps) {
@@ -766,7 +814,7 @@ export class AppComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const newFarmer = !this.selectedFarmerKey;
+    const newFarmer = this.captureWorkflow === 'cattle_enrolment' && !this.selectedFarmerKey;
     this.offlineCaptureId = `field_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     this.cattleId = `local_cow_${this.offlineCaptureId}`;
     this.enrollment = {
@@ -777,6 +825,8 @@ export class AppComponent implements OnInit, OnDestroy {
       fieldOfficerId: this.currentUser?.agentId || '',
       locationLat: this.locationLat,
       locationLon: this.locationLon,
+      locationAccuracyM: this.locationAccuracyM,
+      locationCapturedAt: this.locationCapturedAt,
       workflow: this.captureWorkflow,
       rootFolderLocation: 'On phone',
       folderLocation: 'On phone - not uploaded',
@@ -797,6 +847,8 @@ export class AppComponent implements OnInit, OnDestroy {
         fieldOfficerId: this.enrollment.fieldOfficerId,
         locationLat: this.locationLat,
         locationLon: this.locationLon,
+        locationAccuracyM: this.locationAccuracyM,
+        locationCapturedAt: this.locationCapturedAt,
         matchRadiusKm: this.radiusKm,
         workflow: this.captureWorkflow,
         newFarmer,
@@ -822,15 +874,16 @@ export class AppComponent implements OnInit, OnDestroy {
       : 'Cattle enrolment ready. Photos stay on this phone until you upload.';
   }
 
-  useGps(): void {
+  useGps(forceFresh = false): void {
     if (!navigator.geolocation) {
       this.message = 'GPS is not available in this browser.';
       return;
     }
 
-    if (this.gpsCache && Date.now() - this.gpsCache.timestamp < 5 * 60 * 1000) {
+    if (!forceFresh && this.gpsCache && Date.now() - this.gpsCache.timestamp < 5 * 60 * 1000) {
       this.locationLat = this.gpsCache.lat;
       this.locationLon = this.gpsCache.lon;
+      this.locationCapturedAt = new Date(this.gpsCache.timestamp).toISOString();
       this.message = `Using cached GPS (${this.locationLat}, ${this.locationLon}).`;
       if (this.agentScreen === 'location') {
         this.findFarmersByGps();
@@ -842,6 +895,8 @@ export class AppComponent implements OnInit, OnDestroy {
       (position) => {
         this.locationLat = Number(position.coords.latitude.toFixed(6));
         this.locationLon = Number(position.coords.longitude.toFixed(6));
+        this.locationAccuracyM = Number.isFinite(position.coords.accuracy) ? Math.round(position.coords.accuracy) : null;
+        this.locationCapturedAt = new Date().toISOString();
         this.gpsCache = { lat: this.locationLat, lon: this.locationLon, timestamp: Date.now() };
         this.message = `GPS location saved (${this.locationLat}, ${this.locationLon}).`;
         if (this.agentScreen === 'location') {
@@ -860,7 +915,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.findFarmersByName();
   }
 
-  findFarmersByGps(): void {
+  async findFarmersByGps(): Promise<void> {
     if (this.locationLat === null || this.locationLon === null) {
       this.message = 'Use GPS first, then search nearby existing farmers.';
       return;
@@ -868,34 +923,29 @@ export class AppComponent implements OnInit, OnDestroy {
 
     this.searchingFarmers = true;
     this.searchingGpsFarmers = true;
-    this.message = 'Searching farmers near this GPS location...';
-    this.api
-      .searchFarmers({
-        lat: this.locationLat,
-        lon: this.locationLon,
-        radiusKm: this.radiusKm
-      })
-      .subscribe({
-        next: ({ farmers }) => {
-          this.gpsFarmerMatches = farmers;
-          this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
-          this.searchingFarmers = false;
-          this.searchingGpsFarmers = false;
-          this.message = farmers.length
-            ? `GPS found ${farmers.length} farmer(s). Select the correct farmer to load saved cows.`
-            : (this.registeredCattleCount
-              ? 'No registered farmers found near this GPS. Try name search or add a new farmer in Cattle Enrolment.'
-              : 'No registered farmers exist yet. Use Cattle Enrolment first; cattle searches do not create farmer records.');
-        },
-        error: (error) => {
-          this.searchingFarmers = false;
-          this.searchingGpsFarmers = false;
-          this.message = this.errorMessage(error);
-        }
-      });
+    this.message = 'Checking nearby farmers saved on this phone...';
+    try {
+      const farmers = await this.offlineStorage.getAllFarmers();
+      this.gpsFarmerMatches = farmers
+        .map((farmer) => this.cachedFarmerToMatch(farmer, this.distanceKm(this.locationLat!, this.locationLon!, farmer.locationLat, farmer.locationLon)))
+        .filter((farmer) => farmer.distanceKm !== null && farmer.distanceKm <= this.radiusKm)
+        .sort((a, b) => Number(a.distanceKm) - Number(b.distanceKm))
+        .slice(0, 25);
+      this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+      this.message = this.gpsFarmerMatches.length
+        ? `${this.gpsFarmerMatches.length} nearby farmer(s) found on this phone. Selecting one is optional for Cattle Search.`
+        : (farmers.length
+          ? 'No downloaded farmer is near this GPS. You can search by name or continue Cattle Search without a farmer.'
+          : 'No farmer data is stored on this phone. Tap Update Farmer Data when online. Cattle Search can still continue without a farmer.');
+    } catch (error) {
+      this.message = error instanceof Error ? error.message : 'Could not read farmer data from this phone.';
+    } finally {
+      this.searchingFarmers = false;
+      this.searchingGpsFarmers = false;
+    }
   }
 
-  findFarmersByName(): void {
+  async findFarmersByName(): Promise<void> {
     const q = (this.farmerSearchQuery || this.farmerName || this.farmerId).trim();
     if (!q) {
       this.message = 'Enter farmer name or farmer ID to search by name.';
@@ -904,27 +954,30 @@ export class AppComponent implements OnInit, OnDestroy {
 
     this.searchingFarmers = true;
     this.searchingNameFarmers = true;
-    this.message = 'Searching farmers by name/ID...';
-    this.api
-      .searchFarmers({ q, radiusKm: this.radiusKm })
-      .subscribe({
-        next: ({ farmers }) => {
-          this.nameFarmerMatches = farmers;
-          this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
-          this.searchingFarmers = false;
-          this.searchingNameFarmers = false;
-          this.message = farmers.length
-            ? `Name search found ${farmers.length} farmer(s). Select the correct farmer to load saved cows.`
-            : (this.registeredCattleCount
-              ? 'No registered farmer found by that name/ID. Use GPS search or add a new farmer in Cattle Enrolment.'
-              : 'No registered farmers exist yet. Use Cattle Enrolment first; cattle searches do not create farmer records.');
-        },
-        error: (error) => {
-          this.searchingFarmers = false;
-          this.searchingNameFarmers = false;
-          this.message = this.errorMessage(error);
-        }
-      });
+    this.message = 'Searching downloaded farmer data...';
+    try {
+      const normalizedQuery = q.toLocaleLowerCase();
+      const farmers = await this.offlineStorage.getAllFarmers();
+      this.nameFarmerMatches = farmers
+        .filter((farmer) => farmer.farmerId.toLocaleLowerCase().includes(normalizedQuery) || farmer.farmerName.toLocaleLowerCase().includes(normalizedQuery))
+        .map((farmer) => this.cachedFarmerToMatch(
+          farmer,
+          this.hasGps ? this.distanceKm(this.locationLat!, this.locationLon!, farmer.locationLat, farmer.locationLon) : null
+        ))
+        .sort((a, b) => String(a.farmerName || a.farmerId).localeCompare(String(b.farmerName || b.farmerId)))
+        .slice(0, 25);
+      this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+      this.message = this.nameFarmerMatches.length
+        ? `${this.nameFarmerMatches.length} farmer(s) found on this phone. Select only when the farmer is known.`
+        : (farmers.length
+          ? 'No downloaded farmer matches that name or ID. Check spelling or continue Cattle Search without a farmer.'
+          : 'No farmer data is stored on this phone. Tap Update Farmer Data when online.');
+    } catch (error) {
+      this.message = error instanceof Error ? error.message : 'Could not search farmer data on this phone.';
+    } finally {
+      this.searchingFarmers = false;
+      this.searchingNameFarmers = false;
+    }
   }
 
   selectFarmer(match: FarmerMatch): void {
@@ -932,8 +985,17 @@ export class AppComponent implements OnInit, OnDestroy {
     this.farmerName = match.farmerName || this.farmerName;
     this.farmerSearchQuery = this.farmerName || this.farmerId;
     this.selectedFarmerKey = match.key || `${match.farmerId}:${match.farmerName}`;
-    this.message = `${match.farmerName || match.farmerId} selected. First checking this farmer's ${match.cattleCount} cow(s), then all saved muzzle records.`;
-    this.findRegisteredCattle();
+    this.cattleMatches = [];
+    this.message = `${match.farmerName || match.farmerId} selected. The backend will check this farmer's ${match.cattleCount} cow(s) first, then cattle near the captured GPS.`;
+  }
+
+  clearSelectedFarmer(): void {
+    this.farmerId = '';
+    this.farmerName = '';
+    this.farmerSearchQuery = '';
+    this.selectedFarmerKey = '';
+    this.cattleMatches = [];
+    this.message = 'Farmer cleared. Cattle Search will use the captured GPS location.';
   }
   findRegisteredCattle(): void {
     this.searchingCattle = true;
@@ -953,7 +1015,7 @@ export class AppComponent implements OnInit, OnDestroy {
           this.message = cattle.length
             ? `Found ${cattle.length} saved cow record(s) for this farmer. Now take muzzle photos to identify the correct cow.`
             : (this.captureWorkflow === 'cattle_search'
-              ? 'No saved cows found under this farmer. Cattle Search can still check all registered cattle, but it will not create a new registered cow.'
+              ? 'No saved cows found under this farmer. Cattle Search can still check registered cattle near the captured GPS.'
               : 'No saved cows found for this farmer. Start capture to enroll the first cow.');
         },
         error: (error) => {
@@ -1187,6 +1249,13 @@ export class AppComponent implements OnInit, OnDestroy {
           this.agentScreen = 'evidence';
           this.message = `All ${this.muzzleImageCount} muzzle photos saved on phone. Add supporting photos next.`;
         }
+      }).catch((error) => {
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        this.playBeep(false);
+        this.isDetecting = false;
+        this.muzzleGateState = 'error';
+        this.muzzleGateLabel = `Save failed ${slot}/${this.muzzleImageCount}`;
+        this.message = `Could not save muzzle ${slot} on this phone: ${error instanceof Error ? error.message : 'Phone storage failed.'}`;
       });
       return;
     }
@@ -1218,7 +1287,7 @@ export class AppComponent implements OnInit, OnDestroy {
           if (response.matchPending) {
             this.message = `All ${this.muzzleImageCount} muzzle photos are saved. Matching runs when you save the completed record.`;
           } else if (!response.matchResolution) {
-            this.message = `All ${this.muzzleImageCount} muzzle photos captured. Checking farmer cattle and all saved muzzle records.`;
+            this.message = `All ${this.muzzleImageCount} muzzle photos captured. They will be checked against selected-farmer cattle first, then nearby GPS cattle after upload.`;
           }
           this.agentScreen = 'evidence';
         }
@@ -1283,6 +1352,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
     const savedFarmerId = this.farmerId || this.enrollment.farmerId || '';
     const savedFarmerName = this.farmerName || this.enrollment.farmerName || '';
+    const completedWorkflow = this.captureWorkflow;
     const captureDurationSeconds = this.captureStartTime ? Math.round((Date.now() - this.captureStartTime) / 1000) : undefined;
 
     if (this.offlineCaptureId) {
@@ -1297,11 +1367,15 @@ export class AppComponent implements OnInit, OnDestroy {
           this.resetCaptureState(false);
           this.farmerId = savedFarmerId;
           this.farmerName = savedFarmerName;
-          this.selectedFarmerKey = `${savedFarmerId}:${savedFarmerName}`;
+          this.selectedFarmerKey = savedFarmerId || savedFarmerName ? `${savedFarmerId}:${savedFarmerName}` : '';
           this.agentScreen = 'home';
-          this.message = navigator.onLine
-            ? 'Record saved on phone. Tap Upload Pending Records when you are ready.'
-            : 'Record saved on phone. Upload it later when internet is available.';
+          this.message = completedWorkflow === 'cattle_search'
+            ? (navigator.onLine
+              ? 'Cattle Search saved on phone. Upload it when ready to receive the match result.'
+              : 'Cattle Search saved on phone. Upload later when internet is available.')
+            : (navigator.onLine
+              ? 'Cattle enrolment saved on phone. Tap Upload Pending Records when ready.'
+              : 'Cattle enrolment saved on phone. Upload it later when internet is available.');
         })
         .catch((error) => {
           this.message = `Could not finalize record on phone: ${error instanceof Error ? error.message : 'Phone storage failed.'}`;
@@ -1316,12 +1390,12 @@ export class AppComponent implements OnInit, OnDestroy {
         this.resetCaptureState(false);
         this.farmerId = savedFarmerId;
         this.farmerName = savedFarmerName;
-        this.selectedFarmerKey = `${savedFarmerId}:${savedFarmerName}`;
+        this.selectedFarmerKey = savedFarmerId || savedFarmerName ? `${savedFarmerId}:${savedFarmerName}` : '';
         this.agentScreen = 'home';
         this.findRegisteredCattle();
         window.setTimeout(() => this.loadCattleInventory(), 900);
         if (enrollment.status === 'duplicate_saved_separately' || enrollment.workflow === 'cattle_search') {
-          this.message = 'Cattle search saved separately. Use "Enrol Next Cow" to continue with the same farmer.';
+          this.message = 'Cattle Search saved separately for admin review.';
         } else {
           this.message = 'Cow enrolled successfully! Use "Enrol Next Cow" to add another cow for the same farmer.';
         }
@@ -1337,14 +1411,15 @@ export class AppComponent implements OnInit, OnDestroy {
     const savedFarmerId = this.farmerId;
     const savedFarmerName = this.farmerName;
     const savedOfficer = this.fieldOfficerName;
-    this.resetCaptureState(false);
+    this.resetCaptureState(true);
     this.captureWorkflow = 'cattle_enrolment';
     this.farmerId = savedFarmerId;
     this.farmerName = savedFarmerName;
     this.fieldOfficerName = savedOfficer;
     this.selectedFarmerKey = `${savedFarmerId}:${savedFarmerName}`;
-    this.message = 'Quick enrol: same farmer, new cow. Creating enrollment...';
-    this.createEnrollment();
+    this.agentScreen = 'location';
+    this.message = 'Same farmer selected. Capturing fresh GPS before the next cow.';
+    this.useGps(true);
   }
 
   startEvidenceCamera(): void {
@@ -1483,7 +1558,7 @@ export class AppComponent implements OnInit, OnDestroy {
     }
 
     this.loadCattleInventory();
-    this.message = 'No enrolled cattle found in selected farmer cattle or all saved muzzle records. This search can be confirmed as correct no-cattle-found if the cow is new.';
+    this.message = 'No enrolled cattle matched in the selected farmer stage or nearby-location stage. Admin can confirm whether No Cattle Found is correct.';
   }
   private refreshMuzzlePreviewsFromEnrollment(enrollment: Enrollment): void {
     const session = enrollment.sessions?.find((item) => item.sessionId === enrollment.activeSessionId) || enrollment.sessions?.at(-1);
@@ -1507,8 +1582,11 @@ export class AppComponent implements OnInit, OnDestroy {
     return id.length > 12 ? `${id.slice(0, 8)}...${id.slice(-4)}` : id;
   }
 
-  matchSourceLabel(scope?: 'farmer_cattle' | 'all_other_muzzle'): string {
-    return scope === 'farmer_cattle' ? 'selected farmer cattle records' : 'all saved muzzle records';
+  matchSourceLabel(scope?: 'farmer_cattle' | 'nearby_location' | 'outside_location' | 'all_other_muzzle'): string {
+    if (scope === 'farmer_cattle') return 'selected farmer cattle';
+    if (scope === 'nearby_location') return 'nearby GPS cattle';
+    if (scope === 'outside_location') return 'outside search location';
+    return 'legacy all-cattle search';
   }
   openImage(title: string, url?: string | null): void {
     if (!url) return;
@@ -1969,6 +2047,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   get canStartExistingFarmerCapture(): boolean {
+    if (this.isCattleSearchFlow) return this.hasGps;
     return this.hasGps && Boolean(this.selectedFarmerKey) && Boolean(this.farmerId.trim() || this.farmerName.trim());
   }
 
@@ -1981,9 +2060,12 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   get locationPrimaryActionLabel(): string {
-    if (!this.selectedFarmerKey) return 'Select Farmer First';
     if (!this.hasGps) return 'Use GPS First';
-    return this.isCattleSearchFlow ? 'Start Cattle Search' : 'Add New Cow Under Selected Farmer';
+    if (this.isCattleSearchFlow) {
+      return this.selectedFarmerKey ? `Start Search With ${this.farmerName || this.farmerId}` : 'Start Search Using GPS';
+    }
+    if (!this.selectedFarmerKey) return 'Select Farmer First';
+    return 'Add New Cow Under Selected Farmer';
   }
 
   get farmerNavTarget(): AgentScreen {
@@ -2002,7 +2084,9 @@ export class AppComponent implements OnInit, OnDestroy {
 
   get locationPrimaryHelp(): string {
     return this.isCattleSearchFlow
-      ? 'This saves a cattle search record only. It checks this farmer first, then all registered cattle.'
+      ? (this.selectedFarmerKey
+        ? 'Selected farmer cattle are checked first. If none match, cattle near this GPS are checked.'
+        : 'No farmer selected. Cattle near this GPS are checked. Farmer details are optional for search.')
       : 'This saves a new registered cattle identity under the selected farmer.';
   }
 
@@ -2063,7 +2147,7 @@ export class AppComponent implements OnInit, OnDestroy {
   get agentScreenTitle(): string {
     switch (this.agentScreen) {
       case 'farmer': return 'Owner Details';
-      case 'location': return 'Find Farmer';
+      case 'location': return this.isCattleSearchFlow ? 'Cattle Search Setup' : 'Find Farmer';
       case 'muzzle': return 'Muzzle Photos';
       case 'evidence': return 'Other Photos';
       case 'review': return 'Check & Save';
@@ -2073,7 +2157,9 @@ export class AppComponent implements OnInit, OnDestroy {
   get agentScreenSubtitle(): string {
     switch (this.agentScreen) {
       case 'farmer': return 'Add a new farmer or search an existing farmer by GPS/name.';
-      case 'location': return 'Find the farmer by name and GPS, then muzzle matching selects the correct cow.';
+      case 'location': return this.isCattleSearchFlow
+        ? 'GPS is required. Selecting a downloaded farmer is optional and works without internet.'
+        : 'Select a downloaded farmer by name or nearby GPS before enrolling a new cow.';
       case 'muzzle': return `Take ${this.muzzleImageCount} good muzzle photos. Phone muzzle gate rejects bad muzzles, crops the muzzle, applies contrast, then uploads only the crop.`;
       case 'evidence': return 'Add face, side, back and udder photos for the same cattle.';
       case 'review': return 'Check the record once, then save and return home.';
@@ -2086,6 +2172,30 @@ export class AppComponent implements OnInit, OnDestroy {
 
   get missingMuzzleSlots(): number[] {
     return Array.from({ length: this.muzzleImageCount - this.muzzlePreviews.length }, (_, index) => this.muzzlePreviews.length + index + 1);
+  }
+
+  private cachedFarmerToMatch(farmer: CachedFarmer, distanceKm: number | null): FarmerMatch {
+    return {
+      key: farmer.key,
+      farmerId: farmer.farmerId,
+      farmerName: farmer.farmerName,
+      cattleCount: farmer.cattleCount,
+      visitCount: farmer.visitCount,
+      imageCount: farmer.imageCount,
+      distanceKm,
+      withinRadius: distanceKm !== null && distanceKm <= this.radiusKm,
+      lastCaptureDate: farmer.lastCaptureDate
+    };
+  }
+
+  private distanceKm(lat1: number, lon1: number, lat2: number | null, lon2: number | null): number | null {
+    if (lat2 === null || lon2 === null) return null;
+    const toRadians = (value: number) => value * Math.PI / 180;
+    const dLat = toRadians(lat2 - lat1);
+    const dLon = toRadians(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2
+      + Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
 
@@ -2148,6 +2258,8 @@ export class AppComponent implements OnInit, OnDestroy {
       this.farmerSearchQuery = '';
       this.locationLat = null;
       this.locationLon = null;
+      this.locationAccuracyM = null;
+      this.locationCapturedAt = '';
     }
   }
   private errorMessage(error: unknown): string {

@@ -2615,6 +2615,79 @@ button.coverage-row:hover {
   margin-right: 8px;
   vertical-align: middle;
 }
+
+.farmer-data-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #d8c78c;
+  border-left: 5px solid #b78a1f;
+  border-radius: 8px;
+  background: #fff8dc;
+}
+
+.farmer-data-panel.ready {
+  border-color: #9bcab2;
+  border-left-color: #287a55;
+  background: #edf8f1;
+}
+
+.farmer-data-panel > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.farmer-data-panel span,
+.farmer-data-panel small {
+  color: #566b76;
+}
+
+.farmer-data-panel.compact {
+  margin-top: 14px;
+}
+
+.optional-farmer-card {
+  border-color: #abcad5;
+  background: #eef8fb;
+}
+
+.review-search-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-left: 4px solid #287a55;
+  background: #eef7f2;
+  color: #334d58;
+  font-size: 0.9rem;
+}
+
+.selected-farmer-card .text-action {
+  justify-self: start;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #a43c32;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+@media (max-width: 520px) {
+  .farmer-data-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .farmer-data-panel .ghost {
+    width: 100%;
+  }
+}
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

@@ -414,7 +414,7 @@
             <small *ngIf="review.topMatches?.[0] as best">{{ best.confidencePercent }}% confidence</small>
           </div>
           <span class="review-status-pill" [class.pending]="!isReviewedCattleSearch(review)">{{ reviewResultLabel(review) }}</span>
-          <span class="review-expand-icon">{{ isReviewExpanded(review) ? '−' : '+' }}</span>
+          <span class="review-expand-icon">{{ isReviewExpanded(review) ? '-' : '+' }}</span>
         </button>
 
         <div class="review-case-body" *ngIf="isReviewExpanded(review)">
@@ -422,6 +422,11 @@
             <div class="section-heading">
               <div><span>Search evidence</span><strong>Captured query cattle</strong></div>
               <small>{{ review.images.length }} images / {{ review.captureDurationSeconds || 'NA' }} sec</small>
+            </div>
+            <div class="review-search-context">
+              <span><b>Search order:</b> {{ review.searchStrategy === 'selected_farmer_then_location' ? 'Selected farmer, then nearby GPS' : 'Nearby GPS only' }}</span>
+              <span><b>Farmer:</b> {{ review.farmerName || 'Not selected' }}</span>
+              <span><b>GPS:</b> {{ review.locationLat ?? 'NA' }}, {{ review.locationLon ?? 'NA' }} / {{ review.matchRadiusKm || 7 }} km</span>
             </div>
             <div class="evidence-gallery">
               <button type="button" *ngFor="let image of review.images" (click)="openImage(image.imageType, image.cloudinaryUrl || image.previewUrl)">
@@ -546,6 +551,17 @@
         <h2>Choose what you are doing now.</h2>
         <p>Enrolment creates registered cattle. Cattle Search only tests whether a cow is already registered and saves the result for admin review.</p>
       </div>
+      <div class="farmer-data-panel" [class.ready]="farmerSyncInfo">
+        <div>
+          <span>Offline Farmer Data</span>
+          <strong>{{ farmerSyncInfo ? (farmerSyncInfo.farmerCount + ' farmers ready') : 'Not downloaded' }}</strong>
+          <small *ngIf="farmerSyncInfo">Updated {{ farmerSyncInfo.syncedAt | date:'medium' }}</small>
+          <small *ngIf="!farmerSyncInfo">Update once with internet before field work</small>
+        </div>
+        <button type="button" class="ghost" [disabled]="isOffline || updatingFarmerData" (click)="updateFarmerData()">
+          {{ updatingFarmerData ? 'Updating...' : 'Update Farmer Data' }}
+        </button>
+      </div>
       <div class="choice-grid">
         <button type="button" class="choice-card primary-choice" (click)="startNewFarmerMode()">
           <span>New Farmer</span>
@@ -634,7 +650,7 @@
       <div class="panel-title">
         <div>
           <p class="eyebrow">Step 2</p>
-          <h2>{{ isCattleSearchFlow ? 'Find Farmer For Cattle Search' : 'Find Registered Farmer' }}</h2>
+          <h2>{{ isCattleSearchFlow ? 'Set Up Cattle Search' : 'Find Registered Farmer' }}</h2>
         </div>
         <span>{{ isCattleSearchFlow ? 'Search' : 'Enrolment' }}</span>
       </div>
@@ -643,22 +659,38 @@
         <span>{{ isCattleSearchFlow ? 'This capture will be saved as a cattle search record only. It will not create a registered cow.' : 'This will add a new registered cow under the selected farmer.' }}</span>
       </div>
       <div class="flow-steps" *ngIf="isCattleSearchFlow">
-        <span>1. Use GPS or enter farmer name</span>
-        <span>2. Select the farmer card</span>
+        <span>1. Confirm the automatically captured GPS</span>
+        <span>2. Optionally search and select a farmer</span>
         <span>3. Tap Start Cattle Search</span>
       </div>
 
+      <div class="farmer-data-panel compact" [class.ready]="farmerSyncInfo">
+        <div>
+          <span>Offline Farmer Data</span>
+          <strong>{{ farmerSyncInfo ? (farmerSyncInfo.farmerCount + ' farmers') : 'No farmer data on phone' }}</strong>
+          <small>{{ farmerSyncInfo ? ('Updated ' + (farmerSyncInfo.syncedAt | date:'short')) : 'Internet is needed only to update this list' }}</small>
+        </div>
+        <button type="button" class="ghost" [disabled]="isOffline || updatingFarmerData" (click)="updateFarmerData()">
+          {{ updatingFarmerData ? 'Updating...' : 'Update' }}
+        </button>
+      </div>
+
       <div class="location-card farmer-search-card">
-        <label><span>Farmer Name or ID</span><input name="farmerSearch" [(ngModel)]="farmerSearchQuery" placeholder="Type farmer name or ID"></label>
-        <label><span>Latitude</span><input name="locationLat" type="number" [(ngModel)]="locationLat"></label>
-        <label><span>Longitude</span><input name="locationLon" type="number" [(ngModel)]="locationLon"></label>
+        <label><span>Farmer Name or ID {{ isCattleSearchFlow ? '(Optional)' : '' }}</span><input name="farmerSearch" [(ngModel)]="farmerSearchQuery" placeholder="Search downloaded farmer data"></label>
+        <label><span>Latitude</span><input name="locationLat" type="number" [(ngModel)]="locationLat" [readonly]="isCattleSearchFlow"></label>
+        <label><span>Longitude</span><input name="locationLon" type="number" [(ngModel)]="locationLon" [readonly]="isCattleSearchFlow"></label>
         <label><span>Radius</span><select name="radiusKm" [(ngModel)]="radiusKm"><option [ngValue]="5">5 km</option><option [ngValue]="7">7 km</option></select></label>
       </div>
 
+      <div class="gps-status" [class.ready]="hasGps">
+        <strong>{{ hasGps ? 'Search GPS captured' : 'Getting search GPS' }}</strong>
+        <span>{{ hasGps ? ((locationLat | number:'1.6-6') + ', ' + (locationLon | number:'1.6-6') + (locationAccuracyM ? ' / accuracy ' + locationAccuracyM + ' m' : '')) : 'GPS is required for every cattle search' }}</span>
+      </div>
+
       <div class="action-row">
-        <button type="button" class="ghost" (click)="useGps()">Use GPS</button>
-        <button type="button" class="ghost" (click)="findFarmersByGps()">{{ searchingGpsFarmers ? 'Searching GPS...' : 'Search GPS Farmers' }}</button>
-        <button type="button" class="ghost" (click)="findFarmersByName()">{{ searchingNameFarmers ? 'Searching Name...' : 'Search Name' }}</button>
+        <button type="button" class="ghost" (click)="useGps(true)">Capture Fresh GPS</button>
+        <button type="button" class="ghost" (click)="findFarmersByGps()">{{ searchingGpsFarmers ? 'Checking...' : 'Show Nearby Farmers' }}</button>
+        <button type="button" class="ghost" (click)="findFarmersByName()">{{ searchingNameFarmers ? 'Searching...' : 'Search Farmer' }}</button>
       </div>
 
       <div class="search-results-grid">
@@ -692,6 +724,11 @@
         <strong>Selected farmer</strong>
         <span>{{ farmerName || farmerId }} / {{ farmerId || 'Auto ID' }}</span>
         <small>{{ locationPrimaryHelp }}</small>
+        <button type="button" class="text-action" *ngIf="isCattleSearchFlow" (click)="clearSelectedFarmer()">Remove farmer</button>
+      </div>
+      <div class="gps-status optional-farmer-card" *ngIf="isCattleSearchFlow && !selectedFarmerKey">
+        <strong>No farmer selected</strong>
+        <span>This is allowed. Matching will use cattle near the captured GPS location.</span>
       </div>
       <button type="button" class="primary-action big location-primary-action" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">{{ locationPrimaryActionLabel }}</button>
     </section>
@@ -824,7 +861,7 @@
           <p *ngIf="matchResolution.decision === 'matched_existing'">Found in {{ matchSourceLabel(bestMatch.searchScope) }} under {{ bestMatch.farmerName || 'unknown farmer' }} / {{ bestMatch.cattleLabel || shortId(bestMatch.cattleId) }}. This cattle search is saved separately for testing.</p>
           <p class="result-source">Best match {{ bestMatch.confidencePercent }}% / {{ matchSourceLabel(bestMatch.searchScope) }}</p>
         </ng-container>
-        <p *ngIf="matchResolution.decision === 'new_cattle'">No enrolled cattle was found in selected farmer cattle or all saved muzzle records. If this cow is new, this is a correct no-cattle-found result.</p>
+        <p *ngIf="matchResolution.decision === 'new_cattle'">No enrolled cattle matched in the selected-farmer or nearby-location stage. Admin can confirm whether this no-cattle-found result is correct.</p>
       </div>
       <div class="final-gallery">
         <div class="final-thumb" *ngFor="let preview of muzzlePreviews.slice(0, muzzleImageCount)">

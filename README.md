@@ -40,17 +40,19 @@ offline browser capture storage using IndexedDB
 completed records remain on the phone until the officer explicitly uploads them
 incomplete drafts are excluded from upload
 PWA manifest and service worker asset caching
-GPS caching for repeated captures in the same location
+fresh GPS capture is mandatory for every Cattle Search
+offline farmer directory has an isolated IndexedDB store and cannot erase pending captures
+farmer name/ID and nearby-GPS lookup work from downloaded phone data
 low battery warning where the browser Battery API is available
 vibration and short beep feedback after capture
 capture duration saved when a record is completed
 offline sync preserves capture duration when records upload later
-service worker cache version is bumped to vacapay-v2 for fresh field builds
+service worker cache is versioned for fresh field builds
 /api/version exposes app, model, threshold and Pinecone namespace details
 admin filters and CSV export for match review
 CSV export includes capture duration and model/build versions
 side-by-side admin review of search images and matched registered cattle images
-mobile cattle search action is fixed above the bottom nav after farmer selection
+mobile Cattle Search can start with GPS alone; farmer selection is optional
 offline sync uses stable cattle IDs and resumes the same capture instead of creating duplicate cattle records
 offline sync preserves the selected GPS radius
 stuck syncing records are recovered back to pending on app start
@@ -110,12 +112,16 @@ save as registered cattle under selected farmer
 Use this when checking a cow against existing registered cattle.
 
 ```text
-search farmer by GPS or name
-select farmer context
+app captures fresh GPS (required)
+optionally search/select a downloaded farmer by name or ID
 capture cow images
+if farmer selected: check that farmer's cattle first
+if no farmer match, or no farmer selected: check cattle near GPS
 app returns Cattle Found or No Cattle Found
 save search record for admin review
 ```
+
+Before field work, tap **Update Farmer Data** while online. The phone downloads farmer ID, name, location and cattle counts into a separate local farmer store. Name/ID and nearby-farmer lookup then work without internet. Updating this directory never clears pending enrolments or cattle searches.
 
 Important:
 
@@ -216,16 +222,18 @@ Cattle search compares the average search embedding against registered cattle em
 Search order:
 
 ```text
-1. selected farmer cattle
-2. all registered cattle
+1. selected farmer cattle (only when a farmer was selected)
+2. registered cattle within the configured GPS radius
 ```
 
 Search source tags:
 
 ```text
 farmer_cattle
-all_other_muzzle
+nearby_location
 ```
+
+`all_other_muzzle` remains only as a legacy/admin label for older records. New cattle searches do not automatically accept cattle outside the configured location radius.
 
 ## Pinecone Separation
 

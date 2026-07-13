@@ -61,10 +61,11 @@ Use this when testing whether a cow is already registered.
 What happens:
 
 ```text
-agent searches farmer by GPS or name
-agent selects farmer context
+app captures fresh GPS (mandatory)
+agent may search/select a downloaded farmer by name or ID (optional)
 agent captures the cow muzzle
-backend checks registered cattle
+backend checks selected-farmer cattle first when available
+backend then checks registered cattle near the captured GPS
 result is Cattle Found or No Cattle Found
 search record is saved for admin review
 registered cattle count does not increase
@@ -93,11 +94,15 @@ This avoids confusion when multiple agents work at the same time. The frontend c
 
 ## 4. GPS And Farmer Search
 
-Existing farmers can be found in two ways.
+Existing farmers are downloaded to the phone with **Update Farmer Data**. This phone directory contains farmer ID, farmer name, GPS location and summary counts. It is stored separately from pending field captures.
+
+Updating farmer data requires internet. Searching the downloaded directory works without internet and never deletes pending enrolments or cattle searches.
+
+Existing farmers can then be found in two ways.
 
 ### GPS Search
 
-The agent taps Use GPS and searches nearby farmers.
+The app captures GPS for every cattle search and searches the downloaded farmer directory for nearby farmers.
 
 The result list shows:
 
@@ -111,11 +116,11 @@ number of captures
 
 ### Name Or ID Search
 
-The agent types farmer name or farmer ID.
+The agent types farmer name or farmer ID. This searches the downloaded phone directory.
 
 The result list shows matching registered farmers even when GPS is not enough.
 
-After selecting a farmer, the app loads saved cow records under that farmer.
+For cattle enrolment under an existing farmer, farmer selection is required. For Cattle Search, farmer selection is optional. A selected farmer controls the first backend matching stage after upload.
 
 ## 5. Image Capture Requirements
 
@@ -386,20 +391,22 @@ When a cattle search is captured:
 Search order shown to the agent/admin:
 
 ```text
-1. selected farmer cattle
-2. all registered cattle
+1. selected farmer cattle, when a farmer was selected
+2. cattle within the configured radius of the captured GPS
 ```
 
 Candidate source tags:
 
 ```text
 farmer_cattle
-all_other_muzzle
+nearby_location
 ```
 
 `farmer_cattle` means the match came from the selected farmer's saved cows.
 
-`all_other_muzzle` means the match came from the wider registered cattle database.
+`nearby_location` means the candidate came from registered cattle near the captured search GPS.
+
+Older records may still contain the legacy `all_other_muzzle` tag. New cattle searches do not automatically accept candidates outside the configured location radius.
 
 The app keeps one best rank per cattle identity, so the same cow should not fill multiple Top-K positions.
 
@@ -601,7 +608,8 @@ Add Cow To Farmer
 
 ```text
 Cattle Search
--> search/select farmer
+-> app captures fresh GPS
+-> optionally select a downloaded farmer
 -> capture same cow
 -> app should return cattle found
 -> admin marks correct or incorrect
@@ -612,7 +620,8 @@ Cattle Search
 
 ```text
 Cattle Search
--> search/select farmer
+-> app captures fresh GPS
+-> optionally select a downloaded farmer
 -> capture a cow that was never enrolled
 -> app should return no cattle found
 -> admin marks correct no cattle found

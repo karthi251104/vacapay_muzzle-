@@ -11,6 +11,8 @@ export interface Enrollment {
   fieldOfficerName: string;
   locationLat: number | null;
   locationLon: number | null;
+  locationAccuracyM?: number | null;
+  locationCapturedAt?: string;
   rootFolderLocation: string;
   folderLocation: string;
   captureDateTime: string;
@@ -70,7 +72,7 @@ export interface MuzzleMatchResult {
   cattleId: string;
   cattleNumber: number | null;
   cattleLabel: string;
-  searchScope?: 'farmer_cattle' | 'all_other_muzzle';
+  searchScope?: 'farmer_cattle' | 'nearby_location' | 'outside_location' | 'all_other_muzzle';
   sessionId: string;
   farmerName: string;
   fieldOfficerName: string;
@@ -106,7 +108,7 @@ export interface CattleMatch {
   cattleId: string;
   cattleNumber: number | null;
   cattleLabel: string;
-  searchScope?: 'farmer_cattle' | 'all_other_muzzle';
+  searchScope?: 'farmer_cattle' | 'nearby_location' | 'outside_location' | 'all_other_muzzle';
   farmerId: string;
   farmerName: string;
   fieldOfficerName: string;
@@ -156,7 +158,7 @@ export interface CattleSummary {
   cattleId: string;
   cattleNumber: number | null;
   cattleLabel: string;
-  searchScope?: 'farmer_cattle' | 'all_other_muzzle';
+  searchScope?: 'farmer_cattle' | 'nearby_location' | 'outside_location' | 'all_other_muzzle';
   farmerId: string;
   farmerName: string;
   fieldOfficerId: string;
@@ -207,6 +209,24 @@ export interface FarmerMatch {
   distanceKm: number | null;
   withinRadius: boolean;
   lastCaptureDate: string | null;
+}
+
+export interface FarmerSyncResponse {
+  farmers: Array<{
+    key: string;
+    farmerId: string;
+    farmerName: string;
+    locationLat: number | null;
+    locationLon: number | null;
+    cattleCount: number;
+    visitCount: number;
+    imageCount: number;
+    lastCaptureDate: string | null;
+    updatedAt: string;
+  }>;
+  farmerCount: number;
+  generatedAt: string;
+  datasetVersion: string;
 }
 
 export interface AppUser {
@@ -292,8 +312,14 @@ export interface MatchReview {
   previousCattleId?: string | null;
   topMatches: MuzzleMatchResult[];
   rankedTopMatches?: MuzzleMatchResult[];
+  farmerId?: string;
   farmerName: string;
   fieldOfficerName: string;
+  locationLat?: number | null;
+  locationLon?: number | null;
+  locationAccuracyM?: number | null;
+  matchRadiusKm?: number;
+  searchStrategy?: 'selected_farmer_then_location' | 'location_only';
   folderLocation: string;
   captureDate: string;
   resolvedAt: string;
@@ -391,6 +417,10 @@ export class ApiService {
     if (params.lon !== null && params.lon !== undefined) query.set('lon', String(params.lon));
     if (params.radiusKm) query.set('radiusKm', String(params.radiusKm));
     return this.http.get<{ farmers: FarmerMatch[] }>(`${this.baseUrl}/farmers?${query.toString()}`, { headers: this.authHeaders() });
+  }
+
+  downloadFarmerData(): Observable<FarmerSyncResponse> {
+    return this.http.get<FarmerSyncResponse>(`${this.baseUrl}/farmers/sync`, { headers: this.authHeaders() });
   }
   searchRegisteredCattle(params: {
     farmerId?: string;

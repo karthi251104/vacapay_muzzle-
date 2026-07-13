@@ -79,6 +79,8 @@ export class SyncService {
         fieldOfficerId: capture.fieldOfficerId,
         locationLat: capture.locationLat,
         locationLon: capture.locationLon,
+        locationAccuracyM: capture.locationAccuracyM,
+        locationCapturedAt: capture.locationCapturedAt,
         matchRadiusKm: capture.matchRadiusKm || 7,
         newFarmer: capture.newFarmer,
         workflow: capture.workflow,
