@@ -574,8 +574,32 @@ select:focus {
 }
 
 .review-panel,
-.cattle-admin-panel {
+.cattle-admin-panel,
+.coverage-panel,
+.admin-tools-toggle {
   grid-column: 1 / -1;
+}
+
+.cattle-admin-panel { order: 1; }
+.coverage-panel { order: 2; }
+.review-panel { order: 3; }
+.admin-tools-toggle { order: 4; }
+.agent-management-panel { order: 5; }
+
+.admin-tools-toggle {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.admin-tools-toggle > div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-tools-toggle > div > span {
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .review-card {
@@ -1290,6 +1314,58 @@ button.coverage-row:hover {
   grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.15fr);
 }
 
+.next-step-card,
+.pending-upload-card {
+  align-items: center;
+  border: 1px solid #b8dce6;
+  border-radius: 8px;
+  display: flex;
+  gap: 16px;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  padding: 16px;
+}
+
+.next-step-card {
+  background: #eef9f2;
+  border-color: #b9dac4;
+}
+
+.pending-upload-card {
+  background: #fff7df;
+  border-color: #e7c87b;
+}
+
+.pending-upload-card.offline {
+  background: #f4f6f7;
+  border-color: var(--line);
+}
+
+.next-step-card > div:first-child,
+.pending-upload-card > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.next-step-card span,
+.pending-upload-card span {
+  color: var(--leaf-dark);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.next-step-card small,
+.pending-upload-card small {
+  color: var(--muted);
+}
+
+.next-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .home-copy h2 {
   font-size: clamp(1.8rem, 5vw, 3.35rem);
   line-height: 1;
@@ -1857,6 +1933,18 @@ button.coverage-row:hover {
   .session-head {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .admin-tools-toggle,
+  .next-step-card,
+  .pending-upload-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .next-step-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .admin-stats,

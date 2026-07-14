@@ -102,7 +102,18 @@
   </section>
 
   <section class="admin-grid page-enter delay-2">
-    <form class="panel form-stack" (ngSubmit)="createAgent()">
+    <section class="panel admin-tools-toggle">
+      <div>
+        <p class="eyebrow">Team Settings</p>
+        <strong>Field Officer Accounts</strong>
+        <span>{{ agents.length }} active account(s)</span>
+      </div>
+      <button type="button" class="ghost" (click)="showAgentManagement = !showAgentManagement">
+        {{ showAgentManagement ? 'Close Account Settings' : 'Manage Accounts' }}
+      </button>
+    </section>
+
+    <form class="panel form-stack agent-management-panel" *ngIf="showAgentManagement" (ngSubmit)="createAgent()">
       <div class="panel-title">
         <div>
           <p class="eyebrow">Access</p>
@@ -119,7 +130,7 @@
       <div class="notice" *ngIf="message && message !== 'Start a new cattle capture.'"><span></span>{{ message }}</div>
     </form>
 
-    <section class="panel list-panel">
+    <section class="panel list-panel agent-management-panel" *ngIf="showAgentManagement">
       <div class="panel-title">
         <div>
           <p class="eyebrow">Team</p>
@@ -539,11 +550,6 @@
   <div class="toast page-enter delay-3"><span [class.live]="autoCaptureOn"></span>{{ message }}</div>
   <div class="toast page-enter delay-3" *ngIf="isOffline" style="background: #4a1515; color: #ffcccc;"><span style="background: #ff4444; animation: none;"></span>Offline: capture still works. Upload is disabled until internet returns.</div>
 
-  <div class="toast page-enter delay-3 sync-toast" *ngIf="pendingSyncCount > 0" (click)="manualSync()">
-    <span class="sync-spinner" *ngIf="syncService.syncing"></span>
-    {{ pendingSyncCount }} completed record(s) ready. {{ isOffline ? 'Upload when online.' : 'Tap to upload now.' }}
-  </div>
-
   <section class="screen-stage">
     <section class="screen-card home-screen page-enter" *ngIf="agentScreen === 'home'">
       <div class="home-copy">
@@ -584,13 +590,29 @@
           <small>Quickly add another cow for {{ farmerName }}</small>
         </button>
       </div>
+      <div class="next-step-card" *ngIf="lastRecordUploaded && lastCompletedWorkflow">
+        <div>
+          <span>Saved Successfully</span>
+          <strong>{{ lastCompletedWorkflow === 'cattle_enrolment' ? 'Registered cow is ready for future searches' : 'Cattle Search is ready for admin review' }}</strong>
+          <small>{{ lastCompletedWorkflow === 'cattle_enrolment' ? 'Choose the next field action.' : 'Start another cattle search when ready.' }}</small>
+        </div>
+        <div class="next-step-actions">
+          <button type="button" class="primary-action" *ngIf="lastCompletedWorkflow === 'cattle_enrolment' && farmerId" (click)="quickEnrolNextCow()">Enrol Next Cow</button>
+          <button type="button" class="ghost" (click)="startCattleSearchFlow()">Start Cattle Search</button>
+        </div>
+      </div>
       <div class="flow-warning" *ngIf="!registeredCattleCount">
         <strong>No registered cattle yet</strong>
         <span>First use Cattle Enrolment. Cattle Search can only find cows that already exist as registered cattle.</span>
       </div>
-      <button type="button" class="primary-action big upload-pending-action" *ngIf="pendingSyncCount > 0" [disabled]="isOffline || syncService.syncing" (click)="manualSync()">
-        {{ syncService.syncing ? 'Uploading Records...' : 'Upload Pending Records (' + pendingSyncCount + ')' }}
-      </button>
+      <div class="pending-upload-card" *ngIf="pendingSyncCount > 0" [class.offline]="isOffline">
+        <div>
+          <span>{{ syncService.syncing ? 'Uploading' : 'Pending Upload' }}</span>
+          <strong>{{ pendingSyncCount }} completed record(s) safe on this phone</strong>
+          <small>{{ isOffline ? 'Upload starts automatically when internet returns.' : (syncService.syncing ? 'Keep the app open while upload finishes.' : 'Automatic upload paused after a connection error.') }}</small>
+        </div>
+        <button type="button" class="primary-action" *ngIf="!isOffline && !syncService.syncing" (click)="manualSync()">Retry Upload</button>
+      </div>
       <div class="flow-warning version-strip" *ngIf="appVersion">
         <strong>Field build {{ appVersion.appVersion }}</strong>
         <span>{{ appVersion.tfliteMuzzleModelVersion }} / DINOv2 {{ appVersion.dinov2ModelVersion }} / match {{ appVersion.thresholds.embeddingMatchPercent }}% / {{ appVersion.muzzleImageCount }} muzzle photos</span>

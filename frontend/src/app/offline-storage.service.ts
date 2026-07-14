@@ -196,7 +196,10 @@ export class OfflineStorageService {
   async addEvidenceToCapture(id: string, type: string, blob: Blob): Promise<void> {
     const capture = await this.getCapture(id);
     if (!capture) throw new Error('Capture not found in offline storage');
-    capture.evidenceBlobs.push({ type, blob });
+    capture.evidenceBlobs = [
+      ...capture.evidenceBlobs.filter((item) => item.type !== type),
+      { type, blob }
+    ];
     await this.saveCapture(capture);
   }
 

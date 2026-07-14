@@ -91,18 +91,24 @@ export class AppComponent implements OnInit, OnDestroy {
   captureStartTime = 0;
   isOffline = !navigator.onLine;
   pendingSyncCount = 0;
+  lastCompletedWorkflow?: 'cattle_enrolment' | 'cattle_search';
+  lastRecordUploaded = false;
+  showAgentManagement = false;
   evidenceCameraActive = false;
   evidenceCameraIndex = 0;
   private gpsCache?: { lat: number; lon: number; timestamp: number };
   private offlineCaptureId?: string;
   private batteryManager?: EventTarget;
+  private adminRefreshTimer?: number;
   private readonly onOnline = () => {
     this.isOffline = false;
     this.syncService.refreshPendingCount().then((count) => {
       this.pendingSyncCount = count;
-      this.message = count > 0
-        ? `Back online. ${count} completed record(s) are ready to upload.`
-        : 'Back online.';
+      if (count > 0 && this.currentUser?.role === 'agent') {
+        void this.syncPendingRecords('online');
+      } else {
+        this.message = 'Back online.';
+      }
     });
   };
   private readonly onOffline = () => {
@@ -122,6 +128,9 @@ export class AppComponent implements OnInit, OnDestroy {
     this.setupConnectivityListeners();
     this.syncService.refreshPendingCount().then(count => {
       this.pendingSyncCount = count;
+      if (count > 0 && navigator.onLine && this.currentUser?.role === 'agent') {
+        void this.syncPendingRecords('startup');
+      }
     });
     void this.loadFarmerCacheStatus();
   }
@@ -348,6 +357,7 @@ export class AppComponent implements OnInit, OnDestroy {
         this.loadAgents();
         this.loadMatchReviews();
         this.loadCattleInventory();
+        this.startAdminAutoRefresh();
       }
     }
   }
@@ -357,6 +367,7 @@ export class AppComponent implements OnInit, OnDestroy {
     window.removeEventListener('online', this.onOnline);
     window.removeEventListener('offline', this.onOffline);
     this.batteryManager?.removeEventListener?.('levelchange', this.onBatteryLevelChange);
+    if (this.adminRefreshTimer) window.clearInterval(this.adminRefreshTimer);
     this.syncService.destroy();
   }
 
@@ -382,6 +393,10 @@ export class AppComponent implements OnInit, OnDestroy {
           this.agentScreen = 'home';
           this.fieldOfficerName = user.name;
           void this.loadFarmerCacheStatus();
+          void this.syncService.refreshPendingCount().then((count) => {
+            this.pendingSyncCount = count;
+            if (count > 0 && navigator.onLine) void this.syncPendingRecords('startup');
+          });
           this.checkYoloStatus();
           this.checkEmbeddingStatus();
           this.checkPineconeStatus();
@@ -390,6 +405,7 @@ export class AppComponent implements OnInit, OnDestroy {
           this.loadAgents();
           this.loadMatchReviews();
           this.loadCattleInventory();
+          this.startAdminAutoRefresh();
         }
       },
       error: (error) => {
@@ -460,6 +476,10 @@ export class AppComponent implements OnInit, OnDestroy {
 
   logout(): void {
     this.stopCamera();
+    if (this.adminRefreshTimer) {
+      window.clearInterval(this.adminRefreshTimer);
+      this.adminRefreshTimer = undefined;
+    }
     this.api.clearToken();
     localStorage.removeItem('vacapay_user');
     this.currentUser = undefined;
@@ -504,6 +524,8 @@ export class AppComponent implements OnInit, OnDestroy {
 
   startNewFarmerMode(): void {
     this.resetCaptureState(true);
+    this.lastCompletedWorkflow = undefined;
+    this.lastRecordUploaded = false;
     this.captureWorkflow = 'cattle_enrolment';
     this.farmerId = this.generateFarmerId();
     this.agentScreen = 'farmer';
@@ -516,6 +538,8 @@ export class AppComponent implements OnInit, OnDestroy {
 
   startCattleSearchFlow(): void {
     this.resetCaptureState(true);
+    this.lastCompletedWorkflow = undefined;
+    this.lastRecordUploaded = false;
     this.captureWorkflow = 'cattle_search';
     this.agentScreen = 'location';
     this.message = this.registeredCattleCount
@@ -526,6 +550,8 @@ export class AppComponent implements OnInit, OnDestroy {
 
   findExistingFarmerForEnrollment(): void {
     this.resetCaptureState(true);
+    this.lastCompletedWorkflow = undefined;
+    this.lastRecordUploaded = false;
     this.captureWorkflow = 'cattle_enrolment';
     this.agentScreen = 'location';
     this.message = 'Cattle enrolment selected. Search and select a farmer, then enroll the cow under that farmer.';
@@ -1339,7 +1365,7 @@ export class AppComponent implements OnInit, OnDestroy {
     });
   }
 
-  completeEnrollment(): void {
+  async completeEnrollment(): Promise<void> {
     if (!this.enrollment) return;
 
     const savedFarmerId = this.farmerId || this.enrollment.farmerId || '';
@@ -1350,28 +1376,28 @@ export class AppComponent implements OnInit, OnDestroy {
     if (this.offlineCaptureId) {
       const captureId = this.offlineCaptureId;
       this.message = 'Finalizing record on phone...';
-      this.offlineStorage
-        .setCaptureDuration(captureId, captureDurationSeconds)
-        .then(() => this.offlineStorage.markReadyForSync(captureId))
-        .then(() => this.syncService.refreshPendingCount())
-        .then((count) => {
-          this.pendingSyncCount = count;
-          this.resetCaptureState(false);
-          this.farmerId = savedFarmerId;
-          this.farmerName = savedFarmerName;
-          this.selectedFarmerKey = savedFarmerId || savedFarmerName ? `${savedFarmerId}:${savedFarmerName}` : '';
-          this.agentScreen = 'home';
+      try {
+        await this.offlineStorage.setCaptureDuration(captureId, captureDurationSeconds);
+        await this.offlineStorage.markReadyForSync(captureId);
+        this.pendingSyncCount = await this.syncService.refreshPendingCount();
+        this.resetCaptureState(false);
+        this.farmerId = savedFarmerId;
+        this.farmerName = savedFarmerName;
+        this.selectedFarmerKey = savedFarmerId || savedFarmerName ? `${savedFarmerId}:${savedFarmerName}` : '';
+        this.agentScreen = 'home';
+        this.lastCompletedWorkflow = completedWorkflow;
+        this.lastRecordUploaded = false;
+
+        if (navigator.onLine) {
+          await this.syncPendingRecords('completion', completedWorkflow);
+        } else {
           this.message = completedWorkflow === 'cattle_search'
-            ? (navigator.onLine
-              ? 'Cattle Search saved on phone. Upload it when ready to receive the match result.'
-              : 'Cattle Search saved on phone. Upload later when internet is available.')
-            : (navigator.onLine
-              ? 'Cattle enrolment saved on phone. Tap Upload Pending Records when ready.'
-              : 'Cattle enrolment saved on phone. Upload it later when internet is available.');
-        })
-        .catch((error) => {
-          this.message = `Could not finalize record on phone: ${error instanceof Error ? error.message : 'Phone storage failed.'}`;
-        });
+            ? 'Cattle Search is safe on this phone. It will upload automatically when internet returns.'
+            : 'Cattle enrolment is safe on this phone. It will upload automatically when internet returns.';
+        }
+      } catch (error) {
+        this.message = `Could not finalize record on phone: ${error instanceof Error ? error.message : 'Phone storage failed.'}`;
+      }
       return;
     }
 
@@ -1384,6 +1410,8 @@ export class AppComponent implements OnInit, OnDestroy {
         this.farmerName = savedFarmerName;
         this.selectedFarmerKey = savedFarmerId || savedFarmerName ? `${savedFarmerId}:${savedFarmerName}` : '';
         this.agentScreen = 'home';
+        this.lastCompletedWorkflow = completedWorkflow;
+        this.lastRecordUploaded = true;
         this.findRegisteredCattle();
         window.setTimeout(() => this.loadCattleInventory(), 900);
         if (enrollment.status === 'duplicate_saved_separately' || enrollment.workflow === 'cattle_search') {
@@ -1404,6 +1432,8 @@ export class AppComponent implements OnInit, OnDestroy {
     const savedFarmerName = this.farmerName;
     const savedOfficer = this.fieldOfficerName;
     this.resetCaptureState(true);
+    this.lastCompletedWorkflow = undefined;
+    this.lastRecordUploaded = false;
     this.captureWorkflow = 'cattle_enrolment';
     this.farmerId = savedFarmerId;
     this.farmerName = savedFarmerName;
@@ -1516,17 +1546,57 @@ export class AppComponent implements OnInit, OnDestroy {
       this.message = 'Still offline. Cannot sync now.';
       return;
     }
-    this.message = 'Syncing pending captures...';
+    await this.syncPendingRecords('manual');
+  }
+
+  private async syncPendingRecords(
+    trigger: 'completion' | 'manual' | 'online' | 'startup',
+    completedWorkflow?: 'cattle_enrolment' | 'cattle_search'
+  ): Promise<void> {
+    if (!navigator.onLine) return;
+    if (this.syncService.syncing) {
+      if (trigger === 'completion') this.message = 'Saved on phone. Waiting for the current upload to finish...';
+      for (let attempt = 0; attempt < 240 && this.syncService.syncing; attempt += 1) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
+      }
+      if (this.syncService.syncing || !navigator.onLine) return;
+    }
+
+    this.message = trigger === 'completion'
+      ? 'Saved on phone. Uploading automatically...'
+      : 'Uploading saved records...';
+
     const result = await this.syncService.syncAll();
     this.pendingSyncCount = this.syncService.pendingCount;
+
     if (result.synced > 0) {
-      this.message = `Synced ${result.synced} capture(s). ${result.failed > 0 ? result.failed + ' failed.' : ''}`;
+      this.lastRecordUploaded = this.pendingSyncCount === 0;
       this.loadCattleInventory();
-    } else if (result.failed > 0) {
-      this.message = `${result.failed} capture(s) failed to sync. Will retry when connection improves.`;
-    } else {
-      this.message = 'No pending captures to sync.';
+      if (completedWorkflow === 'cattle_enrolment') {
+        this.message = 'Cow enrolled and uploaded. Next: enrol another cow, or use Cattle Search when checking this cow later.';
+      } else if (completedWorkflow === 'cattle_search') {
+        this.message = 'Cattle Search uploaded. The match result is ready for admin review.';
+      } else {
+        this.message = `${result.synced} saved record(s) uploaded successfully.${result.failed ? ` ${result.failed} still need retry.` : ''}`;
+      }
+      return;
     }
+
+    if (result.failed > 0) {
+      this.lastRecordUploaded = false;
+      this.message = 'Upload could not finish. The record is safe on this phone. Retry from Pending Uploads when the connection is stable.';
+    } else if (trigger === 'manual') {
+      this.message = 'No pending records to upload.';
+    }
+  }
+
+  private startAdminAutoRefresh(): void {
+    if (this.adminRefreshTimer) return;
+    this.adminRefreshTimer = window.setInterval(() => {
+      if (this.currentUser?.role !== 'admin' || document.hidden) return;
+      this.loadCattleInventory();
+      this.loadMatchReviews();
+    }, 30_000);
   }
 
   private applyMatchResolution(resolution: MuzzleMatchResolution): void {

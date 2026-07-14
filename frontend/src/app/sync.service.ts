@@ -10,16 +10,18 @@ export class SyncService {
   pendingCount = 0;
 
   private syncInProgress = false;
+  private readonly recoveryReady: Promise<void>;
   constructor(
     private readonly api: ApiService,
     private readonly offlineStorage: OfflineStorageService
   ) {
-    void this.offlineStorage.resetStuckSyncingToPending();
-    this.refreshPendingCount();
+    this.recoveryReady = this.offlineStorage.resetStuckSyncingToPending().catch(() => undefined);
+    void this.recoveryReady.then(() => this.refreshPendingCount());
   }
 
   async refreshPendingCount(): Promise<number> {
     try {
+      await this.recoveryReady;
       this.pendingCount = await this.offlineStorage.getPendingCount();
     } catch {
       this.pendingCount = 0;
@@ -38,6 +40,7 @@ export class SyncService {
     let failed = 0;
 
     try {
+      await this.recoveryReady;
       const pending = await this.offlineStorage.getAllPending();
 
       for (const capture of pending) {
