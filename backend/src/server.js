@@ -50,7 +50,7 @@ const PINECONE_NAMESPACE = process.env.PINECONE_NAMESPACE || 'vacapay';
 const PINECONE_ENROLMENT_NAMESPACE = process.env.PINECONE_ENROLMENT_NAMESPACE || `${PINECONE_NAMESPACE}-cattle-enrolment`;
 const PINECONE_SEARCH_NAMESPACE = process.env.PINECONE_SEARCH_NAMESPACE || `${PINECONE_NAMESPACE}-cattle-search`;
 const pineconeEnabled = Boolean(PINECONE_API_KEY && PINECONE_INDEX_HOST);
-const APP_VERSION = process.env.APP_VERSION || 'field-test-2026-07-10';
+const APP_VERSION = process.env.APP_VERSION || 'field-test-2026-07-14';
 const TFLITE_MUZZLE_MODEL_VERSION = process.env.TFLITE_MUZZLE_MODEL_VERSION || path.basename(process.env.TFLITE_MUZZLE_MODEL_PATH || 'best.tflite');
 const DINOV2_MODEL_VERSION = process.env.DINOV2_MODEL_VERSION || path.basename(DINOV2_MODEL_PATH);
 const MUZZLE_IMAGE_FILES = Array.from({ length: MUZZLE_IMAGE_COUNT }, (_, index) => `muzzle${index + 1}.jpg`);
@@ -751,6 +751,21 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
     const requestedCattleId = String(req.body.cattleId || '').trim();
     const offlineCaptureId = String(req.body.offlineCaptureId || '').trim();
     const rows = await readMetadata();
+    const existingOfflineRowIndex = offlineCaptureId
+      ? rows.findIndex((row) => (row.sessions || []).some((session) => session.offlineCaptureId === offlineCaptureId))
+      : -1;
+
+    if (existingOfflineRowIndex >= 0) {
+      const existingOfflineRow = normalizeRecord(rows[existingOfflineRowIndex]);
+      const existingOfflineSession = existingOfflineRow.sessions.find((session) => session.offlineCaptureId === offlineCaptureId);
+      existingOfflineRow.activeSessionId = existingOfflineSession.sessionId;
+      existingOfflineRow.uploadDateTime = now;
+      rows[existingOfflineRowIndex] = existingOfflineRow;
+      await writeMetadata(rows);
+      res.status(200).json({ enrollment: existingOfflineRow, reusedOfflineCapture: true });
+      return;
+    }
+
     const cattleId = requestedCattleId || randomUUID();
     const existingIndex = rows.findIndex((row) => row.cattleId === cattleId);
     const existing = existingIndex >= 0 ? normalizeRecord(rows[existingIndex]) : null;
@@ -975,10 +990,11 @@ app.post('/api/enrollments/:cattleId/complete', requireAuth, async (req, res, ne
     const workflow = normalizeWorkflow(row.workflow || session.workflow, 'cattle_enrolment');
 
     if (session.matchResult?.duplicateSavedSeparately) {
-      row.status = 'duplicate_saved_separately';
-      session.status = 'duplicate_saved_separately';
-      row.workflow = row.workflow || 'cattle_search';
-      session.workflow = session.workflow || row.workflow;
+      const duplicateStatus = workflow === 'cattle_search' ? 'duplicate_saved_separately' : 'enrolment_duplicate_blocked';
+      row.status = duplicateStatus;
+      session.status = duplicateStatus;
+      row.workflow = workflow;
+      session.workflow = workflow;
     } else if (workflow === 'cattle_search') {
       row.status = 'cattle_search_no_match';
       session.status = 'cattle_search_no_match';
@@ -1055,6 +1071,7 @@ async function ensureStorage() {
     await mongoClient.connect();
     mongoDb = mongoClient.db(MONGODB_DB_NAME);
     await mongoDb.collection('cattle').createIndex({ cattleId: 1 }, { unique: true });
+    await mongoDb.collection('cattle').createIndex({ 'sessions.offlineCaptureId': 1 }, { unique: true, sparse: true });
     await mongoDb.collection('cattle').createIndex({ farmerName: 1 });
     await mongoDb.collection('cattle').createIndex({ location: '2dsphere' }, { sparse: true });
     await mongoDb.collection('users').createIndex({ userId: 1 }, { unique: true });
@@ -1987,6 +2004,8 @@ function buildCattleStats(cattle) {
   let repeatedCattleCount = 0;
   let duplicateCaptureCount = 0;
   let duplicateImageCount = 0;
+  let cattleSearchCount = 0;
+  let blockedDuplicateEnrollmentCount = 0;
 
   for (const cow of cattle) {
     imageCount += cow.imageCount;
@@ -1995,6 +2014,8 @@ function buildCattleStats(cattle) {
     if (cow.isDuplicateEvidence) {
       duplicateCaptureCount += 1;
       duplicateImageCount += cow.imageCount;
+      if (cow.workflow === 'cattle_search') cattleSearchCount += 1;
+      else blockedDuplicateEnrollmentCount += 1;
       continue;
     }
 
@@ -2030,6 +2051,8 @@ function buildCattleStats(cattle) {
     cattleCount: uniqueCattleCount,
     uniqueCattleCount,
     duplicateCaptureCount,
+    cattleSearchCount,
+    blockedDuplicateEnrollmentCount,
     duplicateImageCount,
     totalRecordCount: cattle.length,
     farmerCount: farmers.length,

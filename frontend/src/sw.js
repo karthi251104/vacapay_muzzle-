@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vacapay-v7-fresh-field-test';
+const CACHE_NAME = 'vacapay-v8-fresh-field-test';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

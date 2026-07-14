@@ -163,6 +163,7 @@ export interface CattleSummary {
   farmerName: string;
   fieldOfficerId: string;
   fieldOfficerName: string;
+  workflow: 'cattle_enrolment' | 'cattle_search';
   locationLat: number | null;
   locationLon: number | null;
   status: string;
@@ -185,6 +186,8 @@ export interface CattleStats {
   cattleCount: number;
   uniqueCattleCount?: number;
   duplicateCaptureCount?: number;
+  cattleSearchCount?: number;
+  blockedDuplicateEnrollmentCount?: number;
   duplicateImageCount?: number;
   totalRecordCount?: number;
   farmerCount: number;

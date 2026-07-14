@@ -605,9 +605,7 @@ export class AppComponent implements OnInit, OnDestroy {
         const visibleRecords = this.visibleCattleInventory;
         if (this.selectedAdminCattle) {
           const selected = visibleRecords.find((item) => item.cattleId === this.selectedAdminCattle?.cattleId);
-          this.selectedAdminCattle = selected || visibleRecords[0];
-        } else {
-          this.selectedAdminCattle = visibleRecords[0];
+          this.selectedAdminCattle = selected;
         }
         this.preloadExpandedReviewImages();
       },
@@ -625,9 +623,6 @@ export class AppComponent implements OnInit, OnDestroy {
         );
         this.updateOfficerNamesForFilter();
         this.applyReviewFilter();
-        if (!this.expandedReviewId && this.matchReviews.length) {
-          this.expandedReviewId = this.matchReviews[0].auditId;
-        }
         this.preloadExpandedReviewImages();
       },
       error: (error) => {
@@ -656,9 +651,6 @@ export class AppComponent implements OnInit, OnDestroy {
     this.matchReviews = filtered;
     if (this.expandedReviewId && !filtered.some((review) => review.auditId === this.expandedReviewId)) {
       this.expandedReviewId = '';
-    }
-    if (!this.expandedReviewId && filtered.length) {
-      this.expandedReviewId = filtered[0].auditId;
     }
     this.preloadExpandedReviewImages();
   }
@@ -1766,7 +1758,7 @@ export class AppComponent implements OnInit, OnDestroy {
   setAdminRegistryView(view: 'unique' | 'duplicates'): void {
     this.adminRegistryView = view;
     this.selectedCattleIds = [];
-    this.selectedAdminCattle = view === 'unique' ? this.uniqueCattleInventory[0] : this.duplicateCattleInventory[0];
+    this.selectedAdminCattle = undefined;
   }
 
   isDuplicateEvidence(cattle?: CattleSummary | null): boolean {
@@ -1774,11 +1766,11 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   get uniqueCattleInventory(): CattleSummary[] {
-    return this.cattleInventory.filter((cattle) => !this.isDuplicateEvidence(cattle));
+    return this.cattleInventory.filter((cattle) => cattle.workflow === 'cattle_enrolment' && !this.isDuplicateEvidence(cattle));
   }
 
   get duplicateCattleInventory(): CattleSummary[] {
-    return this.cattleInventory.filter((cattle) => this.isDuplicateEvidence(cattle));
+    return this.cattleInventory.filter((cattle) => cattle.workflow === 'cattle_search');
   }
 
   get visibleCattleInventory(): CattleSummary[] {

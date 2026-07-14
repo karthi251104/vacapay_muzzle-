@@ -89,15 +89,15 @@
     </article>
     <article>
       <span>Cattle Searches</span>
-      <strong>{{ cattleStats?.duplicateCaptureCount || 0 }}</strong>
+      <strong>{{ cattleStats?.cattleSearchCount ?? cattleStats?.duplicateCaptureCount ?? 0 }}</strong>
     </article>
     <article>
       <span>Total Captures</span>
       <strong>{{ cattleStats?.totalRecordCount || 0 }}</strong>
     </article>
     <article>
-      <span>Images</span>
-      <strong>{{ cattleStats?.imageCount || 0 }}</strong>
+      <span>Duplicate Enrolments Blocked</span>
+      <strong>{{ cattleStats?.blockedDuplicateEnrollmentCount || 0 }}</strong>
     </article>
   </section>
 
@@ -232,7 +232,7 @@
         </aside>
 
         <ng-template #cattleEmpty>
-          <aside class="cattle-detail empty-state">Select a record to view sessions and images.</aside>
+          <aside class="cattle-detail empty-state">Select one record to open its captures and images.</aside>
         </ng-template>
       </div>
     </section>
@@ -395,7 +395,7 @@
           </div>
         </div>
       </section>
-      <div class="empty-state" *ngIf="!matchReviews.length">No match history found.</div>
+      <div class="empty-state" *ngIf="!matchReviews.length">No cattle searches need review.</div>
 
       <article class="review-case" *ngFor="let review of matchReviews" [class.expanded]="isReviewExpanded(review)">
         <button type="button" class="review-case-summary" (click)="toggleReviewDetails(review)" [attr.aria-expanded]="isReviewExpanded(review)">
