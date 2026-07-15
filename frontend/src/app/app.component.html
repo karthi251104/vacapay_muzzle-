@@ -618,20 +618,46 @@
         <article><span>Waiting Upload</span><strong>{{ pendingSyncCount }}</strong></article>
       </div>
 
-      <section class="already-list" *ngIf="recentCattle.length">
+      <section class="already-list" *ngIf="farmerCattleGroups.length">
         <div class="panel-title">
           <div>
             <p class="eyebrow">Already Enrolled</p>
-            <h2>Recently Enrolled Cows</h2>
+            <h2>Cattle By Farmer</h2>
           </div>
           <button type="button" class="ghost" (click)="loadCattleInventory()">Refresh</button>
         </div>
-        <article class="already-card" *ngFor="let cattle of recentCattle">
-          <img *ngIf="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" [src]="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" alt="Cattle preview">
-          <div>
-            <strong>{{ cattle.cattleLabel || 'Cattle' }} - {{ cattle.farmerName || 'Unknown farmer' }}</strong>
-            <p>Farmer ID: {{ cattle.farmerId || 'NA' }}</p>
-            <small>Already enrolled. Use Cattle Search above when testing this cow.</small>
+        <article class="farmer-cattle-group" *ngFor="let group of farmerCattleGroups">
+          <div class="farmer-group-head">
+            <div>
+              <strong>{{ group.farmerName }}</strong>
+              <p>{{ group.farmerId || 'No farmer ID' }} / {{ group.cattle.length }} cattle</p>
+              <small>{{ group.searchedCount }} searched / {{ group.reviewedCount }} reviewed</small>
+            </div>
+            <button type="button" class="farmer-add-button" (click)="addCattleForFarmer(group)">Add Cattle</button>
+          </div>
+          <div class="farmer-cattle-list">
+            <article
+              class="already-card"
+              *ngFor="let cattle of group.cattle"
+              [class.search-pending]="cattle.searchReviewState === 'pending_review'"
+              [class.search-reviewed]="cattle.searchReviewState === 'reviewed'">
+              <img *ngIf="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" [src]="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" alt="Cattle preview">
+              <div>
+                <div class="cattle-card-title">
+                  <strong>{{ cattle.cattleLabel || 'Cattle' }}</strong>
+                  <span
+                    class="cattle-search-status"
+                    [class.pending]="cattle.searchReviewState === 'pending_review'"
+                    [class.reviewed]="cattle.searchReviewState === 'reviewed'">
+                    {{ cattleSearchStatusLabel(cattle) }}
+                  </span>
+                </div>
+                <p *ngIf="cattle.searchCount">{{ cattle.searchCount }} cattle search{{ cattle.searchCount === 1 ? '' : 'es' }} / {{ cattle.reviewedSearchCount || 0 }} reviewed</p>
+                <small *ngIf="!cattle.searchCount">Use Cattle Search when testing this enrolled cow.</small>
+                <small *ngIf="cattle.searchReviewState === 'pending_review'">Search result is waiting for administrator confirmation.</small>
+                <small *ngIf="cattle.searchReviewState === 'reviewed'">The administrator has checked the search result.</small>
+              </div>
+            </article>
           </div>
         </article>
       </section>

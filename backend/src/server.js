@@ -635,9 +635,50 @@ app.get('/api/cattle/search', requireAuth, async (req, res, next) => {
 app.get('/api/cattle', requireAuth, async (req, res, next) => {
   try {
     const rows = (await readCleanMetadata()).filter(isVisibleInventoryRecord);
+    const audits = (await readMatchAudits()).filter((audit) => audit.workflow === 'cattle_search');
+    const reviewedStatuses = new Set([
+      'confirmed', 'found_correct', 'found_incorrect', 'no_cattle_correct',
+      'no_cattle_incorrect', 'wrong_moved_to_registered'
+    ]);
+    const searchProgressByCattleId = new Map();
+
+    for (const audit of audits) {
+      const cattleIds = new Set([audit.matchedCattleId, audit.correctCattleId].filter(Boolean));
+      for (const cattleId of cattleIds) {
+        const progress = searchProgressByCattleId.get(cattleId) || {
+          searchCount: 0,
+          reviewedSearchCount: 0,
+          lastSearchDate: null
+        };
+        progress.searchCount += 1;
+        if (reviewedStatuses.has(audit.reviewStatus)) progress.reviewedSearchCount += 1;
+        const searchDate = audit.captureDate || audit.resolvedAt || null;
+        if (searchDate && (!progress.lastSearchDate || String(searchDate).localeCompare(String(progress.lastSearchDate)) > 0)) {
+          progress.lastSearchDate = searchDate;
+        }
+        searchProgressByCattleId.set(cattleId, progress);
+      }
+    }
+
     const ownerNumberMap = buildOwnerCattleNumberMap(rows);
     const cattle = rows
-      .map((row) => toCattleSummary(row, ownerNumberMap.get(row.cattleId)))
+      .map((row) => {
+        const summary = toCattleSummary(row, ownerNumberMap.get(row.cattleId));
+        const progress = searchProgressByCattleId.get(row.cattleId) || {
+          searchCount: 0,
+          reviewedSearchCount: 0,
+          lastSearchDate: null
+        };
+        const pendingReviewCount = Math.max(0, progress.searchCount - progress.reviewedSearchCount);
+        return {
+          ...summary,
+          ...progress,
+          pendingReviewCount,
+          searchReviewState: pendingReviewCount > 0
+            ? 'pending_review'
+            : (progress.reviewedSearchCount > 0 ? 'reviewed' : 'not_searched')
+        };
+      })
       .sort((a, b) => String(b.lastCaptureDate || '').localeCompare(String(a.lastCaptureDate || '')));
 
     res.json({

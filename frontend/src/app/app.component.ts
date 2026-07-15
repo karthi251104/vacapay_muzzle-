@@ -73,6 +73,14 @@ interface OfficerEnrollmentCoverage {
   notSearched: number;
   coveragePercent: number;
 }
+interface FarmerCattleGroup {
+  key: string;
+  farmerId: string;
+  farmerName: string;
+  cattle: CattleSummary[];
+  searchedCount: number;
+  reviewedCount: number;
+}
 interface AgentStep {
   key: AgentScreen;
   label: string;
@@ -584,6 +592,20 @@ export class AppComponent implements OnInit, OnDestroy {
 
   startNewEnrollment(): void {
     this.startNewFarmerMode();
+  }
+
+  addCattleForFarmer(group: FarmerCattleGroup): void {
+    this.resetCaptureState(true);
+    this.lastCompletedWorkflow = undefined;
+    this.lastRecordUploaded = false;
+    this.captureWorkflow = 'cattle_enrolment';
+    this.farmerId = group.farmerId;
+    this.farmerName = group.farmerName;
+    this.farmerSearchQuery = group.farmerName || group.farmerId;
+    this.selectedFarmerKey = group.key;
+    this.agentScreen = 'location';
+    this.message = `${group.farmerName || group.farmerId} selected. Capturing fresh GPS before adding a new cow.`;
+    this.useGps(true);
   }
 
   startNewFarmerCapture(): void {
@@ -2181,8 +2203,38 @@ export class AppComponent implements OnInit, OnDestroy {
       .reduce((total, cattle) => total + cattle.imageCount, 0);
   }
 
-  get recentCattle(): CattleSummary[] {
-    return this.uniqueCattleInventory.slice(0, 5);
+  get farmerCattleGroups(): FarmerCattleGroup[] {
+    const groups = new Map<string, FarmerCattleGroup>();
+    for (const cattle of this.uniqueCattleInventory) {
+      const farmerId = String(cattle.farmerId || '').trim();
+      const farmerName = String(cattle.farmerName || '').trim() || 'Unknown farmer';
+      const key = farmerId || farmerName.toLocaleLowerCase();
+      const group = groups.get(key) || {
+        key,
+        farmerId,
+        farmerName,
+        cattle: [],
+        searchedCount: 0,
+        reviewedCount: 0
+      };
+      group.cattle.push(cattle);
+      if ((cattle.searchCount || 0) > 0) group.searchedCount += 1;
+      if (cattle.searchReviewState === 'reviewed') group.reviewedCount += 1;
+      groups.set(key, group);
+    }
+
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        cattle: group.cattle.sort((a, b) => Number(a.cattleNumber || 0) - Number(b.cattleNumber || 0))
+      }))
+      .sort((a, b) => a.farmerName.localeCompare(b.farmerName));
+  }
+
+  cattleSearchStatusLabel(cattle: CattleSummary): string {
+    if (cattle.searchReviewState === 'reviewed') return 'Admin Reviewed';
+    if (cattle.searchReviewState === 'pending_review') return 'Searched - Awaiting Review';
+    return 'Not Searched';
   }
 
   get hasGps(): boolean {

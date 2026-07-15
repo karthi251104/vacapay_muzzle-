@@ -1510,6 +1510,115 @@ button.coverage-row:hover {
   padding: 14px;
 }
 
+.farmer-cattle-group {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.farmer-group-head {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.farmer-group-head > div {
+  min-width: 0;
+}
+
+.farmer-group-head strong {
+  color: var(--text);
+  display: block;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.farmer-group-head p,
+.farmer-group-head small {
+  color: var(--muted);
+  display: block;
+  font-size: 0.76rem;
+  margin: 3px 0 0;
+}
+
+.farmer-add-button {
+  background: var(--leaf);
+  color: #fff;
+  flex: 0 0 auto;
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+.farmer-cattle-list {
+  display: grid;
+  gap: 8px;
+}
+
+.already-card.search-pending {
+  background: #fff9e8;
+  border-color: #d8a93c;
+}
+
+.already-card.search-reviewed {
+  background: #eef9f2;
+  border-color: #4d9a6b;
+}
+
+.cattle-card-title {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.cattle-search-status {
+  background: #e9eef1;
+  border-radius: 999px;
+  color: #4a5c66;
+  flex: 0 0 auto;
+  font-size: 0.64rem;
+  font-weight: 900;
+  line-height: 1.2;
+  max-width: 150px;
+  padding: 6px 8px;
+  text-align: center;
+}
+
+.cattle-search-status.pending {
+  background: #f7df9a;
+  color: #684b05;
+}
+
+.cattle-search-status.reviewed {
+  background: #ccebd7;
+  color: #175d32;
+}
+
+@media (max-width: 520px) {
+  .farmer-group-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .farmer-add-button {
+    width: 100%;
+  }
+
+  .cattle-card-title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cattle-search-status {
+    max-width: none;
+    width: fit-content;
+  }
+}
+
 .big {
   min-height: 54px;
 }

@@ -179,6 +179,11 @@ export interface CattleSummary {
   lastCaptureDateTime: string | null;
   lastPreviewUrl: string | null;
   lastCloudinaryUrl: string | null;
+  searchCount?: number;
+  reviewedSearchCount?: number;
+  pendingReviewCount?: number;
+  lastSearchDate?: string | null;
+  searchReviewState?: 'not_searched' | 'pending_review' | 'reviewed';
   sessions: CattleSessionSummary[];
 }
 
