@@ -43,7 +43,10 @@ const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || 'vacapay';
 const DISABLE_MONGO = ['true', '1', 'yes'].includes(String(process.env.DISABLE_MONGO || '').toLowerCase());
 const mongoEnabled = Boolean(MONGODB_URI) && !DISABLE_MONGO;
 const REQUIRE_PRODUCTION_SERVICES = ['true', '1', 'yes'].includes(String(process.env.REQUIRE_PRODUCTION_SERVICES || '').toLowerCase());
-const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '').split(',').map((value) => value.trim()).filter(Boolean);
+const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((value) => value.trim().replace(/\/$/, ''))
+  .filter(Boolean);
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY || '';
 const PINECONE_INDEX_HOST = normalizePineconeHost(process.env.PINECONE_INDEX_HOST || '');
 const PINECONE_NAMESPACE = process.env.PINECONE_NAMESPACE || 'vacapay';
@@ -129,15 +132,26 @@ if (cloudinaryEnabled) {
   });
 }
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || !CORS_ORIGINS.length || CORS_ORIGINS.includes('*') || CORS_ORIGINS.includes(origin)) {
-      callback(null, true);
-      return;
-    }
-    console.warn('Blocked Origin:', origin);
-    callback(new Error('Origin is not allowed by CORS policy.'));
+app.use(cors((req, callback) => {
+  const origin = String(req.get('Origin') || '').replace(/\/$/, '');
+  const forwardedProto = String(req.get('X-Forwarded-Proto') || '').split(',')[0].trim();
+  const forwardedHost = String(req.get('X-Forwarded-Host') || '').split(',')[0].trim();
+  const requestProto = forwardedProto || req.protocol;
+  const requestHost = forwardedHost || req.get('Host');
+  const requestOrigin = requestHost ? `${requestProto}://${requestHost}` : '';
+  const isAllowed = !origin
+    || origin === requestOrigin
+    || !CORS_ORIGINS.length
+    || CORS_ORIGINS.includes('*')
+    || CORS_ORIGINS.includes(origin);
+
+  if (isAllowed) {
+    callback(null, { origin: true });
+    return;
   }
+
+  console.warn('Blocked Origin:', origin);
+  callback(new Error('Origin is not allowed by CORS policy.'));
 }));
 app.use(express.json({ limit: '5mb' }));
 app.use('/media', express.static(dataDir));
