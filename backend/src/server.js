@@ -800,10 +800,25 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
 
     const isNewFarmer = req.body.newFarmer === true || req.body.newFarmer === 'true';
     const requestedFarmerId = String(req.body.farmerId || record.farmerId || '').trim();
+    const requestedFarmerName = String(req.body.farmerName || record.farmerName || '').trim();
+    const likelyExistingFarmer = !existing
+      ? findLikelyExistingFarmer(rows, requestedFarmerName, requestLat, requestLon)
+      : null;
+    const requestedIdOwner = requestedFarmerId
+      ? rows.find((row) => normalizeSearchText(row?.farmerId) === normalizeSearchText(requestedFarmerId))
+      : null;
+    const safeRequestedFarmerId = requestedIdOwner
+      && normalizeSearchText(requestedIdOwner.farmerName) !== normalizeSearchText(requestedFarmerName)
+      ? ''
+      : requestedFarmerId;
     record.farmerId = workflow === 'cattle_search'
       ? requestedFarmerId
-      : (isNewFarmer && !existing ? generateUniqueFarmerId(rows) : (requestedFarmerId || generateUniqueFarmerId(rows)));
-    record.farmerName = String(req.body.farmerName || record.farmerName || '').trim();
+      : (existing
+        ? (safeRequestedFarmerId || record.farmerId || generateUniqueFarmerId(rows))
+        : (isNewFarmer
+          ? (likelyExistingFarmer?.farmerId || safeRequestedFarmerId || generateUniqueFarmerId(rows))
+          : (safeRequestedFarmerId || likelyExistingFarmer?.farmerId || generateUniqueFarmerId(rows))));
+    record.farmerName = requestedFarmerName;
     record.fieldOfficerName = req.body.fieldOfficerName || record.fieldOfficerName || '';
     record.fieldOfficerId = req.body.fieldOfficerId || record.fieldOfficerId || '';
     record.locationLat = requestLat;
@@ -1842,6 +1857,19 @@ function generateUniqueFarmerId(rows) {
 
   return `FARM-${Date.now().toString(36).toUpperCase()}-${randomBytes(2).toString('hex').toUpperCase()}`;
 }
+
+function findLikelyExistingFarmer(rows, farmerName, locationLat, locationLon) {
+  const farmerNameNorm = normalizeSearchText(farmerName);
+  if (!farmerNameNorm) return null;
+
+  return rows
+    .filter((row) => row?.farmerId
+      && normalizeSearchText(row.farmerName) === farmerNameNorm
+      && !isDuplicateEvidenceRecord(row))
+    .map((row) => ({ row, distanceKm: haversineKm(locationLat, locationLon, row.locationLat, row.locationLon) }))
+    .filter((candidate) => candidate.distanceKm !== null && candidate.distanceKm <= 0.25)
+    .sort((a, b) => a.distanceKm - b.distanceKm)[0]?.row || null;
+}
 function ownerGroupKey(row) {
   const farmerId = normalizeSearchText(row.farmerId);
   if (farmerId) return `id:${farmerId}`;
@@ -2021,7 +2049,7 @@ function buildCattleStats(cattle) {
 
     if (cow.sessionCount > 1) repeatedCattleCount += 1;
 
-    const key = (cow.farmerName || cow.farmerId || 'Unknown farmer').trim() || 'Unknown farmer';
+    const key = (cow.farmerId || cow.farmerName || 'Unknown farmer').trim() || 'Unknown farmer';
     const farmer = farmerMap.get(key) || {
       farmerName: cow.farmerName || 'Unknown farmer',
       farmerId: cow.farmerId || '',
@@ -2545,7 +2573,7 @@ async function queryPineconeMatches({ queryRow, queryEmbedding, ownerNumberMap }
         vectorId: match.id
       };
     })
-    .filter((candidate) => candidate.cattleId !== queryRow.cattleId);
+    .filter((candidate) => candidate.cattleId !== queryRow.cattleId && ownerNumberMap.has(candidate.cattleId));
 }
 
 async function pineconeFetch(pathname, options = {}) {

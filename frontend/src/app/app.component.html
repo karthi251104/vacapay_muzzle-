@@ -570,25 +570,29 @@
       </div>
       <div class="choice-grid">
         <button type="button" class="choice-card primary-choice" (click)="startNewFarmerMode()">
-          <span>New Farmer</span>
-          <strong>Add Farmer + Enrol Cow</strong>
-          <small>Create farmer GPS record and save the first registered cow</small>
+          <span>1. New Farmer</span>
+          <strong>Create Farmer & Enrol First Cow</strong>
+          <small>Use this once when the farmer is not already saved.</small>
         </button>
         <button type="button" class="choice-card" (click)="findExistingFarmerForEnrollment()">
-          <span>Existing Farmer</span>
-          <strong>Add Cow To Farmer</strong>
-          <small>Select a saved farmer, then register a new cow under that farmer</small>
+          <span>2. Saved Farmer</span>
+          <strong>Enrol Another Cow</strong>
+          <small>Use only for a different cow belonging to an existing farmer.</small>
         </button>
         <button type="button" class="choice-card search-choice" (click)="startCattleSearchFlow()">
-          <span>Search</span>
+          <span>3. Test Existing Cow</span>
           <strong>Cattle Search</strong>
-          <small>Check a cow against registered cattle without creating a new record</small>
+          <small>Use when photographing a cow that may already be enrolled. This never creates a registered cow automatically.</small>
         </button>
         <button type="button" class="choice-card primary-choice" *ngIf="farmerId" (click)="quickEnrolNextCow()">
-          <span>Quick Add</span>
-          <strong>Enrol Next Cow</strong>
-          <small>Quickly add another cow for {{ farmerName }}</small>
+          <span>Different Cow Only</span>
+          <strong>Enrol Another Cow</strong>
+          <small>Add a different cow for {{ farmerName }}. For the same cow, use Cattle Search.</small>
         </button>
+      </div>
+      <div class="enrollment-rule">
+        <strong>Enrol each cow only once</strong>
+        <span>When you photograph the same cow again, always choose <b>Cattle Search</b>. Do not choose New Farmer or Enrol Another Cow.</span>
       </div>
       <div class="next-step-card" *ngIf="lastRecordUploaded && lastCompletedWorkflow">
         <div>
@@ -597,7 +601,7 @@
           <small>{{ lastCompletedWorkflow === 'cattle_enrolment' ? 'Choose the next field action.' : 'Start another cattle search when ready.' }}</small>
         </div>
         <div class="next-step-actions">
-          <button type="button" class="primary-action" *ngIf="lastCompletedWorkflow === 'cattle_enrolment' && farmerId" (click)="quickEnrolNextCow()">Enrol Next Cow</button>
+          <button type="button" class="primary-action" *ngIf="lastCompletedWorkflow === 'cattle_enrolment' && farmerId" (click)="quickEnrolNextCow()">Enrol Different Cow</button>
           <button type="button" class="ghost" (click)="startCattleSearchFlow()">Start Cattle Search</button>
         </div>
       </div>
@@ -615,22 +619,18 @@
         </div>
         <button type="button" class="primary-action" *ngIf="!isOffline && !syncService.syncing" (click)="manualSync()">Retry Saved Upload</button>
       </div>
-      <div class="flow-warning version-strip" *ngIf="appVersion">
-        <strong>Field build {{ appVersion.appVersion }}</strong>
-        <span>{{ appVersion.tfliteMuzzleModelVersion }} / DINOv2 {{ appVersion.dinov2ModelVersion }} / match {{ appVersion.thresholds.embeddingMatchPercent }}% / {{ appVersion.muzzleImageCount }} muzzle photos</span>
-      </div>
       <div class="field-stats">
         <article><span>Farmers</span><strong>{{ cattleStats?.farmerCount || 0 }}</strong></article>
-        <article><span>Registered Cattle</span><strong>{{ cattleStats?.uniqueCattleCount || cattleStats?.cattleCount || 0 }}</strong></article>
-        <article><span>Captures</span><strong>{{ cattleStats?.sessionCount || 0 }}</strong></article>
+        <article><span>Enrolled Cows</span><strong>{{ cattleStats?.uniqueCattleCount || cattleStats?.cattleCount || 0 }}</strong></article>
         <article><span>Cattle Searches</span><strong>{{ allMatchReviews.length || cattleStats?.duplicateCaptureCount || 0 }}</strong></article>
+        <article><span>Waiting Upload</span><strong>{{ pendingSyncCount }}</strong></article>
       </div>
 
       <section class="already-list" *ngIf="recentCattle.length">
         <div class="panel-title">
           <div>
-            <p class="eyebrow">Registered Records</p>
-            <h2>Recent Registered Cattle</h2>
+            <p class="eyebrow">Already Enrolled</p>
+            <h2>Tap A Cow To Start Cattle Search</h2>
           </div>
           <button type="button" class="ghost" (click)="loadCattleInventory()">Refresh</button>
         </div>
@@ -639,10 +639,14 @@
           <div>
             <strong>{{ cattle.cattleLabel || 'Cattle' }} - {{ cattle.farmerName || 'Unknown farmer' }}</strong>
             <p>Farmer ID: {{ cattle.farmerId || 'NA' }}</p>
-            <small>{{ cattle.sessionCount }} captures / last {{ cattle.lastCaptureDate || 'NA' }}</small>
+            <small>Already enrolled. Tap here to search this cow again.</small>
           </div>
         </button>
       </section>
+      <details class="version-details" *ngIf="appVersion">
+        <summary>App and model information</summary>
+        <span>Build {{ appVersion.appVersion }} / {{ appVersion.tfliteMuzzleModelVersion }} / DINOv2 {{ appVersion.dinov2ModelVersion }} / match {{ appVersion.thresholds.embeddingMatchPercent }}%</span>
+      </details>
 
     </section>
 

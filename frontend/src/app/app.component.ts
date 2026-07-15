@@ -94,6 +94,7 @@ export class AppComponent implements OnInit, OnDestroy {
   lastCompletedWorkflow?: 'cattle_enrolment' | 'cattle_search';
   lastRecordUploaded = false;
   showAgentManagement = false;
+  finalizingRecord = false;
   evidenceCameraActive = false;
   evidenceCameraIndex = 0;
   private gpsCache?: { lat: number; lon: number; timestamp: number };
@@ -587,12 +588,12 @@ export class AppComponent implements OnInit, OnDestroy {
   }
   startFromRecent(cattle: CattleSummary): void {
     this.resetCaptureState(true);
-    this.captureWorkflow = 'cattle_enrolment';
+    this.captureWorkflow = 'cattle_search';
     this.farmerId = cattle.farmerId || '';
     this.farmerName = cattle.farmerName || '';
     this.selectedFarmerKey = [this.farmerId, this.farmerName].join(':');
     this.agentScreen = 'location';
-    this.message = 'Farmer loaded. Capturing fresh GPS before enrolling the next cow.';
+    this.message = 'Cattle Search selected. Capturing fresh GPS before checking this cow against registered cattle.';
     this.useGps(true);
   }
 
@@ -1366,7 +1367,8 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   async completeEnrollment(): Promise<void> {
-    if (!this.enrollment) return;
+    if (!this.enrollment || this.finalizingRecord || this.syncService.syncing) return;
+    this.finalizingRecord = true;
 
     const savedFarmerId = this.farmerId || this.enrollment.farmerId || '';
     const savedFarmerName = this.farmerName || this.enrollment.farmerName || '';
@@ -1397,6 +1399,8 @@ export class AppComponent implements OnInit, OnDestroy {
         }
       } catch (error) {
         this.message = `Could not finalize record on phone: ${error instanceof Error ? error.message : 'Phone storage failed.'}`;
+      } finally {
+        this.finalizingRecord = false;
       }
       return;
     }
@@ -1419,10 +1423,12 @@ export class AppComponent implements OnInit, OnDestroy {
         } else {
           this.message = 'Cow enrolled successfully! Use "Enrol Next Cow" to add another cow for the same farmer.';
         }
+        this.finalizingRecord = false;
       },
       error: (error) => {
         this.prepareMissingImageRetakes(error);
         this.message = this.errorMessage(error);
+        this.finalizingRecord = false;
       }
     });
   }
@@ -1840,7 +1846,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   get duplicateCattleInventory(): CattleSummary[] {
-    return this.cattleInventory.filter((cattle) => cattle.workflow === 'cattle_search');
+    return this.cattleInventory.filter((cattle) => this.isDuplicateEvidence(cattle));
   }
 
   get visibleCattleInventory(): CattleSummary[] {
@@ -2141,6 +2147,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   get completeButtonLabel(): string {
+    if (this.finalizingRecord || this.syncService.syncing) return 'Saving - Please Wait';
     return this.isCattleSearchFlow ? 'Save Cattle Search Result' : 'Save Registered Cow';
   }
 
@@ -2153,7 +2160,10 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   get canComplete(): boolean {
-    return this.muzzlePreviews.length === this.muzzleImageCount && this.requiredImages.every((item) => item.previewUrl);
+    return !this.finalizingRecord
+      && !this.syncService.syncing
+      && this.muzzlePreviews.length === this.muzzleImageCount
+      && this.requiredImages.every((item) => item.previewUrl);
   }
 
   get capturedOtherImages(): number {

@@ -2328,6 +2328,7 @@ button.coverage-row:hover {
 }
 
 .choice-card {
+  align-content: start;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2336,6 +2337,7 @@ button.coverage-row:hover {
   gap: 8px;
   justify-items: start;
   min-height: 138px;
+  overflow: hidden;
   padding: 18px;
   text-align: left;
 }
@@ -2351,11 +2353,14 @@ button.coverage-row:hover {
 }
 
 .choice-card span {
+  align-items: center;
   background: var(--leaf-soft);
   border-radius: 999px;
   color: var(--leaf-dark);
   font-size: 0.72rem;
   font-weight: 950;
+  line-height: 1.2;
+  max-width: 100%;
   padding: 6px 9px;
 }
 
@@ -2378,6 +2383,66 @@ button.coverage-row:hover {
 
 .choice-card.primary-choice small {
   color: rgba(255,255,255,0.78);
+}
+
+.enrollment-rule {
+  background: #fff3d6;
+  border: 2px solid #d89a28;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  grid-column: 1 / -1;
+  padding: 15px 16px;
+}
+
+.enrollment-rule strong {
+  color: #633f05;
+  font-size: 1.08rem;
+}
+
+.enrollment-rule span {
+  color: #57451f;
+  line-height: 1.5;
+}
+
+.version-details {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  grid-column: 1 / -1;
+  padding-top: 12px;
+}
+
+.version-details summary {
+  color: var(--leaf-dark);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.version-details span {
+  display: block;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
+@media (max-width: 720px) {
+  .field-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .field-stats article {
+    min-height: 104px;
+    padding: 16px;
+  }
+
+  .choice-card span {
+    font-size: 0.82rem;
+    white-space: normal;
+  }
+
+  .already-list .panel-title {
+    gap: 12px;
+  }
 }
 
 .flow-warning {
