@@ -539,6 +539,7 @@
       *ngFor="let step of agentScreens; let i = index"
       [class.active]="agentScreen === step.key"
       [class.done]="i < agentStepIndex"
+      [disabled]="step.key !== 'home'"
       (click)="goAgentScreen(step.key)"
     >
       <span>{{ i + 1 }}</span>
@@ -584,11 +585,6 @@
           <strong>Cattle Search</strong>
           <small>Use when photographing a cow that may already be enrolled. This never creates a registered cow automatically.</small>
         </button>
-        <button type="button" class="choice-card primary-choice" *ngIf="farmerId" (click)="quickEnrolNextCow()">
-          <span>Different Cow Only</span>
-          <strong>Enrol Another Cow</strong>
-          <small>Add a different cow for {{ farmerName }}. For the same cow, use Cattle Search.</small>
-        </button>
       </div>
       <div class="enrollment-rule">
         <strong>Enrol each cow only once</strong>
@@ -599,10 +595,6 @@
           <span>Saved Successfully</span>
           <strong>{{ lastCompletedWorkflow === 'cattle_enrolment' ? 'Registered cow is ready for future searches' : 'Cattle Search is ready for admin review' }}</strong>
           <small>{{ lastCompletedWorkflow === 'cattle_enrolment' ? 'Choose the next field action.' : 'Start another cattle search when ready.' }}</small>
-        </div>
-        <div class="next-step-actions">
-          <button type="button" class="primary-action" *ngIf="lastCompletedWorkflow === 'cattle_enrolment' && farmerId" (click)="quickEnrolNextCow()">Enrol Different Cow</button>
-          <button type="button" class="ghost" (click)="startCattleSearchFlow()">Start Cattle Search</button>
         </div>
       </div>
       <div class="flow-warning" *ngIf="!registeredCattleCount">
@@ -630,18 +622,18 @@
         <div class="panel-title">
           <div>
             <p class="eyebrow">Already Enrolled</p>
-            <h2>Tap A Cow To Start Cattle Search</h2>
+            <h2>Recently Enrolled Cows</h2>
           </div>
           <button type="button" class="ghost" (click)="loadCattleInventory()">Refresh</button>
         </div>
-        <button type="button" class="already-card" *ngFor="let cattle of recentCattle" (click)="startFromRecent(cattle)">
+        <article class="already-card" *ngFor="let cattle of recentCattle">
           <img *ngIf="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" [src]="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" alt="Cattle preview">
           <div>
             <strong>{{ cattle.cattleLabel || 'Cattle' }} - {{ cattle.farmerName || 'Unknown farmer' }}</strong>
             <p>Farmer ID: {{ cattle.farmerId || 'NA' }}</p>
-            <small>Already enrolled. Tap here to search this cow again.</small>
+            <small>Already enrolled. Use Cattle Search above when testing this cow.</small>
           </div>
-        </button>
+        </article>
       </section>
       <details class="version-details" *ngIf="appVersion">
         <summary>App and model information</summary>
@@ -671,7 +663,7 @@
         <span>{{ hasGps ? ((locationLat | number:'1.6-6') + ', ' + (locationLon | number:'1.6-6')) : 'Use GPS before creating farmer' }}</span>
       </div>
       <div class="action-row"><button type="button" class="ghost" (click)="useGps()">Use GPS</button></div>
-      <div class="action-row farmer-actions"><button type="button" class="primary-action" [disabled]="!farmerName.trim() || !hasGps" (click)="startNewFarmerCapture()">Start First Cow Under Farmer</button><button type="button" class="ghost" (click)="findExistingFarmerForEnrollment()">Add Cow To Existing Farmer</button></div>
+      <div class="action-row farmer-actions"><button type="button" class="primary-action" [disabled]="!farmerName.trim() || !hasGps" (click)="startNewFarmerCapture()">Start First Cow Under Farmer</button></div>
     </form>
 
     <section class="screen-card location-screen page-enter" *ngIf="agentScreen === 'location'">
@@ -696,7 +688,7 @@
         <div>
           <span>Offline Farmer Data</span>
           <strong>{{ farmerSyncInfo ? (farmerSyncInfo.farmerCount + ' farmers') : 'No farmer data on phone' }}</strong>
-          <small>{{ farmerSyncInfo ? ('Updated ' + (farmerSyncInfo.syncedAt | date:'short')) : 'Internet is needed only to update this list' }}</small>
+          <small>{{ farmerSyncInfo ? ('Updated ' + (farmerSyncInfo.syncedAt | date:'short')) : 'Download once before working without internet' }}</small>
         </div>
         <button type="button" class="ghost" [disabled]="isOffline || updatingFarmerData" (click)="updateFarmerData()">
           {{ updatingFarmerData ? 'Updating...' : 'Update' }}
@@ -704,7 +696,7 @@
       </div>
 
       <div class="location-card farmer-search-card">
-        <label><span>Farmer Name or ID {{ isCattleSearchFlow ? '(Optional)' : '' }}</span><input name="farmerSearch" [(ngModel)]="farmerSearchQuery" placeholder="Search downloaded farmer data"></label>
+        <label><span>Farmer Name or ID {{ isCattleSearchFlow ? '(Optional)' : '' }}</span><input name="farmerSearch" [(ngModel)]="farmerSearchQuery" placeholder="Latest farmers online, saved farmers offline"></label>
         <label><span>Latitude</span><input name="locationLat" type="number" [(ngModel)]="locationLat" [readonly]="isCattleSearchFlow"></label>
         <label><span>Longitude</span><input name="locationLon" type="number" [(ngModel)]="locationLon" [readonly]="isCattleSearchFlow"></label>
         <label><span>Radius</span><select name="radiusKm" [(ngModel)]="radiusKm"><option [ngValue]="5">5 km</option><option [ngValue]="7">7 km</option></select></label>

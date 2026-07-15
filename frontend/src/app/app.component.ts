@@ -161,31 +161,52 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   async updateFarmerData(): Promise<void> {
-    if (this.updatingFarmerData) return;
     if (!navigator.onLine) {
       this.message = 'Connect to the internet once to update farmer data.';
       return;
     }
 
-    this.updatingFarmerData = true;
     this.message = 'Downloading the latest farmer data...';
     try {
+      await this.refreshFarmerCache(true);
+      if (this.agentScreen === 'location' && this.hasGps) {
+        await this.findFarmersByGps();
+      }
+    } catch (error) {
+      this.message = `Farmer update failed: ${this.errorMessage(error)}`;
+    }
+  }
+
+  private async refreshFarmerCache(announce: boolean): Promise<void> {
+    if (!navigator.onLine) throw new Error('No internet connection.');
+    if (this.farmerRefreshPromise) return this.farmerRefreshPromise;
+
+    this.updatingFarmerData = true;
+    this.farmerRefreshPromise = (async () => {
       const response = await firstValueFrom(this.api.downloadFarmerData());
       await this.offlineStorage.replaceFarmers(response.farmers, {
         farmerCount: response.farmerCount,
         syncedAt: new Date().toISOString(),
         datasetVersion: response.datasetVersion
       });
+      this.lastAutomaticFarmerRefreshAt = Date.now();
       await this.loadFarmerCacheStatus();
-      this.message = `${response.farmerCount} farmer record(s) updated on this phone. Offline farmer search is ready.`;
-      if (this.agentScreen === 'location' && this.hasGps) {
-        await this.findFarmersByGps();
+      if (announce) {
+        this.message = `${response.farmerCount} farmer record(s) updated. Offline search is ready.`;
       }
-    } catch (error) {
-      this.message = `Farmer update failed: ${this.errorMessage(error)}`;
+    })();
+
+    try {
+      await this.farmerRefreshPromise;
     } finally {
+      this.farmerRefreshPromise = undefined;
       this.updatingFarmerData = false;
     }
+  }
+
+  private refreshFarmerCacheInBackground(): void {
+    if (!navigator.onLine || Date.now() - this.lastAutomaticFarmerRefreshAt < 5 * 60 * 1000) return;
+    void this.refreshFarmerCache(false).catch(() => undefined);
   }
 
   private async checkBattery(): Promise<void> {
@@ -277,6 +298,8 @@ export class AppComponent implements OnInit, OnDestroy {
   searchingCattle = false;
   farmerSyncInfo?: FarmerSyncInfo;
   updatingFarmerData = false;
+  private farmerRefreshPromise?: Promise<void>;
+  private lastAutomaticFarmerRefreshAt = 0;
 
   muzzlePreviews: { url: string; confidence?: number; sharpness?: number }[] = [];
   cameraOn = false;
@@ -942,8 +965,23 @@ export class AppComponent implements OnInit, OnDestroy {
 
     this.searchingFarmers = true;
     this.searchingGpsFarmers = true;
-    this.message = 'Checking nearby farmers saved on this phone...';
+    this.message = navigator.onLine ? 'Checking latest nearby farmers...' : 'Checking nearby farmers saved on this phone...';
     try {
+      if (navigator.onLine) {
+        const { farmers } = await firstValueFrom(this.api.searchFarmers({
+          lat: this.locationLat,
+          lon: this.locationLon,
+          radiusKm: this.radiusKm
+        }));
+        this.gpsFarmerMatches = farmers;
+        this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+        this.message = farmers.length
+          ? `${farmers.length} nearby farmer(s) found from the server.`
+          : 'No registered farmer is near this GPS. Search by name or continue Cattle Search without a farmer.';
+        this.refreshFarmerCacheInBackground();
+        return;
+      }
+
       const farmers = await this.offlineStorage.getAllFarmers();
       this.gpsFarmerMatches = farmers
         .map((farmer) => this.cachedFarmerToMatch(farmer, this.distanceKm(this.locationLat!, this.locationLon!, farmer.locationLat, farmer.locationLon)))
@@ -957,7 +995,16 @@ export class AppComponent implements OnInit, OnDestroy {
           ? 'No downloaded farmer is near this GPS. You can search by name or continue Cattle Search without a farmer.'
           : 'No farmer data is stored on this phone. Tap Update Farmer Data when online. Cattle Search can still continue without a farmer.');
     } catch (error) {
-      this.message = error instanceof Error ? error.message : 'Could not read farmer data from this phone.';
+      const farmers = await this.offlineStorage.getAllFarmers().catch(() => []);
+      this.gpsFarmerMatches = farmers
+        .map((farmer) => this.cachedFarmerToMatch(farmer, this.distanceKm(this.locationLat!, this.locationLon!, farmer.locationLat, farmer.locationLon)))
+        .filter((farmer) => farmer.distanceKm !== null && farmer.distanceKm <= this.radiusKm)
+        .sort((a, b) => Number(a.distanceKm) - Number(b.distanceKm))
+        .slice(0, 25);
+      this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+      this.message = this.gpsFarmerMatches.length
+        ? `Server unavailable. Showing ${this.gpsFarmerMatches.length} nearby farmer(s) saved on this phone.`
+        : `Could not reach the server and no nearby farmer is saved on this phone: ${this.errorMessage(error)}`;
     } finally {
       this.searchingFarmers = false;
       this.searchingGpsFarmers = false;
@@ -973,8 +1020,24 @@ export class AppComponent implements OnInit, OnDestroy {
 
     this.searchingFarmers = true;
     this.searchingNameFarmers = true;
-    this.message = 'Searching downloaded farmer data...';
+    this.message = navigator.onLine ? 'Searching latest farmer records...' : 'Searching farmer data saved on this phone...';
     try {
+      if (navigator.onLine) {
+        const { farmers } = await firstValueFrom(this.api.searchFarmers({
+          q,
+          lat: this.locationLat,
+          lon: this.locationLon,
+          radiusKm: this.radiusKm
+        }));
+        this.nameFarmerMatches = farmers;
+        this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+        this.message = farmers.length
+          ? `${farmers.length} farmer(s) found from the server. Select the correct farmer.`
+          : 'No registered farmer matches that name or ID.';
+        this.refreshFarmerCacheInBackground();
+        return;
+      }
+
       const normalizedQuery = q.toLocaleLowerCase();
       const farmers = await this.offlineStorage.getAllFarmers();
       this.nameFarmerMatches = farmers
@@ -992,7 +1055,19 @@ export class AppComponent implements OnInit, OnDestroy {
           ? 'No downloaded farmer matches that name or ID. Check spelling or continue Cattle Search without a farmer.'
           : 'No farmer data is stored on this phone. Tap Update Farmer Data when online.');
     } catch (error) {
-      this.message = error instanceof Error ? error.message : 'Could not search farmer data on this phone.';
+      const normalizedQuery = q.toLocaleLowerCase();
+      const farmers = await this.offlineStorage.getAllFarmers().catch(() => []);
+      this.nameFarmerMatches = farmers
+        .filter((farmer) => farmer.farmerId.toLocaleLowerCase().includes(normalizedQuery) || farmer.farmerName.toLocaleLowerCase().includes(normalizedQuery))
+        .map((farmer) => this.cachedFarmerToMatch(
+          farmer,
+          this.hasGps ? this.distanceKm(this.locationLat!, this.locationLon!, farmer.locationLat, farmer.locationLon) : null
+        ))
+        .slice(0, 25);
+      this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+      this.message = this.nameFarmerMatches.length
+        ? `Server unavailable. Showing ${this.nameFarmerMatches.length} matching farmer(s) saved on this phone.`
+        : `Could not reach the server and no saved farmer matches: ${this.errorMessage(error)}`;
     } finally {
       this.searchingFarmers = false;
       this.searchingNameFarmers = false;

@@ -498,7 +498,8 @@ app.get('/api/farmers', requireAuth, async (req, res, next) => {
         : null;
       const withinRadius = distanceKm !== null && distanceKm <= radiusKm;
 
-      if (q && !textMatches && !withinRadius) continue;
+      // Text search and nearby search are separate field actions.
+      if (q && !textMatches) continue;
       if (!q && hasLocation && !withinRadius) continue;
       if (!q && !hasLocation) continue;
 
