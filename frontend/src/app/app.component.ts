@@ -433,7 +433,7 @@ export class AppComponent implements OnInit, OnDestroy {
         }
       },
       error: (error) => {
-        this.message = this.errorMessage(error);
+        this.message = this.loginErrorMessage(error);
       }
     });
   }
@@ -2420,6 +2420,19 @@ export class AppComponent implements OnInit, OnDestroy {
       return 'Matching server is unavailable or restarting. Your uploaded photos are saved. Wait one minute and try Save again. If this repeats, the backend needs more memory.';
     }
     return 'Something went wrong.';
+  }
+
+  private loginErrorMessage(error: unknown): string {
+    if (error instanceof HttpErrorResponse && error.status === 401) {
+      return error.error?.error || 'Phone or ID or password is incorrect.';
+    }
+    if (error instanceof HttpErrorResponse && [0, 502, 503, 504].includes(error.status)) {
+      return 'Cannot reach the sign-in server. Check the connection and try again.';
+    }
+    if (error instanceof HttpErrorResponse && error.error?.error) {
+      return error.error.error;
+    }
+    return 'Sign in failed. Please try again.';
   }
 
   private prepareMissingImageRetakes(error: unknown): void {

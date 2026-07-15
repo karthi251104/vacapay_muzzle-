@@ -155,6 +155,13 @@ app.use(cors((req, callback) => {
 }));
 app.use(express.json({ limit: '5mb' }));
 app.use('/media', express.static(dataDir));
+app.get('/assets/runtime-config.js', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.type('application/javascript').send(`window.VACAPAY_CONFIG = ${JSON.stringify({
+    apiBaseUrl: '/api',
+    mediaBaseUrl: ''
+  })};\n`);
+});
 
 validateProductionConfig();
 console.log(`Starting storage setup. Mongo ${mongoEnabled ? 'enabled' : 'disabled'}. Data: ${dataDir}`);
