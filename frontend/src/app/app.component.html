@@ -608,10 +608,12 @@
       <div class="pending-upload-card" *ngIf="pendingSyncCount > 0" [class.offline]="isOffline">
         <div>
           <span>{{ syncService.syncing ? 'Uploading' : 'Pending Upload' }}</span>
-          <strong>{{ pendingSyncCount }} completed record(s) safe on this phone</strong>
-          <small>{{ isOffline ? 'Upload starts automatically when internet returns.' : (syncService.syncing ? 'Keep the app open while upload finishes.' : 'Automatic upload paused after a connection error.') }}</small>
+          <strong>{{ pendingSyncCount }} cattle record(s) safe on this phone</strong>
+          <small *ngIf="isOffline">No internet now. Upload will start automatically when the connection returns.</small>
+          <small *ngIf="!isOffline && syncService.syncing">{{ syncService.progressLabel }} - {{ syncService.progressPercent }}%. Keep the app open.</small>
+          <small class="upload-error" *ngIf="!isOffline && !syncService.syncing">{{ syncService.lastError || 'The previous upload did not finish. The cattle record is still safe.' }}</small>
         </div>
-        <button type="button" class="primary-action" *ngIf="!isOffline && !syncService.syncing" (click)="manualSync()">Retry Upload</button>
+        <button type="button" class="primary-action" *ngIf="!isOffline && !syncService.syncing" (click)="manualSync()">Retry Saved Upload</button>
       </div>
       <div class="flow-warning version-strip" *ngIf="appVersion">
         <strong>Field build {{ appVersion.appVersion }}</strong>
@@ -898,6 +900,22 @@
 
       <button type="button" class="primary-action big" [disabled]="!canComplete" (click)="completeEnrollment()">{{ completeButtonLabel }}</button>
     </section>
+  </section>
+
+  <section class="upload-progress-overlay" *ngIf="syncService.syncing" role="status" aria-live="assertive">
+    <div class="upload-progress-card">
+      <div class="upload-progress-icon" aria-hidden="true"></div>
+      <p class="eyebrow">Secure Upload</p>
+      <h2>Registering cattle</h2>
+      <strong class="upload-progress-stage">{{ syncService.progressLabel }}</strong>
+      <div class="upload-progress-track" [attr.aria-valuenow]="syncService.progressPercent" aria-valuemin="0" aria-valuemax="100" role="progressbar">
+        <span [style.width.%]="syncService.progressPercent"></span>
+      </div>
+      <div class="upload-progress-number">{{ syncService.progressPercent }}%</div>
+      <p>Do not close the app or switch off the phone. Photos are uploading and the cattle embedding is being created.</p>
+      <small *ngIf="syncService.totalCaptures > 1">Record {{ syncService.activeCaptureNumber }} of {{ syncService.totalCaptures }}</small>
+      <div class="upload-progress-safety">The captured record remains safe on this phone if the network stops.</div>
+    </div>
   </section>
 
   <nav class="bottom-nav">

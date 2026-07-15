@@ -1584,7 +1584,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
     if (result.failed > 0) {
       this.lastRecordUploaded = false;
-      this.message = 'Upload could not finish. The record is safe on this phone. Retry from Pending Uploads when the connection is stable.';
+      this.message = `Upload paused: ${this.syncService.lastError || 'The server could not finish the record.'} The record is safe on this phone.`;
     } else if (trigger === 'manual') {
       this.message = 'No pending records to upload.';
     }

@@ -7,7 +7,12 @@ import { OfflineStorageService, PendingCapture } from './offline-storage.service
 export class SyncService {
   syncing = false;
   lastSyncResult = '';
+  lastError = '';
   pendingCount = 0;
+  progressPercent = 0;
+  progressLabel = 'Preparing upload';
+  activeCaptureNumber = 0;
+  totalCaptures = 0;
 
   private syncInProgress = false;
   private readonly recoveryReady: Promise<void>;
@@ -36,21 +41,29 @@ export class SyncService {
 
     this.syncInProgress = true;
     this.syncing = true;
+    this.lastError = '';
+    this.progressPercent = 1;
+    this.progressLabel = 'Preparing secure upload';
     let synced = 0;
     let failed = 0;
 
     try {
       await this.recoveryReady;
       const pending = await this.offlineStorage.getAllPending();
+      this.totalCaptures = pending.length;
 
-      for (const capture of pending) {
+      for (let captureIndex = 0; captureIndex < pending.length; captureIndex += 1) {
+        const capture = pending[captureIndex];
+        this.activeCaptureNumber = captureIndex + 1;
         try {
-          await this.syncCapture(capture);
+          await this.syncCapture(capture, captureIndex, pending.length);
           await this.offlineStorage.deleteCapture(capture.id);
           synced++;
         } catch (error) {
           failed++;
-          const errorMsg = error instanceof Error ? error.message : 'Sync failed';
+          const errorMsg = this.describeError(error);
+          this.lastError = errorMsg;
+          this.progressLabel = 'Upload paused';
           await this.offlineStorage.updateSyncStatus(capture.id, 'failed', errorMsg);
         }
       }
@@ -58,6 +71,11 @@ export class SyncService {
       this.lastSyncResult = synced > 0
         ? `Synced ${synced} capture(s) successfully.${failed > 0 ? ` ${failed} failed.` : ''}`
         : (failed > 0 ? `${failed} capture(s) failed to sync.` : 'No pending captures.');
+
+      if (failed === 0 && synced > 0) {
+        this.progressPercent = 100;
+        this.progressLabel = 'Upload complete';
+      }
 
     } finally {
       this.syncInProgress = false;
@@ -68,10 +86,18 @@ export class SyncService {
     return { synced, failed };
   }
 
-  private async syncCapture(capture: PendingCapture): Promise<void> {
+  private async syncCapture(capture: PendingCapture, captureIndex: number, captureTotal: number): Promise<void> {
     await this.offlineStorage.updateSyncStatus(capture.id, 'syncing');
+    const totalSteps = 2 + capture.muzzleBlobs.length + capture.evidenceBlobs.length;
+    let completedSteps = 0;
+    const setStage = (label: string): void => {
+      const localProgress = completedSteps / Math.max(totalSteps, 1);
+      this.progressPercent = Math.max(1, Math.min(99, Math.round(((captureIndex + localProgress) / Math.max(captureTotal, 1)) * 100)));
+      this.progressLabel = label;
+    };
 
     let cattleId = capture.serverCattleId || capture.cattleId;
+    setStage('Creating secure cattle record');
 
     if (!capture.serverCattleId) {
       const enrollmentResponse = await firstValueFrom(this.api.createEnrollment({
@@ -97,19 +123,52 @@ export class SyncService {
       cattleId = enrollmentResponse.enrollment.cattleId;
       await this.offlineStorage.updateServerCattleId(capture.id, cattleId);
     }
+    completedSteps++;
 
     // Step 2: Upload muzzle images
-    for (const muzzle of capture.muzzleBlobs) {
+    for (let index = 0; index < capture.muzzleBlobs.length; index += 1) {
+      const muzzle = capture.muzzleBlobs[index];
+      setStage(`Uploading muzzle photo ${index + 1} of ${capture.muzzleBlobs.length}`);
       await firstValueFrom(this.api.captureMuzzle(cattleId, muzzle.blob, muzzle.slot, true));
+      completedSteps++;
     }
 
     // Step 3: Upload evidence images
-    for (const evidence of capture.evidenceBlobs) {
+    for (let index = 0; index < capture.evidenceBlobs.length; index += 1) {
+      const evidence = capture.evidenceBlobs[index];
+      setStage(`Uploading cattle photo ${index + 1} of ${capture.evidenceBlobs.length}`);
       await firstValueFrom(this.api.saveImage(cattleId, evidence.type, evidence.blob));
+      completedSteps++;
     }
 
     // Step 4: Complete enrollment
+    setStage('Creating DINOv2 embedding and saving result');
     await firstValueFrom(this.api.complete(cattleId, capture.captureDurationSeconds));
+    completedSteps++;
+    this.progressPercent = Math.min(100, Math.round(((captureIndex + 1) / Math.max(captureTotal, 1)) * 100));
+  }
+
+  private describeError(error: unknown): string {
+    const response = error as {
+      status?: number;
+      message?: string;
+      error?: string | { error?: string; message?: string };
+    };
+    const body = response?.error;
+    const detail = typeof body === 'string'
+      ? body
+      : (body?.error || body?.message || '');
+
+    if (response?.status === 0) {
+      return 'Cannot reach the backend. Check that the field server and Cloudflare tunnel are running.';
+    }
+    if (response?.status === 401 || response?.status === 403) {
+      return 'Your login expired. Sign in again, then retry the saved upload.';
+    }
+    if (response?.status && response.status >= 500) {
+      return detail ? `Server processing failed: ${detail}` : 'The server could not process this record. Retry after checking the backend.';
+    }
+    return detail || response?.message || 'Upload failed. The record remains safe on this phone.';
   }
 
   destroy(): void {

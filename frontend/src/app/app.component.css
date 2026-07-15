@@ -1360,6 +1360,100 @@ button.coverage-row:hover {
   color: var(--muted);
 }
 
+.pending-upload-card .upload-error {
+  color: #8f3128;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.upload-progress-overlay {
+  align-items: center;
+  background: rgba(8, 24, 32, 0.82);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: max(20px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  position: fixed;
+  z-index: 120;
+}
+
+.upload-progress-card {
+  background: #fff;
+  border: 1px solid #b8dce6;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(5, 20, 28, 0.34);
+  display: grid;
+  gap: 14px;
+  max-width: 480px;
+  padding: 26px 22px;
+  text-align: center;
+  width: 100%;
+}
+
+.upload-progress-card h2 {
+  font-size: 1.85rem;
+}
+
+.upload-progress-icon {
+  animation: upload-pulse 1.2s ease-in-out infinite;
+  background: var(--leaf);
+  border: 8px solid #dff2f7;
+  border-radius: 50%;
+  height: 64px;
+  justify-self: center;
+  width: 64px;
+}
+
+.upload-progress-stage {
+  color: var(--leaf-dark);
+  font-size: 1.08rem;
+  line-height: 1.35;
+}
+
+.upload-progress-track {
+  background: #dfe9ee;
+  border-radius: 999px;
+  height: 16px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.upload-progress-track span {
+  background: var(--leaf);
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  transition: width 240ms ease;
+}
+
+.upload-progress-number {
+  color: var(--leaf-dark);
+  font-size: 2rem;
+  font-weight: 950;
+}
+
+.upload-progress-card p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.upload-progress-safety {
+  background: #eef9f2;
+  border: 1px solid #b9dac4;
+  border-radius: 6px;
+  color: #214f32;
+  font-size: 0.9rem;
+  font-weight: 750;
+  line-height: 1.4;
+  padding: 11px;
+}
+
+@keyframes upload-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(23, 107, 135, 0.28); }
+  50% { box-shadow: 0 0 0 14px rgba(23, 107, 135, 0); }
+}
+
 .next-step-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1896,6 +1990,10 @@ button.coverage-row:hover {
 }
 
 @media (max-width: 720px) {
+  .mobile-flow {
+    font-size: 17px;
+  }
+
   .auth-app,
   .admin-app {
     padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
@@ -1945,6 +2043,56 @@ button.coverage-row:hover {
   .next-step-actions {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .mobile-flow button {
+    font-size: 1rem;
+    min-height: 54px;
+  }
+
+  .mobile-flow input,
+  .mobile-flow select {
+    font-size: 1rem;
+    min-height: 56px;
+  }
+
+  .mobile-flow label {
+    font-size: 0.98rem;
+  }
+
+  .screen-card {
+    gap: 20px;
+    padding: 18px;
+  }
+
+  .panel-title h2 {
+    font-size: 1.65rem;
+  }
+
+  .choice-card {
+    min-height: 132px;
+    padding: 18px;
+  }
+
+  .choice-card small,
+  .pending-upload-card small,
+  .next-step-card small {
+    font-size: 0.92rem;
+  }
+
+  .pending-upload-card strong,
+  .next-step-card strong {
+    font-size: 1.08rem;
+    line-height: 1.4;
+  }
+
+  .bottom-nav {
+    padding-top: 9px;
+  }
+
+  .bottom-nav button {
+    font-size: 0.88rem;
+    min-height: 56px;
   }
 
   .admin-stats,
