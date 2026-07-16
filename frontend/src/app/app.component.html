@@ -509,7 +509,8 @@
   </section>
 </main>
 <main class="mobile-flow" *ngIf="isAgent && isNativeFieldApp">
-  <header class="mobile-header page-enter">
+  <header class="mobile-header page-enter" [class.has-back]="agentScreen !== 'home'">
+    <button type="button" class="header-back" *ngIf="agentScreen !== 'home'" (click)="goBack()">Back</button>
     <div class="brand-lockup">
       <div class="brand-mark">V</div>
       <div>
@@ -710,6 +711,7 @@
         <span>3. Tap Start Cattle Search</span>
       </div>
 
+      <ng-container *ngIf="!enrollment">
       <div class="farmer-data-panel compact" [class.ready]="farmerSyncInfo">
         <div>
           <span>Offline Farmer Data</span>
@@ -776,7 +778,12 @@
         <strong>No farmer selected</strong>
         <span>This is allowed. Matching will use cattle near the captured GPS location.</span>
       </div>
-      <button type="button" class="primary-action big location-primary-action" [disabled]="!canStartExistingFarmerCapture" (click)="createEnrollment()">{{ locationPrimaryActionLabel }}</button>
+      </ng-container>
+      <div class="gps-status ready capture-setup-locked" *ngIf="enrollment">
+        <strong>Capture already started</strong>
+        <span>{{ farmerName || 'GPS search' }} is locked for this record. Continue to the muzzle camera without creating another record.</span>
+      </div>
+      <button type="button" class="primary-action big location-primary-action" [disabled]="!enrollment && !canStartExistingFarmerCapture" (click)="continueOrCreateCapture()">{{ enrollment ? 'Continue To Muzzle Camera' : locationPrimaryActionLabel }}</button>
     </section>
 
     <section class="screen-card camera-card page-enter" *ngIf="agentScreen === 'muzzle'">

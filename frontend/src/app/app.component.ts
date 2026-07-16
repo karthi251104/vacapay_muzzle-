@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { App as CapacitorApp } from '@capacitor/app';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, AppUser, AppVersionStatus, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, FarmerMatch, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
 import { TfliteMuzzleDetectorService } from './tflite-muzzle-detector.service';
@@ -108,6 +109,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private gpsCache?: { lat: number; lon: number; timestamp: number };
   private offlineCaptureId?: string;
   private batteryManager?: EventTarget;
+  private nativeBackListener?: { remove: () => Promise<void> };
   private adminRefreshTimer?: number;
   private readonly onOnline = () => {
     this.isOffline = false;
@@ -132,6 +134,7 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   };
   ngOnInit(): void {
+    void this.setupNativeBackButton();
     this.loadAppVersion();
     this.checkBattery();
     this.setupConnectivityListeners();
@@ -183,6 +186,26 @@ export class AppComponent implements OnInit, OnDestroy {
     } catch (error) {
       this.message = `Farmer update failed: ${this.errorMessage(error)}`;
     }
+  }
+
+  private async setupNativeBackButton(): Promise<void> {
+    if (!this.isNativeFieldApp) return;
+
+    this.nativeBackListener = await CapacitorApp.addListener('backButton', () => {
+      if (this.syncService.syncing || this.finalizingRecord) {
+        this.message = 'Upload is in progress. Keep the app open until it finishes.';
+        return;
+      }
+      if (this.imageViewer) {
+        this.closeImageViewer();
+        return;
+      }
+      if (this.isAgent && this.agentScreen !== 'home') {
+        this.goBack();
+        return;
+      }
+      void CapacitorApp.minimizeApp();
+    });
   }
 
   private async refreshFarmerCache(announce: boolean): Promise<void> {
@@ -400,6 +423,7 @@ export class AppComponent implements OnInit, OnDestroy {
     window.removeEventListener('offline', this.onOffline);
     this.batteryManager?.removeEventListener?.('levelchange', this.onBatteryLevelChange);
     if (this.adminRefreshTimer) window.clearInterval(this.adminRefreshTimer);
+    void this.nativeBackListener?.remove();
     this.syncService.destroy();
   }
 
@@ -525,9 +549,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   goAgentScreen(screen: AgentScreen): void {
     if (screen === 'home') {
-      this.resetCaptureState(false);
-      this.agentScreen = 'home';
-      this.message = 'Ready for the next cattle. Start a new capture when ready.';
+      void this.goHome();
       return;
     }
 
@@ -547,6 +569,72 @@ export class AppComponent implements OnInit, OnDestroy {
     }
 
     this.agentScreen = screen;
+    this.scrollToTop();
+  }
+
+  async goHome(): Promise<void> {
+    if (this.syncService.syncing || this.finalizingRecord) {
+      this.message = 'Please wait until the current save or upload finishes.';
+      return;
+    }
+
+    const hasDraft = Boolean(this.enrollment || this.offlineCaptureId);
+    const hasPhotos = this.totalCapturedImages > 0;
+    if (hasDraft && hasPhotos && !window.confirm('Discard this unfinished cattle capture and return Home?')) {
+      return;
+    }
+
+    if (this.offlineCaptureId) {
+      try {
+        await this.offlineStorage.deleteCapture(this.offlineCaptureId);
+      } catch {
+        this.message = 'Could not discard the unfinished phone record. Try again.';
+        return;
+      }
+    }
+
+    this.resetCaptureState(false);
+    this.agentScreen = 'home';
+    this.message = hasDraft
+      ? 'Unfinished capture discarded. Ready for the next cattle.'
+      : 'Ready for the next cattle. Start a new capture when ready.';
+    this.scrollToTop();
+  }
+
+  goBack(): void {
+    if (this.syncService.syncing || this.finalizingRecord) {
+      this.message = 'Please wait until the current save or upload finishes.';
+      return;
+    }
+
+    if (this.cameraOn) this.stopCamera();
+    if (this.agentScreen === 'review') this.agentScreen = 'evidence';
+    else if (this.agentScreen === 'evidence') this.agentScreen = 'muzzle';
+    else if (this.agentScreen === 'muzzle') this.agentScreen = 'location';
+    else if (this.agentScreen === 'location' && this.captureWorkflow === 'cattle_enrolment' && !this.selectedFarmerKey && !this.enrollment) this.agentScreen = 'farmer';
+    else {
+      void this.goHome();
+      return;
+    }
+
+    this.message = this.enrollment && this.agentScreen === 'location'
+      ? 'Capture setup is locked. Continue to return to the muzzle camera.'
+      : `Back to ${this.agentScreenTitle}.`;
+    this.scrollToTop();
+  }
+
+  continueOrCreateCapture(): void {
+    if (this.enrollment) {
+      this.agentScreen = 'muzzle';
+      this.message = `Continue capturing muzzle photos (${this.muzzlePreviews.length}/${this.muzzleImageCount}).`;
+      this.scrollToTop();
+      return;
+    }
+    void this.createEnrollment();
+  }
+
+  private scrollToTop(): void {
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
   }
 
   beginEnrollmentFlow(): void {

@@ -580,6 +580,19 @@ select:focus {
   grid-column: 1 / -1;
 }
 
+.header-back {
+  background: #edf3f6;
+  border: 1px solid var(--line);
+  color: var(--leaf-dark);
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.capture-setup-locked {
+  border-color: #76b7c9;
+}
+
 .cattle-admin-panel { order: 1; }
 .coverage-panel { order: 2; }
 .review-panel { order: 3; }
@@ -3845,5 +3858,36 @@ button.coverage-row:hover {
     position: static;
     right: auto;
     width: 100%;
+  }
+
+  .mobile-header.has-back {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .mobile-header.has-back .brand-lockup {
+    min-width: 0;
+  }
+
+  .mobile-header.has-back .brand-lockup > div:last-child {
+    min-width: 0;
+  }
+
+  .mobile-header.has-back .brand-lockup h1,
+  .mobile-header.has-back .brand-lockup p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 440px) {
+  .mobile-header.has-back .brand-mark {
+    display: none;
+  }
+
+  .mobile-header.has-back {
+    padding: 10px;
   }
 }
