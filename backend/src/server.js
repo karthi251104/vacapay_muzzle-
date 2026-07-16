@@ -1479,7 +1479,10 @@ async function getActiveCaptureFolder(cattleId) {
 }
 
 async function saveClientProcessedMuzzle(inputPath, outPath) {
-  await fs.copyFile(inputPath, outPath);
+  // Node's copyFile can return EPERM on Windows drives mounted through WSL even
+  // when both paths are writable. Images are small, so read/write is reliable
+  // across native Windows, WSL DrvFS, Linux and container filesystems.
+  await fs.writeFile(outPath, await fs.readFile(inputPath));
   return {
     detected: true,
     confidence: 1,
