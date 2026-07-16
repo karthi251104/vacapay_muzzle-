@@ -19,9 +19,10 @@ For every cattle search, the admin website shows:
 
 Admin confirmation is ground truth. Top-1 and Top-5 accuracy are calculated only from reviewed cattle searches.
 
-## Container Backend (Render or Railway)
+## Backend Hosting
 
-Railway uses `railway.json` and the root `Dockerfile`. The image contains:
+The root `Dockerfile` can run on Render, Railway or another Linux container
+host. The image contains:
 
 - Angular admin build.
 - Node/Express API.
@@ -32,7 +33,7 @@ Railway uses `railway.json` and the root `Dockerfile`. The image contains:
 
 The backend intentionally contains no YOLO model. Android `best.tflite` performs the good/bad decision, crop and CLAHE before upload. The API rejects muzzle files that are not marked as phone processed.
 
-Create a Railway service from the GitHub repository and set these variables:
+Create a service from the GitHub repository and set these variables:
 
 ```text
 JWT_SECRET=<at-least-32-random-characters>
@@ -49,14 +50,19 @@ PINECONE_NAMESPACE=vacapay
 PINECONE_ENROLMENT_NAMESPACE=vacapay-cattle-enrolment
 PINECONE_SEARCH_NAMESPACE=vacapay-cattle-search
 EMBEDDING_MATCH_THRESHOLD=0.70
-CORS_ORIGINS=https://<railway-domain>,capacitor://localhost,http://localhost
+CORS_ORIGINS=https://<admin-domain>,https://localhost,capacitor://localhost,http://localhost
 ```
 
-Railway must pass `/api/health`. Production startup intentionally fails when a required service, secret or model file is missing.
+The deployment must pass `/api/health`. Production startup intentionally fails when a required service, secret or model file is missing.
 
-Use a Railway service with at least 4 GB RAM and 2 vCPU for CPU PyTorch, DINOv2 and concurrent image processing. Smaller instances may be terminated while loading the model.
+Use a service with at least 4 GB RAM and 2 vCPU for CPU PyTorch, DINOv2 and concurrent image processing. A 512 MB free instance is not sufficient and may be terminated while loading the model.
 
-MongoDB is the permanent metadata store, Cloudinary is the permanent image store and Pinecone is the vector store. Railway local disk is temporary processing space only.
+MongoDB is the permanent metadata store, Cloudinary is the permanent image store and Pinecone is the vector store. Container local disk is temporary processing space only.
+
+For a short controlled field test, the backend can run on a sufficiently
+powerful Windows PC and be exposed with Cloudflare Tunnel. A quick tunnel has
+no uptime guarantee and works only while the PC, backend and tunnel process
+remain running. See [Complete Windows Setup And Handoff](COLLEAGUE_SETUP.md).
 
 ## Android API Configuration
 
@@ -69,13 +75,14 @@ window.VACAPAY_CONFIG = {
 };
 ```
 
-For the Android package, set both values to the Railway backend before building:
+For the Android package, set both build variables to the current backend before
+building:
 
-```js
-window.VACAPAY_CONFIG = {
-  apiBaseUrl: 'https://<railway-domain>/api',
-  mediaBaseUrl: 'https://<railway-domain>'
-};
+```powershell
+$env:VACAPAY_API_BASE_URL="https://<backend-domain>/api"
+$env:VACAPAY_MEDIA_BASE_URL="https://<backend-domain>"
+pnpm --dir frontend run build:field
+pnpm --dir frontend exec cap sync android
 ```
 
 The Android application must bundle `best.tflite`, keep unsynced images in app-private storage, and upload records using stable `offlineCaptureId` values.
@@ -85,10 +92,10 @@ The Android application must bundle `best.tflite`, keep unsynced images in app-p
 Netlify uses `netlify.toml` and publishes only `frontend/dist/vacapay/browser`. Add this environment variable before deploying:
 
 ```text
-VACAPAY_API_BASE_URL=https://<railway-domain>/api
+VACAPAY_API_BASE_URL=https://<backend-domain>/api
 ```
 
-Optionally set `VACAPAY_MEDIA_BASE_URL=https://<railway-domain>`. Add the final Netlify origin to Railway `CORS_ORIGINS`, for example:
+Optionally set `VACAPAY_MEDIA_BASE_URL=https://<backend-domain>`. Add the final Netlify origin to backend `CORS_ORIGINS`, for example:
 
 ```text
 CORS_ORIGINS=https://<site-name>.netlify.app,capacitor://localhost,http://localhost
@@ -100,12 +107,14 @@ Netlify builds the admin-only production target. It does not upload `best.tflite
 
 The Capacitor Android project is in `frontend/android` with package ID `com.vacapay.muzzlefield`. It requires Java and Android Studio/SDK 36 on the build machine.
 
-Build and synchronize it after setting the Railway API URL:
+Build and synchronize it after setting the backend API URL:
 
 ```powershell
-$env:VACAPAY_API_BASE_URL="https://<railway-domain>/api"
-pnpm --dir frontend run android:sync
-pnpm --dir frontend run android:open
+$env:VACAPAY_API_BASE_URL="https://<backend-domain>/api"
+$env:VACAPAY_MEDIA_BASE_URL="https://<backend-domain>"
+pnpm --dir frontend run build:field
+pnpm --dir frontend exec cap sync android
+pnpm --dir frontend exec cap open android
 ```
 
 The field build includes the local TFLite model and WASM runtime. Camera, network and location permissions are declared in the Android manifest. A signed release APK still requires an Android release keystore.
@@ -119,6 +128,6 @@ Before field release, verify:
 3. A three-muzzle enrolment produces an embedding and enrolment Pinecone vector.
 4. A cattle search never creates a registered cattle identity.
 5. Interrupted uploads resume without duplicate cattle or duplicate search records.
-6. Cloudinary images remain visible after a Railway restart.
-7. MongoDB and Pinecone records remain available after a Railway restart.
+6. Cloudinary images remain visible after a backend restart.
+7. MongoDB and Pinecone records remain available after a backend restart.
 8. Missing production variables cause startup to fail with a clear error.

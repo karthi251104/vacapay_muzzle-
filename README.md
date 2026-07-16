@@ -2,12 +2,25 @@
 
 Vacapay Muzzle is a field-testing app for cattle muzzle identification.
 
+## Start Here
+
+For a new developer or a newly cloned computer, follow the complete setup and
+handoff guide first:
+
+- [Complete Windows setup, local run, Cloudflare, APK and Git push](docs/COLLEAGUE_SETUP.md)
+- [Full field workflow](docs/FIELD_APP_FULL_WORKFLOW.md)
+- [Production deployment](docs/PRODUCTION_DEPLOYMENT.md)
+
+The setup guide includes Git LFS model download, Node/pnpm/Python installation,
+private `.env` configuration, Android Studio SDK setup, APK generation,
+Cloudflare phone testing, verification, troubleshooting and safe Git commands.
+
 ## Production Surfaces
 
 - **Admin website:** administrator accounts only. It provides enrolment inventory, cattle-search metrics, query evidence, Top-5 visual cattle comparisons, the full Top-20 ranking, and review decisions.
 - **Android field app:** field officer capture and offline upload. Browser sessions reject field officer accounts; the field workflow is enabled only inside the Capacitor Android application.
-- **Railway backend:** Express, MongoDB Atlas, Cloudinary, DINOv2 and Pinecone run from the repository Dockerfile. See [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md).
-- **Netlify admin hosting:** `netlify.toml` builds only the lightweight admin target and injects the Railway API URL from `VACAPAY_API_BASE_URL`.
+- **Backend:** Express, MongoDB Atlas, Cloudinary, DINOv2 and Pinecone run locally, through Docker, or on a Linux host with sufficient memory. A local PC can be exposed temporarily with Cloudflare Tunnel for controlled field testing. See [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md).
+- **Netlify admin hosting:** `netlify.toml` builds only the lightweight admin target and injects the backend API URL from `VACAPAY_API_BASE_URL`.
 
 The admin review expands each cattle search into query muzzle and side images, Top-5 candidate cattle with enrolled muzzle and body evidence, and Top-20 ranked identities. Selecting a candidate records the expected cattle identity for field accuracy metrics.
 
@@ -22,6 +35,7 @@ Use cattle enrolment to create clean registered cattle identities. Use cattle se
 
 ## Quick Links
 
+- Complete developer setup: [docs/COLLEAGUE_SETUP.md](docs/COLLEAGUE_SETUP.md)
 - Full workflow: [docs/FIELD_APP_FULL_WORKFLOW.md](docs/FIELD_APP_FULL_WORKFLOW.md)
 - Backend: [backend/src/server.js](backend/src/server.js)
 - Agent/Admin UI: [frontend/src/app/app.component.html](frontend/src/app/app.component.html)
