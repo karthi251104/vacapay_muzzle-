@@ -2678,7 +2678,7 @@ function normalizeRecord(row) {
   if (!row) return null;
 
   if (!row.sessions) {
-    const folderLocation = row.folderLocation || path.join(dataDir, row.cattleId);
+    const folderLocation = normalizeDataPath(row.folderLocation, row.cattleId, 'legacy');
     row.rootFolderLocation = path.join(dataDir, row.cattleId);
     row.activeSessionId = 'legacy';
     row.sessions = [
@@ -2693,7 +2693,55 @@ function normalizeRecord(row) {
     ];
   }
 
+  // Persisted records can outlive the machine or OS that created them. Rebuild
+  // storage paths from stable IDs instead of trusting Windows/Linux absolute paths.
+  row.rootFolderLocation = path.join(dataDir, row.cattleId);
+  row.sessions = row.sessions.map((session) => {
+    const normalizedSession = {
+      ...session,
+      folderLocation: normalizeDataPath(session.folderLocation, row.cattleId, session.sessionId)
+    };
+
+    if (normalizedSession.images && typeof normalizedSession.images === 'object') {
+      normalizedSession.images = Object.fromEntries(
+        Object.entries(normalizedSession.images).map(([imageType, reference]) => [
+          imageType,
+          reference && typeof reference === 'object'
+            ? {
+                ...reference,
+                localPath: normalizeDataPath(
+                  reference.localPath,
+                  row.cattleId,
+                  session.sessionId,
+                  reference.fileName || `${imageType}.jpg`
+                )
+              }
+            : reference
+        ])
+      );
+    }
+
+    return normalizedSession;
+  });
+
+  const activeSession = row.sessions.find((session) => session.sessionId === row.activeSessionId)
+    || row.sessions.at(-1);
+  row.folderLocation = activeSession?.folderLocation || path.join(dataDir, row.cattleId);
+
   return row;
+}
+
+function normalizeDataPath(value, ...fallbackSegments) {
+  const normalized = String(value || '').replace(/\\/g, '/');
+  const dataMarker = normalized.toLowerCase().lastIndexOf('/data/');
+
+  if (dataMarker >= 0) {
+    const relativeParts = normalized.slice(dataMarker + '/data/'.length).split('/').filter(Boolean);
+    return path.join(dataDir, ...relativeParts);
+  }
+
+  if (normalized && path.isAbsolute(normalized)) return path.normalize(normalized);
+  return path.join(dataDir, ...fallbackSegments.filter(Boolean));
 }
 
 function normalizeWorkflow(value, fallback = 'cattle_enrolment') {
