@@ -206,26 +206,16 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     appVersion: APP_VERSION,
-    dinov2ModelPath: DINOV2_MODEL_PATH,
-    pythonRuntime: PYTHON_BIN,
     embeddingMatchThreshold: EMBEDDING_MATCH_THRESHOLD,
     muzzleImageCount: MUZZLE_IMAGE_COUNT,
-    storage: dataDir,
     cloudinary: {
-      enabled: cloudinaryEnabled,
-      cloudName: CLOUDINARY_CLOUD_NAME || null,
-      rootFolder: CLOUDINARY_ROOT_FOLDER
+      enabled: cloudinaryEnabled
     },
     mongodb: {
-      enabled: mongoEnabled,
-      database: mongoEnabled ? MONGODB_DB_NAME : null
+      enabled: mongoEnabled
     },
     pinecone: {
-      enabled: pineconeEnabled,
-      namespace: PINECONE_ENROLMENT_NAMESPACE,
-      cattleEnrolmentNamespace: PINECONE_ENROLMENT_NAMESPACE,
-      cattleSearchNamespace: PINECONE_SEARCH_NAMESPACE,
-      indexHost: pineconeEnabled ? PINECONE_INDEX_HOST : null
+      enabled: pineconeEnabled
     }
   });
 });
@@ -249,7 +239,7 @@ app.get('/api/version', (_req, res) => {
   });
 });
 
-app.get('/api/pinecone/status', async (_req, res) => {
+app.get('/api/pinecone/status', requireAuth, async (_req, res) => {
   if (!pineconeEnabled) {
     res.json({
       ok: false,
@@ -268,7 +258,6 @@ app.get('/api/pinecone/status', async (_req, res) => {
       ok: true,
       enabled: true,
       namespace: PINECONE_ENROLMENT_NAMESPACE,
-      indexHost: PINECONE_INDEX_HOST,
       dimension: result.dimension,
       totalVectorCount: result.totalVectorCount,
       namespaces: result.namespaces || {}
@@ -278,13 +267,12 @@ app.get('/api/pinecone/status', async (_req, res) => {
       ok: false,
       enabled: true,
       namespace: PINECONE_ENROLMENT_NAMESPACE,
-      indexHost: PINECONE_INDEX_HOST,
       error: error.message || 'Pinecone status check failed.'
     });
   }
 });
 
-app.get('/api/embedding/status', async (_req, res) => {
+app.get('/api/embedding/status', requireAuth, async (_req, res) => {
   try {
     const result = await runPythonJson([
       path.join(__dirname, '..', 'scripts', 'embedding_status.py'),
@@ -1066,6 +1054,7 @@ app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'
     }
 
     const cattleId = safeCattleId(req.params.cattleId);
+    await assertUserCanAccessCattle(req.user, cattleId);
     const { folder, mediaPrefix } = await getActiveCaptureFolder(cattleId);
     const requestedSlot = Number(req.body.slot || 0);
     const slot = requestedSlot > 0 ? requestedSlot : (await nextSlot(folder, 'muzzle', MUZZLE_IMAGE_COUNT));
@@ -1140,6 +1129,7 @@ app.post('/api/enrollments/:cattleId/images', requireAuth, upload.single('image'
     }
 
     const cattleIdSafe = safeCattleId(req.params.cattleId);
+    await assertUserCanAccessCattle(req.user, cattleIdSafe);
     const { folder, mediaPrefix } = await getActiveCaptureFolder(cattleIdSafe);
     const fileName = `${imageType}.jpg`;
     const outPath = path.join(folder, fileName);
@@ -1180,6 +1170,10 @@ app.post('/api/enrollments/:cattleId/complete', requireAuth, async (req, res, ne
 
     if (!row) {
       res.status(404).json({ error: 'Enrollment not found.' });
+      return;
+    }
+    if (!userOwnsRecord(req.user, row)) {
+      res.status(403).json({ error: 'This cattle record belongs to another field officer.' });
       return;
     }
 
@@ -1247,7 +1241,9 @@ app.post('/api/enrollments/:cattleId/complete', requireAuth, async (req, res, ne
 
 app.post('/api/enrollments/:cattleId/resolve-muzzle-match', requireAuth, async (req, res, next) => {
   try {
-    const matchResolution = await resolveMuzzleMatch(safeCattleId(req.params.cattleId));
+    const cattleId = safeCattleId(req.params.cattleId);
+    await assertUserCanAccessCattle(req.user, cattleId);
+    const matchResolution = await resolveMuzzleMatch(cattleId);
     res.json({ matchResolution });
   } catch (error) {
     next(error);
@@ -1612,6 +1608,22 @@ function filterRowsForUser(rows, user) {
 function filterAuditsForUser(audits, user) {
   if (isAdminUser(user)) return audits;
   return audits.filter((audit) => userOwnsAudit(user, audit));
+}
+
+async function assertUserCanAccessCattle(user, cattleId) {
+  const rows = await readMetadata();
+  const row = normalizeRecord(rows.find((item) => item?.cattleId === cattleId));
+  if (!row) {
+    const error = new Error('Enrollment not found.');
+    error.statusCode = 404;
+    throw error;
+  }
+  if (!userOwnsRecord(user, row)) {
+    const error = new Error('This cattle record belongs to another field officer.');
+    error.statusCode = 403;
+    throw error;
+  }
+  return row;
 }
 
 function toPublicUser(user) {

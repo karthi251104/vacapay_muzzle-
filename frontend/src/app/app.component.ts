@@ -171,10 +171,15 @@ export class AppComponent implements OnInit, OnDestroy {
 
   private async loadFarmerCacheStatus(): Promise<void> {
     try {
-      this.farmerSyncInfo = await this.offlineStorage.getFarmerSyncInfo();
+      this.farmerSyncInfo = await this.offlineStorage.getFarmerSyncInfo(this.currentOfflineOwnerKey());
     } catch {
       this.farmerSyncInfo = undefined;
     }
+  }
+
+  private currentOfflineOwnerKey(): string {
+    const user = this.currentUser;
+    return String(user?.userId || user?.agentId || user?.phone || user?.name || 'signed-out').trim().toLowerCase();
   }
 
   async updateFarmerData(): Promise<void> {
@@ -221,7 +226,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.updatingFarmerData = true;
     this.farmerRefreshPromise = (async () => {
       const response = await firstValueFrom(this.api.downloadFarmerData());
-      await this.offlineStorage.replaceFarmers(response.farmers, {
+      await this.offlineStorage.replaceFarmers(this.currentOfflineOwnerKey(), response.farmers, {
         farmerCount: response.farmerCount,
         syncedAt: new Date().toISOString(),
         datasetVersion: response.datasetVersion
@@ -1093,7 +1098,7 @@ export class AppComponent implements OnInit, OnDestroy {
         return;
       }
 
-      const farmers = await this.offlineStorage.getAllFarmers();
+      const farmers = await this.offlineStorage.getAllFarmers(this.currentOfflineOwnerKey());
       this.gpsFarmerMatches = farmers
         .map((farmer) => this.cachedFarmerToMatch(farmer, this.distanceKm(this.locationLat!, this.locationLon!, farmer.locationLat, farmer.locationLon)))
         .filter((farmer) => farmer.distanceKm !== null && farmer.distanceKm <= this.radiusKm)
@@ -1106,7 +1111,7 @@ export class AppComponent implements OnInit, OnDestroy {
           ? 'No downloaded farmer is near this GPS. You can search by name or continue Cattle Search without a farmer.'
           : 'No farmer data is stored on this phone. Tap Update Farmer Data when online. Cattle Search can still continue without a farmer.');
     } catch (error) {
-      const farmers = await this.offlineStorage.getAllFarmers().catch(() => []);
+      const farmers = await this.offlineStorage.getAllFarmers(this.currentOfflineOwnerKey()).catch(() => []);
       this.gpsFarmerMatches = farmers
         .map((farmer) => this.cachedFarmerToMatch(farmer, this.distanceKm(this.locationLat!, this.locationLon!, farmer.locationLat, farmer.locationLon)))
         .filter((farmer) => farmer.distanceKm !== null && farmer.distanceKm <= this.radiusKm)
@@ -1150,7 +1155,7 @@ export class AppComponent implements OnInit, OnDestroy {
       }
 
       const normalizedQuery = q.toLocaleLowerCase();
-      const farmers = await this.offlineStorage.getAllFarmers();
+      const farmers = await this.offlineStorage.getAllFarmers(this.currentOfflineOwnerKey());
       this.nameFarmerMatches = farmers
         .filter((farmer) => farmer.farmerId.toLocaleLowerCase().includes(normalizedQuery) || farmer.farmerName.toLocaleLowerCase().includes(normalizedQuery))
         .map((farmer) => this.cachedFarmerToMatch(
@@ -1167,7 +1172,7 @@ export class AppComponent implements OnInit, OnDestroy {
           : 'No farmer data is stored on this phone. Tap Update Farmer Data when online.');
     } catch (error) {
       const normalizedQuery = q.toLocaleLowerCase();
-      const farmers = await this.offlineStorage.getAllFarmers().catch(() => []);
+      const farmers = await this.offlineStorage.getAllFarmers(this.currentOfflineOwnerKey()).catch(() => []);
       this.nameFarmerMatches = farmers
         .filter((farmer) => farmer.farmerId.toLocaleLowerCase().includes(normalizedQuery) || farmer.farmerName.toLocaleLowerCase().includes(normalizedQuery))
         .map((farmer) => this.cachedFarmerToMatch(
@@ -2407,8 +2412,9 @@ export class AppComponent implements OnInit, OnDestroy {
     const cattleFoundIncorrect = reviewed.filter((review) => this.isCattleFoundIncorrect(review)).length;
     const noCattleFoundCorrect = reviewed.filter((review) => this.isNoCattleFoundCorrect(review)).length;
     const noCattleFoundIncorrect = reviewed.filter((review) => this.isNoCattleFoundIncorrect(review)).length;
-    const top1Correct = reviewed.filter((review) => this.isTopKCorrect(review, 1)).length;
-    const top5Correct = reviewed.filter((review) => this.isTopKCorrect(review, 5)).length;
+    const topKReviewed = reviewed.filter((review) => this.topKMetricApplies(review));
+    const top1Correct = topKReviewed.filter((review) => this.isTopKCorrect(review, 1)).length;
+    const top5Correct = topKReviewed.filter((review) => this.isTopKCorrect(review, 5)).length;
 
     return {
       registeredCattle: this.cattleStats?.uniqueCattleCount || this.cattleStats?.cattleCount || 0,
@@ -2420,8 +2426,8 @@ export class AppComponent implements OnInit, OnDestroy {
       noCattleFoundResults,
       noCattleFoundCorrect,
       noCattleFoundIncorrect,
-      top1Accuracy: this.percent(top1Correct, reviewed.length),
-      top5Accuracy: this.percent(top5Correct, reviewed.length),
+      top1Accuracy: this.percent(top1Correct, topKReviewed.length),
+      top5Accuracy: this.percent(top5Correct, topKReviewed.length),
       pendingReview: reviews.filter((review) => !this.isReviewedCattleSearch(review)).length
     };
   }
@@ -2441,8 +2447,9 @@ export class AppComponent implements OnInit, OnDestroy {
         const cattleFoundIncorrect = reviewed.filter((review) => this.isCattleFoundIncorrect(review)).length;
         const noCattleFoundCorrect = reviewed.filter((review) => this.isNoCattleFoundCorrect(review)).length;
         const noCattleFoundIncorrect = reviewed.filter((review) => this.isNoCattleFoundIncorrect(review)).length;
-        const top1Correct = reviewed.filter((review) => this.isTopKCorrect(review, 1)).length;
-        const top5Correct = reviewed.filter((review) => this.isTopKCorrect(review, 5)).length;
+        const topKReviewed = reviewed.filter((review) => this.topKMetricApplies(review));
+        const top1Correct = topKReviewed.filter((review) => this.isTopKCorrect(review, 1)).length;
+        const top5Correct = topKReviewed.filter((review) => this.isTopKCorrect(review, 5)).length;
         const avgScore = this.percent(searchReviews.reduce((total, review) => total + Number(review.confidence || 0), 0), searchReviews.length);
 
         return {
@@ -2453,8 +2460,8 @@ export class AppComponent implements OnInit, OnDestroy {
           cattleFoundIncorrect,
           noCattleFoundCorrect,
           noCattleFoundIncorrect,
-          top1Accuracy: this.percent(top1Correct, reviewed.length),
-          top5Accuracy: this.percent(top5Correct, reviewed.length),
+          top1Accuracy: this.percent(top1Correct, topKReviewed.length),
+          top5Accuracy: this.percent(top5Correct, topKReviewed.length),
           avgScore,
           captureQuality: this.captureQualityLabel(avgScore)
         };
@@ -2525,6 +2532,14 @@ export class AppComponent implements OnInit, OnDestroy {
     const expected = this.expectedCattleId(review);
     if (!expected) return false;
     return this.metricTopMatches(review).slice(0, k).some((match) => match.cattleId === expected);
+  }
+
+  topKMetricApplies(review: MatchReview): boolean {
+    const expected = this.expectedCattleId(review);
+    if (!expected || this.isNoCattleFoundCorrect(review)) return false;
+    return review.decision === 'matched_existing'
+      || this.isNoCattleFoundIncorrect(review)
+      || this.metricTopMatches(review).some((match) => match.cattleId === expected);
   }
 
   metricTopMatches(review: MatchReview): MatchReview['topMatches'] {

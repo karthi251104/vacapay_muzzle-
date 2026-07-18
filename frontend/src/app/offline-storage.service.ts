@@ -26,6 +26,7 @@ export interface PendingCapture {
 
 export interface CachedFarmer {
   key: string;
+  ownerKey?: string;
   farmerId: string;
   farmerName: string;
   locationLat: number | null;
@@ -38,7 +39,8 @@ export interface CachedFarmer {
 }
 
 export interface FarmerSyncInfo {
-  key: 'farmer_sync';
+  key: string;
+  ownerKey?: string;
   farmerCount: number;
   syncedAt: string;
   datasetVersion: string;
@@ -47,7 +49,7 @@ export interface FarmerSyncInfo {
 // New field-test cycle: do not sync stale captures left by earlier test builds.
 // Bump the database name whenever the server field data is deliberately reset.
 const DB_NAME = 'vacapay_offline_v3';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_NAME = 'pending_captures';
 const FARMER_STORE_NAME = 'farmers';
 const META_STORE_NAME = 'metadata';
@@ -81,6 +83,13 @@ export class OfflineStorageService {
           const farmerStore = db.createObjectStore(FARMER_STORE_NAME, { keyPath: 'key' });
           farmerStore.createIndex('farmerId', 'farmerId', { unique: false });
           farmerStore.createIndex('farmerName', 'farmerName', { unique: false });
+          farmerStore.createIndex('ownerKey', 'ownerKey', { unique: false });
+        } else {
+          const tx = (event.target as IDBOpenDBRequest).transaction;
+          const farmerStore = tx?.objectStore(FARMER_STORE_NAME);
+          if (farmerStore && !farmerStore.indexNames.contains('ownerKey')) {
+            farmerStore.createIndex('ownerKey', 'ownerKey', { unique: false });
+          }
         }
         if (!db.objectStoreNames.contains(META_STORE_NAME)) {
           db.createObjectStore(META_STORE_NAME, { keyPath: 'key' });
@@ -220,35 +229,64 @@ export class OfflineStorageService {
     await this.saveCapture(capture);
   }
 
-  async replaceFarmers(farmers: CachedFarmer[], info: Omit<FarmerSyncInfo, 'key'>): Promise<void> {
+  async replaceFarmers(ownerKey: string, farmers: CachedFarmer[], info: Omit<FarmerSyncInfo, 'key' | 'ownerKey'>): Promise<void> {
+    const safeOwnerKey = this.normalizeOwnerKey(ownerKey);
     const db = await this.dbReady;
     return new Promise((resolve, reject) => {
       const tx = db.transaction([FARMER_STORE_NAME, META_STORE_NAME], 'readwrite');
       const farmerStore = tx.objectStore(FARMER_STORE_NAME);
-      farmerStore.clear();
-      farmers.forEach((farmer) => farmerStore.put(farmer));
-      tx.objectStore(META_STORE_NAME).put({ key: 'farmer_sync', ...info } satisfies FarmerSyncInfo);
+      const readRequest = farmerStore.getAll();
+      readRequest.onsuccess = () => {
+        const existing = (readRequest.result || []) as CachedFarmer[];
+        existing
+          .filter((farmer) => !farmer.ownerKey || farmer.ownerKey === safeOwnerKey)
+          .forEach((farmer) => farmerStore.delete(farmer.key));
+        farmers.forEach((farmer) => farmerStore.put({
+          ...farmer,
+          key: this.scopedFarmerKey(safeOwnerKey, farmer.key || `${farmer.farmerId}:${farmer.farmerName}`),
+          ownerKey: safeOwnerKey
+        }));
+        tx.objectStore(META_STORE_NAME).put({ key: this.farmerSyncKey(safeOwnerKey), ownerKey: safeOwnerKey, ...info } satisfies FarmerSyncInfo);
+      };
+      readRequest.onerror = () => reject(new Error('Failed to update farmer data on this phone'));
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(new Error('Failed to update farmer data on this phone'));
       tx.onabort = () => reject(new Error('Farmer data update was cancelled'));
     });
   }
 
-  async getAllFarmers(): Promise<CachedFarmer[]> {
+  async getAllFarmers(ownerKey: string): Promise<CachedFarmer[]> {
+    const safeOwnerKey = this.normalizeOwnerKey(ownerKey);
     const db = await this.dbReady;
     return new Promise((resolve, reject) => {
       const request = db.transaction(FARMER_STORE_NAME, 'readonly').objectStore(FARMER_STORE_NAME).getAll();
-      request.onsuccess = () => resolve((request.result || []) as CachedFarmer[]);
+      request.onsuccess = () => resolve(((request.result || []) as CachedFarmer[])
+        .filter((farmer) => farmer.ownerKey === safeOwnerKey));
       request.onerror = () => reject(new Error('Failed to read farmer data from this phone'));
     });
   }
 
-  async getFarmerSyncInfo(): Promise<FarmerSyncInfo | undefined> {
+  async getFarmerSyncInfo(ownerKey: string): Promise<FarmerSyncInfo | undefined> {
+    const safeOwnerKey = this.normalizeOwnerKey(ownerKey);
     const db = await this.dbReady;
     return new Promise((resolve, reject) => {
-      const request = db.transaction(META_STORE_NAME, 'readonly').objectStore(META_STORE_NAME).get('farmer_sync');
+      const request = db.transaction(META_STORE_NAME, 'readonly').objectStore(META_STORE_NAME).get(this.farmerSyncKey(safeOwnerKey));
       request.onsuccess = () => resolve(request.result as FarmerSyncInfo | undefined);
       request.onerror = () => reject(new Error('Failed to read farmer update status'));
     });
+  }
+
+  private normalizeOwnerKey(ownerKey: string): string {
+    return String(ownerKey || 'unknown').trim().toLowerCase() || 'unknown';
+  }
+
+  private farmerSyncKey(ownerKey: string): string {
+    return `farmer_sync:${this.normalizeOwnerKey(ownerKey)}`;
+  }
+
+  private scopedFarmerKey(ownerKey: string, farmerKey: string): string {
+    const prefix = `${this.normalizeOwnerKey(ownerKey)}::`;
+    const rawKey = String(farmerKey || '').trim();
+    return rawKey.startsWith(prefix) ? rawKey : `${prefix}${rawKey}`;
   }
 }
