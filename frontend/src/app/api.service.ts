@@ -349,7 +349,7 @@ export class ApiService {
   private readonly mediaBaseUrl = String(this.runtimeConfig.mediaBaseUrl || this.baseUrl.replace(/\/api$/, '')).replace(/\/$/, '');
   private token = localStorage.getItem('vacapay_token') || '';
 
-  constructor(private readonly http: HttpClient) {}
+  constructor(private readonly http: HttpClient) { }
 
   login(identifier: string, password: string): Observable<{ token: string; user: AppUser }> {
     return this.http.post<{ token: string; user: AppUser }>(`${this.baseUrl}/auth/login`, { identifier, password });
@@ -394,6 +394,14 @@ export class ApiService {
 
   mergeCattleRecords(targetCattleId: string, sourceCattleIds: string[]): Observable<{ target: CattleSummary; mergedCattleIds: string[] }> {
     return this.http.post<{ target: CattleSummary; mergedCattleIds: string[] }>(`${this.baseUrl}/cattle/merge`, { targetCattleId, sourceCattleIds }, { headers: this.authHeaders() });
+  }
+
+  approveBlockedCattle(cattleId: string, reviewNotes?: string): Observable<{ cattle: CattleSummary; message: string }> {
+    return this.http.post<{ cattle: CattleSummary; message: string }>(
+      `${this.baseUrl}/cattle/${cattleId}/approve-blocked`,
+      { reviewNotes: reviewNotes || 'Admin confirmed this is a different cow.' },
+      { headers: this.authHeaders() }
+    );
   }
 
   listMatchReviews(uncertainOnly = true): Observable<{ reviews: MatchReview[] }> {

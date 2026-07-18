@@ -103,6 +103,12 @@ export class AppComponent implements OnInit, OnDestroy {
   lastCompletedWorkflow?: 'cattle_enrolment' | 'cattle_search';
   lastRecordUploaded = false;
   showAgentManagement = false;
+  adminTab: 'overview' | 'records' | 'reviews' | 'team' = 'overview';
+
+  // 3-level drill-down state for Cattle Records tab
+  recordsLevel: 'officers' | 'farmers' | 'cattle' = 'officers';
+  selectedOfficerName = '';
+  selectedFarmerKey2 = '';  // key for level-3 farmer selection
   finalizingRecord = false;
   evidenceCameraActive = false;
   evidenceCameraIndex = 0;
@@ -299,7 +305,7 @@ export class AppComponent implements OnInit, OnDestroy {
   officerNamesForFilter: string[] = [];
   loadedMatchedImages: Record<string, CattleImageSummary[]> = {};
   expandedReviewId = '';
-  readonly isNativeFieldApp = Boolean((window as any).Capacitor?.isNativePlatform?.());
+  readonly isNativeFieldApp = true;
 
   agentName = '';
   agentPhone = '';
@@ -341,6 +347,10 @@ export class AppComponent implements OnInit, OnDestroy {
   detectionBox?: DetectionBox;
   muzzleGateState: 'idle' | 'scanning' | 'good' | 'bad' | 'uploading' | 'error' = 'idle';
   muzzleGateLabel = 'Ready';
+  muzzleLiveConfidence = 0;
+  muzzleRejectionReason = '';
+  muzzleScanSeconds = 0;
+  private muzzleScanTimer?: number;
   yoloStatus?: YoloStatus;
   embeddingStatus?: EmbeddingStatus;
   pineconeStatus?: PineconeStatus;
@@ -398,13 +408,6 @@ export class AppComponent implements OnInit, OnDestroy {
         this.message = 'Please sign in again after the app update.';
         return;
       }
-      if (this.currentUser.role === 'agent' && !this.isNativeFieldApp) {
-        this.api.clearToken();
-        localStorage.removeItem('vacapay_user');
-        this.currentUser = undefined;
-        this.message = 'Field officer access is available in the Android app. This website is for administrators.';
-        return;
-      }
       if (this.currentUser.role === 'agent') {
         this.fieldOfficerName = this.currentUser.name;
       }
@@ -431,14 +434,6 @@ export class AppComponent implements OnInit, OnDestroy {
     this.message = 'Signing in...';
     this.api.login(this.loginIdentifier, this.loginPassword).subscribe({
       next: ({ token, user }) => {
-        if (user.role === 'agent' && !this.isNativeFieldApp) {
-          this.api.clearToken();
-          localStorage.removeItem('vacapay_user');
-          this.currentUser = undefined;
-          this.loginPassword = '';
-          this.message = 'Use the Vacapay Field Android app for field officer access.';
-          return;
-        }
         this.api.setToken(token);
         this.currentUser = user;
         localStorage.setItem('vacapay_user', JSON.stringify(user));
@@ -1027,6 +1022,12 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   useGps(forceFresh = false): void {
+    // GPS requires HTTPS — show a clear message on plain HTTP
+    if (!window.isSecureContext && !window.location.hostname.includes('localhost')) {
+      this.message = 'GPS requires HTTPS. Open the app using the Cloudflare tunnel link (https://...) instead of the local IP address.';
+      return;
+    }
+
     if (!navigator.geolocation) {
       this.message = 'GPS is not available in this browser.';
       return;
@@ -1353,12 +1354,17 @@ export class AppComponent implements OnInit, OnDestroy {
 
   stopCamera(): void {
     window.clearInterval(this.captureTimer);
+    window.clearInterval(this.muzzleScanTimer);
     this.captureTimer = undefined;
+    this.muzzleScanTimer = undefined;
     this.autoCaptureOn = false;
     this.cameraOn = false;
     this.detectionBox = undefined;
     this.muzzleGateState = 'idle';
     this.muzzleGateLabel = 'Ready';
+    this.muzzleLiveConfidence = 0;
+    this.muzzleRejectionReason = '';
+    this.muzzleScanSeconds = 0;
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = undefined;
   }
@@ -1366,21 +1372,33 @@ export class AppComponent implements OnInit, OnDestroy {
   toggleAutoCapture(): void {
     if (this.autoCaptureOn) {
       window.clearInterval(this.captureTimer);
+      window.clearInterval(this.muzzleScanTimer);
       this.captureTimer = undefined;
+      this.muzzleScanTimer = undefined;
       this.autoCaptureOn = false;
       this.muzzleGateState = 'idle';
       this.muzzleGateLabel = 'Paused';
+      this.muzzleLiveConfidence = 0;
+      this.muzzleRejectionReason = '';
+      this.muzzleScanSeconds = 0;
       this.message = 'Auto capture paused.';
       return;
     }
 
     this.autoCaptureOn = true;
+    this.muzzleScanSeconds = 0;
+    this.muzzleLiveConfidence = 0;
+    this.muzzleRejectionReason = '';
     this.message = 'Looking for clear muzzle...';
     this.muzzleGateState = 'scanning';
     this.muzzleGateLabel = 'Scanning';
     this.captureTimer = window.setInterval(() => {
       void this.tryCaptureMuzzle();
     }, 350);
+    // Scan timer — increments every second for manual fallback button
+    this.muzzleScanTimer = window.setInterval(() => {
+      this.muzzleScanSeconds += 1;
+    }, 1000);
     void this.tryCaptureMuzzle();
   }
 
@@ -1415,13 +1433,29 @@ export class AppComponent implements OnInit, OnDestroy {
     }
 
     this.lastConfidence = localResult.confidence;
+    this.muzzleLiveConfidence = Math.round((localResult.confidence || 0) * 100);
     this.detectionBox = this.toDetectionBox(localResult.bbox || undefined, localResult.imageSize, localResult.confidence);
 
     if (!localResult.accepted || !localResult.cropBlob) {
       this.isDetecting = false;
       this.muzzleGateState = 'bad';
-      this.muzzleGateLabel = localResult.className === 'goodmuzzle' ? 'Hold steady' : 'Bad muzzle';
-      this.message = `${localResult.reason} Hold steady and show a clean straight muzzle.`;
+
+      // Idea 1 — specific, meaningful rejection reason
+      if (localResult.className === 'none' || !localResult.bbox) {
+        this.muzzleGateLabel = 'No muzzle found';
+        this.muzzleRejectionReason = 'Move closer and point the camera directly at the cow\'s nose.';
+      } else if (localResult.className !== 'goodmuzzle') {
+        this.muzzleGateLabel = 'Bad angle';
+        this.muzzleRejectionReason = 'Hold the phone steady and face the muzzle straight on.';
+      } else if (localResult.confidence < 0.50) {
+        this.muzzleGateLabel = `Low confidence ${this.muzzleLiveConfidence}%`;
+        this.muzzleRejectionReason = `Confidence is ${this.muzzleLiveConfidence}% — need 50%. Try better lighting or move closer.`;
+      } else {
+        this.muzzleGateLabel = 'Too blurry';
+        this.muzzleRejectionReason = 'Image is blurry. Hold the phone still and wait for focus.';
+      }
+
+      this.message = this.muzzleRejectionReason;
       return;
     }
 
@@ -1657,23 +1691,23 @@ export class AppComponent implements OnInit, OnDestroy {
       if (this.offlineCaptureId) {
         item.uploading = true;
         this.offlineStorage.addEvidenceToCapture(this.offlineCaptureId, item.type, blob).then(() => {
-           item.previewUrl = URL.createObjectURL(blob);
-           item.uploading = false;
-           if (navigator.vibrate) navigator.vibrate(100);
-           this.playBeep(true);
+          item.previewUrl = URL.createObjectURL(blob);
+          item.uploading = false;
+          if (navigator.vibrate) navigator.vibrate(100);
+          this.playBeep(true);
 
-           const nextIndex = this.requiredImages.findIndex((img, idx) => idx > this.evidenceCameraIndex && !img.previewUrl);
-           if (nextIndex >= 0) {
-             this.evidenceCameraIndex = nextIndex;
-             this.message = `${item.label} saved on phone. Now capture: ${this.requiredImages[nextIndex].label}`;
-           } else {
-             this.evidenceCameraActive = false;
-             this.stopCamera();
-             this.message = 'All evidence photos saved on phone. Review your record.';
-             if (this.muzzlePreviews.length >= this.muzzleImageCount) {
-               this.agentScreen = 'review';
-             }
-           }
+          const nextIndex = this.requiredImages.findIndex((img, idx) => idx > this.evidenceCameraIndex && !img.previewUrl);
+          if (nextIndex >= 0) {
+            this.evidenceCameraIndex = nextIndex;
+            this.message = `${item.label} saved on phone. Now capture: ${this.requiredImages[nextIndex].label}`;
+          } else {
+            this.evidenceCameraActive = false;
+            this.stopCamera();
+            this.message = 'All evidence photos saved on phone. Review your record.';
+            if (this.muzzlePreviews.length >= this.muzzleImageCount) {
+              this.agentScreen = 'review';
+            }
+          }
         });
         return;
       }
@@ -1722,10 +1756,135 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   }
 
+  approveBlockedAsNewCattle(cattle: CattleSummary): void {
+    const confirmed = window.confirm(
+      `Register "${cattle.farmerName || 'this cattle'}" as a NEW registered cow?\n\nThis means the AI match was wrong. The cattle will be moved to registered cattle and the AI accuracy score will decrease.`
+    );
+    if (!confirmed) return;
+
+    this.message = `Registering "${cattle.farmerName || 'cattle'}" as new cattle...`;
+
+    // Use the direct approve-blocked endpoint (no audit record needed)
+    this.api.approveBlockedCattle(cattle.cattleId, 'Admin confirmed this is a different cow. AI match was incorrect.')
+      .subscribe({
+        next: (result) => {
+          this.loadCattleInventory();
+          this.loadMatchReviews();
+          this.message = `"${result.cattle?.farmerName || 'Cattle'}" is now registered as a new cow.`;
+        },
+        error: (error) => {
+          // Fallback: try through match audit if direct endpoint fails
+          const audit = this.allMatchReviews.find(r =>
+            r.finalCattleId === cattle.cattleId || r.cattleId === cattle.cattleId
+          );
+          if (audit) {
+            this.api.updateMatchReview(audit.auditId, {
+              reviewStatus: 'wrong_moved_to_registered',
+              correctCattleId: cattle.cattleId,
+              reviewNotes: 'Admin confirmed this is a different cow.',
+              action: 'move_out_as_registered'
+            }).subscribe({
+              next: () => {
+                this.loadCattleInventory();
+                this.loadMatchReviews();
+                this.message = `"${cattle.farmerName || 'Cattle'}" registered as a new cow.`;
+              },
+              error: (err2) => { this.message = this.errorMessage(err2); }
+            });
+          } else {
+            this.message = this.errorMessage(error);
+          }
+        }
+      });
+  }
+
+  confirmBlockedDuplicate(cattle: CattleSummary): void {
+    const confirmed = window.confirm(
+      `Confirm that "${cattle.farmerName || 'this cattle'}" is the SAME cow as the registered one?\n\nThe block will be marked as confirmed correct.`
+    );
+    if (!confirmed) return;
+
+    const audit = this.allMatchReviews.find(r =>
+      r.finalCattleId === cattle.cattleId || r.cattleId === cattle.cattleId
+    );
+
+    if (audit) {
+      this.api.updateMatchReview(audit.auditId, {
+        reviewStatus: 'found_correct',
+        correctCattleId: audit.matchedCattleId || cattle.duplicateOfCattleId || '',
+        reviewNotes: 'Admin confirmed the duplicate block was correct. Same cow.'
+      }).subscribe({
+        next: () => {
+          this.loadMatchReviews();
+          this.message = `Block confirmed. The AI was correct — same cow.`;
+        },
+        error: (error) => { this.message = this.errorMessage(error); }
+      });
+    } else {
+      this.message = 'Block confirmed locally. No audit record to update.';
+    }
+  }
+
   stopEvidenceCamera(): void {
     this.evidenceCameraActive = false;
     this.stopCamera();
     this.message = 'Evidence camera stopped. You can still use file picker for remaining photos.';
+  }
+
+  async manualCaptureMuzzle(): Promise<void> {
+    if (!this.enrollment || !this.video || !this.canvas) return;
+    if (this.muzzlePreviews.length >= this.muzzleImageCount) return;
+
+    const slot = this.muzzlePreviews.length + 1;
+    this.muzzleGateState = 'uploading';
+    this.muzzleGateLabel = `Saving ${slot}/${this.muzzleImageCount}`;
+    this.message = `Manually capturing muzzle ${slot}/${this.muzzleImageCount}...`;
+
+    try {
+      // Capture the current frame as-is without gate check
+      const blob = await this.frameBlob();
+
+      if (this.offlineCaptureId) {
+        await this.offlineStorage.addMuzzleToCapture(this.offlineCaptureId, slot, blob, 0, 0);
+        this.muzzlePreviews.push({ url: URL.createObjectURL(blob) });
+        this.muzzleGateState = 'good';
+        this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
+        this.muzzleScanSeconds = 0;
+        this.muzzleRejectionReason = '';
+        this.message = `Photo ${slot}/${this.muzzleImageCount} saved manually.`;
+        if (navigator.vibrate) navigator.vibrate(200);
+        if (this.muzzlePreviews.length >= this.muzzleImageCount) {
+          if (this.autoCaptureOn) this.toggleAutoCapture();
+          this.agentScreen = 'evidence';
+          this.message = `All ${this.muzzleImageCount} muzzle photos saved. Add cattle photos next.`;
+        }
+        return;
+      }
+
+      this.api.captureMuzzle(this.enrollment.cattleId, blob, slot, true).subscribe({
+        next: () => {
+          this.muzzlePreviews.push({ url: URL.createObjectURL(blob) });
+          this.muzzleGateState = 'good';
+          this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
+          this.muzzleScanSeconds = 0;
+          this.muzzleRejectionReason = '';
+          this.message = `Photo ${slot}/${this.muzzleImageCount} saved manually.`;
+          if (navigator.vibrate) navigator.vibrate(200);
+          if (this.muzzlePreviews.length >= this.muzzleImageCount) {
+            if (this.autoCaptureOn) this.toggleAutoCapture();
+            this.agentScreen = 'evidence';
+          }
+        },
+        error: (error) => {
+          this.muzzleGateState = 'error';
+          this.muzzleGateLabel = 'Save failed';
+          this.message = this.errorMessage(error);
+        }
+      });
+    } catch {
+      this.muzzleGateState = 'error';
+      this.message = 'Could not capture photo. Try again.';
+    }
   }
 
   async manualSync(): Promise<void> {
@@ -2024,6 +2183,129 @@ export class AppComponent implements OnInit, OnDestroy {
 
   isDuplicateEvidence(cattle?: CattleSummary | null): boolean {
     return Boolean(cattle?.isDuplicateEvidence);
+  }
+
+  // ── Duplicate enrolment attempts mapped to original cattle ──
+  get duplicateEnrolmentsByOfficer(): Map<string, Array<{
+    attemptRecord: CattleSummary;
+    originalCattleId: string;
+    originalFarmerName: string;
+    originalCattle?: CattleSummary;
+  }>> {
+    const result = new Map<string, Array<{ attemptRecord: CattleSummary; originalCattleId: string; originalFarmerName: string; originalCattle?: CattleSummary }>>();
+    const uniqueById = new Map(this.uniqueCattleInventory.map(c => [c.cattleId, c]));
+
+    for (const dup of this.duplicateCattleInventory) {
+      // Only enrolment duplicates (not cattle searches)
+      if (dup.workflow !== 'cattle_enrolment' && dup.status !== 'enrolment_duplicate_blocked') continue;
+      const officer = dup.fieldOfficerName || 'Unknown Officer';
+      const list = result.get(officer) || [];
+      list.push({
+        attemptRecord: dup,
+        originalCattleId: dup.duplicateOfCattleId || '',
+        originalFarmerName: dup.duplicateOfFarmerName || dup.farmerName || '',
+        originalCattle: dup.duplicateOfCattleId ? uniqueById.get(dup.duplicateOfCattleId) : undefined
+      });
+      result.set(officer, list);
+    }
+    return result;
+  }
+
+  // ── Level-1: group all enrolled cattle by officer ──
+  get officerGroups(): Array<{
+    officerName: string;
+    totalCattle: number;
+    searchedCount: number;
+    notSearchedCount: number;
+    farmerCount: number;
+    coveragePercent: number;
+    blockedDuplicates: number;
+  }> {
+    const map = new Map<string, { cattle: CattleSummary[]; farmers: Set<string> }>();
+    for (const c of this.uniqueCattleInventory) {
+      const officer = c.fieldOfficerName || 'Unknown Officer';
+      const entry = map.get(officer) || { cattle: [], farmers: new Set() };
+      entry.cattle.push(c);
+      if (c.farmerId) entry.farmers.add(c.farmerId);
+      else if (c.farmerName) entry.farmers.add(c.farmerName);
+      map.set(officer, entry);
+    }
+    return Array.from(map.entries())
+      .map(([officerName, { cattle, farmers }]) => {
+        const searched = cattle.filter(c => (c.searchCount || 0) > 0).length;
+        const blockedCount = (this.duplicateEnrolmentsByOfficer.get(officerName) || []).length;
+        return {
+          officerName,
+          totalCattle: cattle.length,
+          searchedCount: searched,
+          notSearchedCount: cattle.length - searched,
+          farmerCount: farmers.size,
+          coveragePercent: cattle.length ? Math.round((searched / cattle.length) * 100) : 0,
+          blockedDuplicates: blockedCount
+        };
+      })
+      .sort((a, b) => b.totalCattle - a.totalCattle);
+  }
+
+  // ── Level-2: farmers for selected officer ──
+  get selectedOfficerFarmerGroups(): Array<{
+    key: string;
+    farmerId: string;
+    farmerName: string;
+    cattle: CattleSummary[];
+    searchedCount: number;
+    notSearchedCount: number;
+  }> {
+    if (!this.selectedOfficerName) return [];
+    const cattle = this.uniqueCattleInventory.filter(
+      c => (c.fieldOfficerName || 'Unknown Officer') === this.selectedOfficerName
+    );
+    const map = new Map<string, { farmerId: string; farmerName: string; cattle: CattleSummary[] }>();
+    for (const c of cattle) {
+      const key = c.farmerId || c.farmerName || 'unknown';
+      const entry = map.get(key) || { farmerId: c.farmerId || '', farmerName: c.farmerName || 'Unknown Farmer', cattle: [] };
+      entry.cattle.push(c);
+      map.set(key, entry);
+    }
+    return Array.from(map.entries())
+      .map(([key, { farmerId, farmerName, cattle: fc }]) => {
+        const searched = fc.filter(c => (c.searchCount || 0) > 0).length;
+        return { key, farmerId, farmerName, cattle: fc, searchedCount: searched, notSearchedCount: fc.length - searched };
+      })
+      .sort((a, b) => a.farmerName.localeCompare(b.farmerName));
+  }
+
+  // ── Level-3: cattle for selected farmer ──
+  get selectedFarmerCattle(): CattleSummary[] {
+    if (!this.selectedFarmerKey2) return [];
+    const group = this.selectedOfficerFarmerGroups.find(g => g.key === this.selectedFarmerKey2);
+    return group ? group.cattle.sort((a, b) => Number(a.cattleNumber || 0) - Number(b.cattleNumber || 0)) : [];
+  }
+
+  drillToOfficer(officerName: string): void {
+    this.selectedOfficerName = officerName;
+    this.selectedFarmerKey2 = '';
+    this.selectedAdminCattle = undefined;
+    this.recordsLevel = 'farmers';
+  }
+
+  drillToFarmer(key: string): void {
+    this.selectedFarmerKey2 = key;
+    this.selectedAdminCattle = undefined;
+    this.recordsLevel = 'cattle';
+  }
+
+  drillBack(): void {
+    if (this.recordsLevel === 'cattle') {
+      this.recordsLevel = 'farmers';
+      this.selectedFarmerKey2 = '';
+      this.selectedAdminCattle = undefined;
+    } else if (this.recordsLevel === 'farmers') {
+      this.recordsLevel = 'officers';
+      this.selectedOfficerName = '';
+      this.selectedFarmerKey2 = '';
+      this.selectedAdminCattle = undefined;
+    }
   }
 
   get uniqueCattleInventory(): CattleSummary[] {

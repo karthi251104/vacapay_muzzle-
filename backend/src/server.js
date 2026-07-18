@@ -75,13 +75,13 @@ function resolvePythonBin() {
 
   const candidates = process.platform === 'win32'
     ? [
-        path.join(rootDir, '.venv-llm-muzzle', 'Scripts', 'python.exe'),
-        path.join(rootDir, '.venv', 'Scripts', 'python.exe')
-      ]
+      path.join(rootDir, '.venv-llm-muzzle', 'Scripts', 'python.exe'),
+      path.join(rootDir, '.venv', 'Scripts', 'python.exe')
+    ]
     : [
-        path.join(rootDir, '.venv-llm-muzzle', 'bin', 'python'),
-        path.join(rootDir, '.venv', 'bin', 'python')
-      ];
+      path.join(rootDir, '.venv-llm-muzzle', 'bin', 'python'),
+      path.join(rootDir, '.venv', 'bin', 'python')
+    ];
 
   return candidates.find((candidate) => existsSync(candidate)) || 'python';
 }
@@ -170,7 +170,7 @@ console.log('Storage setup complete.');
 
 function withWriteLock(fn) {
   const next = writeLock.then(fn, fn);
-  writeLock = next.catch(() => {});
+  writeLock = next.catch(() => { });
   return next;
 }
 
@@ -776,7 +776,7 @@ app.post('/api/cattle/merge', requireAuth, requireAdmin, async (req, res, next) 
       rows[sourceIndex] = null;
       mergedIds.push(sourceId);
 
-      await fs.rm(path.join(dataDir, sourceId), { recursive: true, force: true }).catch(() => {});
+      await fs.rm(path.join(dataDir, sourceId), { recursive: true, force: true }).catch(() => { });
     }
 
     if (!mergedIds.length) {
@@ -795,6 +795,74 @@ app.post('/api/cattle/merge', requireAuth, requireAdmin, async (req, res, next) 
 
     await writeMetadata(rows.filter(Boolean));
     res.json({ target: toCattleSummary(targetRow), mergedCattleIds: mergedIds });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Approve a blocked duplicate enrolment as new registered cattle ──
+app.post('/api/cattle/:cattleId/approve-blocked', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const cattleId = safeCattleId(req.params.cattleId);
+    const reviewNotes = String(req.body.reviewNotes || 'Admin confirmed this is a different cow. AI match was incorrect.');
+
+    const rows = await readMetadata();
+    const rowIndex = rows.findIndex((r) => normalizeRecord(r)?.cattleId === cattleId);
+    if (rowIndex < 0) {
+      res.status(404).json({ error: 'Cattle record not found.' });
+      return;
+    }
+
+    const row = normalizeRecord(rows[rowIndex]);
+    if (!row) {
+      res.status(404).json({ error: 'Could not read cattle record.' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const previousMatchedId = row.duplicateOfCattleId || null;
+
+    // Clear duplicate flags and promote to registered cattle
+    delete row.duplicateOfCattleId;
+    delete row.duplicateOfFarmerName;
+    row.status = 'ready_for_embedding';
+    row.uploadDateTime = now;
+    row.adminCorrection = {
+      action: 'approve_blocked_as_new',
+      reviewedAt: now,
+      reviewedBy: req.user?.userId || req.user?.name || '',
+      reviewNotes,
+      previousMatchedCattleId: previousMatchedId
+    };
+
+    for (const session of row.sessions || []) {
+      if (session.matchResult?.duplicateSavedSeparately) {
+        session.status = 'ready_for_embedding';
+        session.matchResult = {
+          ...session.matchResult,
+          resolved: true,
+          decision: 'new_cattle',
+          duplicateSavedSeparately: false,
+          matchedCattleId: null,
+          duplicateOfCattleId: null,
+          duplicateOfFarmerName: '',
+          adminCorrection: row.adminCorrection,
+          correctedAt: now
+        };
+      }
+    }
+
+    rows[rowIndex] = row;
+    await writeMetadata(rows);
+
+    if (mongoDb) {
+      await mongoDb.collection('cattle').updateOne(
+        { cattleId },
+        { $set: { status: row.status, adminCorrection: row.adminCorrection, uploadDateTime: now, duplicateOfCattleId: null, duplicateOfFarmerName: null } }
+      );
+    }
+
+    res.json({ cattle: toCattleSummary(row), message: 'Cattle approved as new registered record.' });
   } catch (error) {
     next(error);
   }
@@ -934,7 +1002,7 @@ app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'
     const clientProcessed = ['true', '1', 'yes'].includes(String(req.body.clientProcessed || req.body.preprocessed || '').toLowerCase());
     const outPath = path.join(folder, fileName);
     if (!clientProcessed) {
-      await fs.unlink(req.file.path).catch(() => {});
+      await fs.unlink(req.file.path).catch(() => { });
       res.status(422).json({
         error: 'Upload rejected. Muzzle images must pass the phone TFLite check, crop and CLAHE before upload.'
       });
@@ -943,12 +1011,12 @@ app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'
     const result = await saveClientProcessedMuzzle(req.file.path, outPath);
 
     if (!result.detected) {
-      await fs.unlink(req.file.path).catch(() => {});
+      await fs.unlink(req.file.path).catch(() => { });
       res.status(422).json({ error: 'Muzzle not detected clearly. Retake the image.', result });
       return;
     }
 
-    await fs.unlink(req.file.path).catch(() => {});
+    await fs.unlink(req.file.path).catch(() => { });
     const previewUrl = `/media/${mediaPrefix}/${fileName}`;
     const imageRef = await saveImageReference({
       cattleId,
@@ -1000,7 +1068,7 @@ app.post('/api/enrollments/:cattleId/images', requireAuth, upload.single('image'
     const outPath = path.join(folder, fileName);
 
     await resizeAndSave(req.file.path, outPath);
-    await fs.unlink(req.file.path).catch(() => {});
+    await fs.unlink(req.file.path).catch(() => { });
     const previewUrl = `/media/${mediaPrefix}/${fileName}`;
     const imageRef = await saveImageReference({
       cattleId: cattleIdSafe,
@@ -2781,7 +2849,7 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos(degreesToRadians(lat1)) * Math.cos(degreesToRadians(lat2)) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
   return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 

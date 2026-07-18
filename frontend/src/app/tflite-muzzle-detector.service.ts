@@ -479,7 +479,7 @@ export class TfliteMuzzleDetectorService {
         for (let y = startY; y < endY; y++) {
           for (let x = startX; x < endX; x++) {
             const idx = (y * width + x) * 4;
-            const luma = Math.round(0.299 * data[idx] + 0.587 * data[idx+1] + 0.114 * data[idx+2]);
+            const luma = Math.round(0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]);
             hist[Math.min(255, Math.max(0, luma))]++;
             count++;
           }
@@ -509,8 +509,8 @@ export class TfliteMuzzleDetectorService {
       for (let x = 0; x < width; x++) {
         const idx = (y * width + x) * 4;
         const r = data[idx];
-        const g = data[idx+1];
-        const b = data[idx+2];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
         const luma = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
         const lumaClamped = Math.min(255, Math.max(0, luma));
 
@@ -536,8 +536,8 @@ export class TfliteMuzzleDetectorService {
 
         const factor = mappedLuma * 255 / (luma + 0.001);
         data[idx] = Math.min(255, Math.max(0, r * factor));
-        data[idx+1] = Math.min(255, Math.max(0, g * factor));
-        data[idx+2] = Math.min(255, Math.max(0, b * factor));
+        data[idx + 1] = Math.min(255, Math.max(0, g * factor));
+        data[idx + 2] = Math.min(255, Math.max(0, b * factor));
       }
     }
 
