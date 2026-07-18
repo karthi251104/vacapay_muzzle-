@@ -914,7 +914,7 @@
                     </svg></span>
                 <span class="fh-action-body">
                     <strong>Add Another Cow</strong>
-                    <small>Same farmer, enrolling a new cow</small>
+                    <small>Different cow under one of your saved farmers</small>
                 </span>
             </button>
 
@@ -942,15 +942,15 @@
 
             <!-- Stats row -->
             <div class="fh-stats">
-                <div><strong>{{ cattleStats?.farmerCount || 0 }}</strong><small>Farmers</small></div>
-                <div><strong>{{ cattleStats?.uniqueCattleCount || 0 }}</strong><small>Cows Enrolled</small></div>
-                <div><strong>{{ cattleStats?.cattleSearchCount || 0 }}</strong><small>Searches</small></div>
+                <div><strong>{{ cattleStats?.farmerCount || 0 }}</strong><small>My Farmers</small></div>
+                <div><strong>{{ cattleStats?.uniqueCattleCount || 0 }}</strong><small>My Cows</small></div>
+                <div><strong>{{ cattleStats?.cattleSearchCount || 0 }}</strong><small>My Searches</small></div>
                 <div><strong>{{ pendingSyncCount }}</strong><small>Pending Upload</small></div>
             </div>
 
             <!-- Enrolled cattle (collapsed) -->
             <details class="fh-details" *ngIf="farmerCattleGroups.length">
-                <summary>View enrolled cattle ({{ registeredCattleCount }})</summary>
+                <summary>View my enrolled cattle ({{ registeredCattleCount }})</summary>
                 <div class="fh-farmer-list">
                     <div class="fh-farmer" *ngFor="let group of farmerCattleGroups">
                         <div class="fh-farmer-head">

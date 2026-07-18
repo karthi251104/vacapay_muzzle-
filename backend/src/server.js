@@ -338,9 +338,9 @@ app.get('/api/agents', requireAuth, requireAdmin, async (_req, res, next) => {
   }
 });
 
-app.get('/api/farmers/sync', requireAuth, async (_req, res, next) => {
+app.get('/api/farmers/sync', requireAuth, async (req, res, next) => {
   try {
-    const rows = (await readCleanMetadata()).filter(isRegisteredInventoryRecord);
+    const rows = filterRowsForUser((await readCleanMetadata()).filter(isRegisteredInventoryRecord), req.user);
     const groups = new Map();
 
     for (const row of rows) {
@@ -507,7 +507,7 @@ app.get('/api/farmers', requireAuth, async (req, res, next) => {
     const lon = Number(req.query.lon);
     const radiusKm = Number(req.query.radiusKm || 7);
     const hasLocation = Number.isFinite(lat) && Number.isFinite(lon);
-    const rows = (await readCleanMetadata()).filter(isRegisteredInventoryRecord);
+    const rows = filterRowsForUser((await readCleanMetadata()).filter(isRegisteredInventoryRecord), req.user);
     const groups = new Map();
 
     for (const row of rows) {
@@ -581,7 +581,7 @@ app.get('/api/cattle/search', requireAuth, async (req, res, next) => {
       return;
     }
 
-    const rows = (await readCleanMetadata()).filter(isRegisteredInventoryRecord);
+    const rows = filterRowsForUser((await readCleanMetadata()).filter(isRegisteredInventoryRecord), req.user);
 
     const ownerNumberMap = buildOwnerCattleNumberMap(rows);
 
@@ -634,8 +634,11 @@ app.get('/api/cattle/search', requireAuth, async (req, res, next) => {
 
 app.get('/api/cattle', requireAuth, async (req, res, next) => {
   try {
-    const rows = (await readCleanMetadata()).filter(isVisibleInventoryRecord);
-    const audits = (await readMatchAudits()).filter((audit) => audit.workflow === 'cattle_search');
+    const rows = filterRowsForUser((await readCleanMetadata()).filter(isVisibleInventoryRecord), req.user);
+    const audits = filterAuditsForUser(
+      (await readMatchAudits()).filter((audit) => audit.workflow === 'cattle_search'),
+      req.user
+    );
     const reviewedStatuses = new Set([
       'confirmed', 'found_correct', 'found_incorrect', 'no_cattle_correct',
       'no_cattle_incorrect', 'wrong_moved_to_registered'
@@ -969,6 +972,13 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
     const workflow = normalizeWorkflow(req.body.workflow, existing ? 'cattle_search' : 'cattle_enrolment');
     const rootFolder = path.join(dataDir, cattleId);
 
+    if (existing && !userOwnsRecord(req.user, existing)) {
+      res.status(403).json({
+        error: 'This cattle record belongs to another field officer. Select your saved farmer/cow or use Cattle Search.'
+      });
+      return;
+    }
+
     const record = existing || {
       cattleId,
       farmerId: '',
@@ -1016,8 +1026,9 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
           ? (likelyExistingFarmer?.farmerId || safeRequestedFarmerId || generateUniqueFarmerId(rows))
           : (safeRequestedFarmerId || likelyExistingFarmer?.farmerId || generateUniqueFarmerId(rows))));
     record.farmerName = requestedFarmerName;
-    record.fieldOfficerName = req.body.fieldOfficerName || record.fieldOfficerName || '';
-    record.fieldOfficerId = req.body.fieldOfficerId || record.fieldOfficerId || '';
+    const officer = fieldOfficerFromUser(req.user, req.body);
+    record.fieldOfficerName = officer.fieldOfficerName || record.fieldOfficerName || '';
+    record.fieldOfficerId = officer.fieldOfficerId || record.fieldOfficerId || '';
     record.locationLat = requestLat;
     record.locationLon = requestLon;
     record.locationAccuracyM = Number.isFinite(requestAccuracy) ? requestAccuracy : null;
@@ -1533,6 +1544,74 @@ function requireAdmin(req, res, next) {
   }
 
   next();
+}
+
+function isAdminUser(user) {
+  return user?.role === 'admin';
+}
+
+function fieldOfficerFromUser(user, body = {}) {
+  if (isAdminUser(user)) {
+    return {
+      fieldOfficerId: String(body.fieldOfficerId || user?.agentId || user?.userId || user?.phone || '').trim(),
+      fieldOfficerName: String(body.fieldOfficerName || user?.name || '').trim()
+    };
+  }
+
+  return {
+    fieldOfficerId: String(user?.agentId || user?.userId || user?.phone || '').trim(),
+    fieldOfficerName: String(user?.name || '').trim()
+  };
+}
+
+function userOwnsRecord(user, row) {
+  if (isAdminUser(user)) return true;
+  if (!user || !row) return false;
+
+  const userIds = [
+    user.agentId,
+    user.userId,
+    user.phone
+  ].map(normalizeSearchText).filter(Boolean);
+  const userName = normalizeSearchText(user.name);
+  const recordIds = [
+    row.fieldOfficerId,
+    row.officerId,
+    row.agentId
+  ].map(normalizeSearchText).filter(Boolean);
+  const recordName = normalizeSearchText(row.fieldOfficerName || row.officerName || row.agentName);
+
+  return recordIds.some((id) => userIds.includes(id)) || Boolean(userName && recordName && userName === recordName);
+}
+
+function userOwnsAudit(user, audit) {
+  if (isAdminUser(user)) return true;
+  if (!user || !audit) return false;
+
+  const userIds = [
+    user.agentId,
+    user.userId,
+    user.phone
+  ].map(normalizeSearchText).filter(Boolean);
+  const userName = normalizeSearchText(user.name);
+  const auditIds = [
+    audit.fieldOfficerId,
+    audit.officerId,
+    audit.agentId
+  ].map(normalizeSearchText).filter(Boolean);
+  const auditName = normalizeSearchText(audit.fieldOfficerName || audit.officerName || audit.agentName);
+
+  return auditIds.some((id) => userIds.includes(id)) || Boolean(userName && auditName && userName === auditName);
+}
+
+function filterRowsForUser(rows, user) {
+  if (isAdminUser(user)) return rows;
+  return rows.filter((row) => userOwnsRecord(user, row));
+}
+
+function filterAuditsForUser(audits, user) {
+  if (isAdminUser(user)) return audits;
+  return audits.filter((audit) => userOwnsAudit(user, audit));
 }
 
 function toPublicUser(user) {
