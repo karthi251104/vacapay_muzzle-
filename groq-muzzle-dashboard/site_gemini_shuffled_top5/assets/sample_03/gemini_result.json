@@ -1,0 +1,30 @@
+{
+  "selected_class": "class_000015",
+  "confidence": "high",
+  "reason": "The query muzzle and class_000015 share an identical central groove shape that branches upwards, along with very similar radiating, wavy texture ridges and overall skin pattern.",
+  "match_boxes": [
+    {
+      "label": "query matching pattern",
+      "box": [
+        180,
+        150,
+        150,
+        200
+      ]
+    },
+    {
+      "label": "candidate matching pattern",
+      "box": [
+        570,
+        120,
+        100,
+        140
+      ]
+    }
+  ],
+  "coordinate_status": {
+    "queryBoxInsideImage": true,
+    "candidateBoxInsideImage": true,
+    "valid": true
+  }
+}

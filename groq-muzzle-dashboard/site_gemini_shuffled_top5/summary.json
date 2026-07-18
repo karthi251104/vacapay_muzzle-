@@ -1,0 +1,667 @@
+[
+  {
+    "sampleId": "sample_01",
+    "queryClass": "class_000009",
+    "queryImage": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000009\\image_4.jpg",
+    "candidates": [
+      {
+        "classId": "class_000839",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000839\\IMG_3284.JPG",
+        "expectedCorrect": false,
+        "slotId": "candidate_01"
+      },
+      {
+        "classId": "class_000746",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000746\\22_jpg.rf.d9789a550fae7ca09bd10fa715e5c375.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_02"
+      },
+      {
+        "classId": "class_000076",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000076\\image_13.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_03"
+      },
+      {
+        "classId": "class_000078",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000078\\image_11.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_04"
+      },
+      {
+        "classId": "class_000009",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000009\\image_5.jpg",
+        "expectedCorrect": true,
+        "slotId": "candidate_05"
+      }
+    ],
+    "layout": {
+      "width": 1300,
+      "height": 760,
+      "tiles": {
+        "query": {
+          "x": 34,
+          "y": 100,
+          "width": 430,
+          "height": 300,
+          "visibleImage": {
+            "x": 150,
+            "y": 100,
+            "width": 197,
+            "height": 264
+          },
+          "label": "QUERY MUZZLE",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000009\\image_4.jpg"
+        },
+        "candidate_01": {
+          "x": 500,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 532,
+            "y": 100,
+            "width": 175,
+            "height": 164
+          },
+          "label": "class_000839",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000839\\IMG_3284.JPG"
+        },
+        "candidate_02": {
+          "x": 770,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 823,
+            "y": 100,
+            "width": 133,
+            "height": 164
+          },
+          "label": "class_000746",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000746\\22_jpg.rf.d9789a550fae7ca09bd10fa715e5c375.jpg"
+        },
+        "candidate_03": {
+          "x": 1038,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 1092,
+            "y": 100,
+            "width": 131,
+            "height": 164
+          },
+          "label": "class_000076",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000076\\image_13.jpg"
+        },
+        "candidate_04": {
+          "x": 500,
+          "y": 350,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 557,
+            "y": 350,
+            "width": 125,
+            "height": 164
+          },
+          "label": "class_000078",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000078\\image_11.jpg"
+        },
+        "candidate_05": {
+          "x": 770,
+          "y": 350,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 828,
+            "y": 350,
+            "width": 124,
+            "height": 164
+          },
+          "label": "class_000009",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000009\\image_5.jpg"
+        }
+      }
+    },
+    "collageImage": "assets/sample_01/collage_gemini_shuffled_top5.jpg",
+    "boxedImage": "assets/sample_01/collage_gemini_shuffled_top5_with_boxes.jpg",
+    "selectedClass": "class_000009",
+    "model": "gemini-3.5-flash",
+    "confidence": "high",
+    "reason": "The ridge patterns, sweat droplets on the upper muzzle, and the dark patch on the right side match perfectly between the query and class_000009."
+  },
+  {
+    "sampleId": "sample_02",
+    "queryClass": "class_000012",
+    "queryImage": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000012\\image_10.jpg",
+    "candidates": [
+      {
+        "classId": "class_000113",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000113\\image_10.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_01"
+      },
+      {
+        "classId": "class_000012",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000012\\image_11.jpg",
+        "expectedCorrect": true,
+        "slotId": "candidate_02"
+      },
+      {
+        "classId": "class_000174",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000174\\IMG_0277.JPG",
+        "expectedCorrect": false,
+        "slotId": "candidate_03"
+      },
+      {
+        "classId": "class_000167",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000167\\IMG_0181.JPG",
+        "expectedCorrect": false,
+        "slotId": "candidate_04"
+      },
+      {
+        "classId": "class_000105",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000105\\image_1.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_05"
+      }
+    ],
+    "layout": {
+      "width": 1300,
+      "height": 760,
+      "tiles": {
+        "query": {
+          "x": 34,
+          "y": 100,
+          "width": 430,
+          "height": 300,
+          "visibleImage": {
+            "x": 139,
+            "y": 100,
+            "width": 220,
+            "height": 264
+          },
+          "label": "QUERY MUZZLE",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000012\\image_10.jpg"
+        },
+        "candidate_01": {
+          "x": 500,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 542,
+            "y": 100,
+            "width": 155,
+            "height": 164
+          },
+          "label": "class_000113",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000113\\image_10.jpg"
+        },
+        "candidate_02": {
+          "x": 770,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 821,
+            "y": 100,
+            "width": 137,
+            "height": 164
+          },
+          "label": "class_000012",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000012\\image_11.jpg"
+        },
+        "candidate_03": {
+          "x": 1038,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 1085,
+            "y": 100,
+            "width": 145,
+            "height": 164
+          },
+          "label": "class_000174",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000174\\IMG_0277.JPG"
+        },
+        "candidate_04": {
+          "x": 500,
+          "y": 350,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 542,
+            "y": 350,
+            "width": 156,
+            "height": 164
+          },
+          "label": "class_000167",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000167\\IMG_0181.JPG"
+        },
+        "candidate_05": {
+          "x": 770,
+          "y": 350,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 832,
+            "y": 350,
+            "width": 115,
+            "height": 164
+          },
+          "label": "class_000105",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000105\\image_1.jpg"
+        }
+      }
+    },
+    "collageImage": "assets/sample_02/collage_gemini_shuffled_top5.jpg",
+    "boxedImage": "assets/sample_02/collage_gemini_shuffled_top5_with_boxes.jpg",
+    "selectedClass": "class_000012",
+    "model": "gemini-3.5-flash",
+    "confidence": "high",
+    "reason": "The ridge pattern, specifically the prominent white-colored horizontal and curved ridges branching from the central groove, matches perfectly between the query and class_000012."
+  },
+  {
+    "sampleId": "sample_03",
+    "queryClass": "class_000015",
+    "queryImage": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000015\\image_10.jpg",
+    "candidates": [
+      {
+        "classId": "class_000015",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000015\\image_11.jpg",
+        "expectedCorrect": true,
+        "slotId": "candidate_01"
+      },
+      {
+        "classId": "class_000041",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000041\\image_10.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_02"
+      },
+      {
+        "classId": "class_000119",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000119\\image_11.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_03"
+      },
+      {
+        "classId": "class_000134",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000134\\image_19.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_04"
+      },
+      {
+        "classId": "class_000025",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000025\\image_1.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_05"
+      }
+    ],
+    "layout": {
+      "width": 1300,
+      "height": 760,
+      "tiles": {
+        "query": {
+          "x": 34,
+          "y": 100,
+          "width": 430,
+          "height": 300,
+          "visibleImage": {
+            "x": 123,
+            "y": 100,
+            "width": 252,
+            "height": 264
+          },
+          "label": "QUERY MUZZLE",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000015\\image_10.jpg"
+        },
+        "candidate_01": {
+          "x": 500,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 545,
+            "y": 100,
+            "width": 150,
+            "height": 164
+          },
+          "label": "class_000015",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000015\\image_11.jpg"
+        },
+        "candidate_02": {
+          "x": 770,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 825,
+            "y": 100,
+            "width": 130,
+            "height": 164
+          },
+          "label": "class_000041",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000041\\image_10.jpg"
+        },
+        "candidate_03": {
+          "x": 1038,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 1085,
+            "y": 100,
+            "width": 145,
+            "height": 164
+          },
+          "label": "class_000119",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000119\\image_11.jpg"
+        },
+        "candidate_04": {
+          "x": 500,
+          "y": 350,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 547,
+            "y": 350,
+            "width": 145,
+            "height": 164
+          },
+          "label": "class_000134",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000134\\image_19.jpg"
+        },
+        "candidate_05": {
+          "x": 770,
+          "y": 350,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 819,
+            "y": 350,
+            "width": 141,
+            "height": 164
+          },
+          "label": "class_000025",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000025\\image_1.jpg"
+        }
+      }
+    },
+    "collageImage": "assets/sample_03/collage_gemini_shuffled_top5.jpg",
+    "boxedImage": "assets/sample_03/collage_gemini_shuffled_top5_with_boxes.jpg",
+    "selectedClass": "class_000015",
+    "model": "gemini-2.5-flash",
+    "confidence": "high",
+    "reason": "The query muzzle and class_000015 share an identical central groove shape that branches upwards, along with very similar radiating, wavy texture ridges and overall skin pattern."
+  },
+  {
+    "sampleId": "sample_04",
+    "queryClass": "class_000025",
+    "queryImage": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000025\\image_1.jpg",
+    "candidates": [
+      {
+        "classId": "class_000455",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000455\\IMG_3527.JPG",
+        "expectedCorrect": false,
+        "slotId": "candidate_01"
+      },
+      {
+        "classId": "class_000487",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000487\\cattle_0100_DSCF3856.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_02"
+      },
+      {
+        "classId": "class_000474",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000474\\Good Muzzle - CTL124 - 5.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_03"
+      },
+      {
+        "classId": "class_000199",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000199\\IMG_0581.JPG",
+        "expectedCorrect": false,
+        "slotId": "candidate_04"
+      },
+      {
+        "classId": "class_000025",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000025\\image_11.jpg",
+        "expectedCorrect": true,
+        "slotId": "candidate_05"
+      }
+    ],
+    "layout": {
+      "width": 1300,
+      "height": 760,
+      "tiles": {
+        "query": {
+          "x": 34,
+          "y": 100,
+          "width": 430,
+          "height": 300,
+          "visibleImage": {
+            "x": 135,
+            "y": 100,
+            "width": 227,
+            "height": 264
+          },
+          "label": "QUERY MUZZLE",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000025\\image_1.jpg"
+        },
+        "candidate_01": {
+          "x": 500,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 528,
+            "y": 100,
+            "width": 184,
+            "height": 164
+          },
+          "label": "class_000455",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000455\\IMG_3527.JPG"
+        },
+        "candidate_02": {
+          "x": 770,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 824,
+            "y": 100,
+            "width": 131,
+            "height": 164
+          },
+          "label": "class_000487",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000487\\cattle_0100_DSCF3856.jpg"
+        },
+        "candidate_03": {
+          "x": 1038,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 1073,
+            "y": 100,
+            "width": 170,
+            "height": 164
+          },
+          "label": "class_000474",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000474\\Good Muzzle - CTL124 - 5.jpg"
+        },
+        "candidate_04": {
+          "x": 500,
+          "y": 350,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 552,
+            "y": 350,
+            "width": 135,
+            "height": 164
+          },
+          "label": "class_000199",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000199\\IMG_0581.JPG"
+        },
+        "candidate_05": {
+          "x": 770,
+          "y": 350,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 815,
+            "y": 350,
+            "width": 149,
+            "height": 164
+          },
+          "label": "class_000025",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000025\\image_11.jpg"
+        }
+      }
+    },
+    "collageImage": "assets/sample_04/collage_gemini_shuffled_top5.jpg",
+    "boxedImage": "assets/sample_04/collage_gemini_shuffled_top5_with_boxes.jpg",
+    "selectedClass": "class_000025",
+    "model": "gemini-3.5-flash",
+    "confidence": "high",
+    "reason": "The query muzzle and class_000025 share the exact same distinctive pattern of a light pinkish central-lower region with sparse hairs, surrounded by a dark bluish-grey texture with prominent circular white beads."
+  },
+  {
+    "sampleId": "sample_05",
+    "queryClass": "class_000028",
+    "queryImage": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000028\\image_10.jpg",
+    "candidates": [
+      {
+        "classId": "class_000272",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000272\\IMG_1248.JPG",
+        "expectedCorrect": false,
+        "slotId": "candidate_01"
+      },
+      {
+        "classId": "class_000461",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000461\\D_15.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_02"
+      },
+      {
+        "classId": "class_000215",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000215\\IMG_0743.JPG",
+        "expectedCorrect": false,
+        "slotId": "candidate_03"
+      },
+      {
+        "classId": "class_000028",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000028\\image_11.jpg",
+        "expectedCorrect": true,
+        "slotId": "candidate_04"
+      },
+      {
+        "classId": "class_000474",
+        "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000474\\Good Muzzle - CTL124 - 5.jpg",
+        "expectedCorrect": false,
+        "slotId": "candidate_05"
+      }
+    ],
+    "layout": {
+      "width": 1300,
+      "height": 760,
+      "tiles": {
+        "query": {
+          "x": 34,
+          "y": 100,
+          "width": 430,
+          "height": 300,
+          "visibleImage": {
+            "x": 136,
+            "y": 100,
+            "width": 226,
+            "height": 264
+          },
+          "label": "QUERY MUZZLE",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000028\\image_10.jpg"
+        },
+        "candidate_01": {
+          "x": 500,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 544,
+            "y": 100,
+            "width": 152,
+            "height": 164
+          },
+          "label": "class_000272",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000272\\IMG_1248.JPG"
+        },
+        "candidate_02": {
+          "x": 770,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 820,
+            "y": 100,
+            "width": 139,
+            "height": 164
+          },
+          "label": "class_000461",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000461\\D_15.jpg"
+        },
+        "candidate_03": {
+          "x": 1038,
+          "y": 100,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 1072,
+            "y": 100,
+            "width": 172,
+            "height": 164
+          },
+          "label": "class_000215",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000215\\IMG_0743.JPG"
+        },
+        "candidate_04": {
+          "x": 500,
+          "y": 350,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 547,
+            "y": 350,
+            "width": 145,
+            "height": 164
+          },
+          "label": "class_000028",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000028\\image_11.jpg"
+        },
+        "candidate_05": {
+          "x": 770,
+          "y": 350,
+          "width": 240,
+          "height": 200,
+          "visibleImage": {
+            "x": 805,
+            "y": 350,
+            "width": 170,
+            "height": 164
+          },
+          "label": "class_000474",
+          "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000474\\Good Muzzle - CTL124 - 5.jpg"
+        }
+      }
+    },
+    "collageImage": "assets/sample_05/collage_gemini_shuffled_top5.jpg",
+    "boxedImage": "assets/sample_05/collage_gemini_shuffled_top5_with_boxes.jpg",
+    "selectedClass": "class_000028",
+    "model": "gemini-2.5-flash",
+    "confidence": "high",
+    "reason": "The query muzzle and class_000028 share identical central groove shape, thick rounded ridge texture, and a very similar dark/light skin pattern with lighter spots in the upper region. The overall 'fingerprint' pattern is a near-perfect match."
+  }
+]

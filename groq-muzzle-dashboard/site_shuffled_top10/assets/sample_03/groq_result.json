@@ -1,0 +1,25 @@
+{
+  "selected_class": "class_000015",
+  "confidence": "high",
+  "reason": "muzzle texture and skin pattern match",
+  "match_boxes": [
+    {
+      "label": "query muzzle ridges",
+      "box": [
+        0,
+        0,
+        200,
+        200
+      ]
+    },
+    {
+      "label": "candidate muzzle ridges",
+      "box": [
+        450,
+        50,
+        650,
+        250
+      ]
+    }
+  ]
+}

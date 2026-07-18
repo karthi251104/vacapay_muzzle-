@@ -1,0 +1,1433 @@
+<main class="auth-app" *ngIf="!currentUser">
+    <section class="auth-visual page-enter auth-hidden">
+        <div class="brand-lockup">
+            <div class="brand-mark">V</div>
+            <div>
+                <p>Vacapay</p>
+                <h1>{{ isNativeFieldApp ? 'Field Capture' : 'Admin Console' }}</h1>
+            </div>
+        </div>
+
+        <div class="auth-headline">
+            <p class="eyebrow">{{ isNativeFieldApp ? 'Field Agent App' : 'Verification Dashboard' }}</p>
+            <h2>{{ isNativeFieldApp ? 'Simple cattle capture for field teams.' : 'Review cattle searches with clear
+                visual
+                evidence.' }}</h2>
+            <p>{{ isNativeFieldApp ? 'Capture farmer details, GPS, muzzle photos and supporting photos in a guided
+                mobile
+                flow.' : 'Compare each field capture against ranked enrolled cattle, inspect Top-5 images and confirm
+                the
+                result.' }}</p>
+        </div>
+
+        <div class="preview-phone float-card" *ngIf="isNativeFieldApp">
+            <div class="phone-top"></div>
+            <div class="phone-hero">
+                <span>Live Session</span>
+                <strong>3/3</strong>
+            </div>
+            <div class="phone-scan">
+                <div class="mini-box">Muzzle 92%</div>
+            </div>
+            <div class="phone-steps">
+                <span class="done"></span>
+                <span class="done"></span>
+                <span class="active"></span>
+                <span></span>
+            </div>
+        </div>
+    </section>
+
+    <section class="auth-card page-enter delay-1">
+        <div>
+            <p class="eyebrow">Secure Access</p>
+            <h2>Sign in</h2>
+            <p class="muted">{{ isNativeFieldApp ? 'Sign in with your field officer account.' : 'Administrator access
+                only.
+                Field capture is available in the Android app.' }}</p>
+        </div>
+
+        <form class="form-stack" (ngSubmit)="login()">
+            <div class="segmented" *ngIf="isNativeFieldApp">
+                <button type="button" [class.active]="loginMode === 'agent'"
+                    (click)="loginMode = 'agent'">Agent</button>
+                <button type="button" [class.active]="loginMode === 'admin'"
+                    (click)="loginMode = 'admin'">Admin</button>
+            </div>
+
+            <label>
+                <span>Phone or ID</span>
+                <input name="loginIdentifier" [(ngModel)]="loginIdentifier" placeholder="admin">
+            </label>
+            <label>
+                <span>Password</span>
+                <input name="loginPassword" type="password" [(ngModel)]="loginPassword" placeholder="........">
+            </label>
+
+            <button type="submit" class="primary-action">Sign In</button>
+            <div class="notice" *ngIf="message && message !== 'Start a new cattle capture.'"><span></span>{{ message }}
+            </div>
+            <p class="hint" *ngIf="!isNativeFieldApp">Use your administrator account.</p>
+        </form>
+    </section>
+</main>
+
+<main class="admin-app" *ngIf="isAdmin">
+
+    <!-- ── Top navbar ── -->
+    <header class="ad-navbar">
+        <div class="ad-brand">
+            <div class="ad-brand-mark">V</div>
+            <div>
+                <span class="ad-brand-sub">Vacapay Admin</span>
+                <strong class="ad-brand-title">Field Verification</strong>
+            </div>
+        </div>
+        <nav class="ad-tabs">
+            <button type="button" class="ad-tab" [class.ad-tab-active]="adminTab === 'overview'"
+                (click)="adminTab = 'overview'">
+                Overview
+            </button>
+            <button type="button" class="ad-tab" [class.ad-tab-active]="adminTab === 'records'"
+                (click)="adminTab = 'records'">
+                Cattle Records
+                <span class="ad-tab-badge" *ngIf="uniqueCattleInventory.length">{{ uniqueCattleInventory.length
+                    }}</span>
+            </button>
+            <button type="button" class="ad-tab" [class.ad-tab-active]="adminTab === 'reviews'"
+                (click)="adminTab = 'reviews'">
+                Match Reviews
+                <span class="ad-tab-badge ad-tab-badge-warn" *ngIf="fieldTestMetrics.pendingReview > 0">{{
+                    fieldTestMetrics.pendingReview }}</span>
+            </button>
+            <button type="button" class="ad-tab" [class.ad-tab-active]="adminTab === 'team'"
+                (click)="adminTab = 'team'">
+                Team
+                <span class="ad-tab-badge">{{ agents.length }}</span>
+            </button>
+        </nav>
+        <div class="ad-user">
+            <div class="ad-avatar">{{ currentUser?.name?.charAt(0) }}</div>
+            <span>{{ currentUser?.name }}</span>
+            <button type="button" class="ad-logout" (click)="logout()">Logout</button>
+        </div>
+    </header>
+
+    <!-- ═══════════════════════════════════
+       TAB 1 — OVERVIEW
+  ═══════════════════════════════════ -->
+    <section class="ad-page" *ngIf="adminTab === 'overview'">
+
+        <!-- Stat cards -->
+        <div class="ad-stats-grid">
+            <div class="ad-stat">
+                <div class="ad-stat-icon ad-icon-blue">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" width="22" height="22">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                </div>
+                <div>
+                    <span>Field Agents</span>
+                    <strong>{{ agents.length }}</strong>
+                </div>
+            </div>
+            <div class="ad-stat">
+                <div class="ad-stat-icon ad-icon-green">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" width="22" height="22">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                        <polyline points="9 22 9 12 15 12 15 22" />
+                    </svg>
+                </div>
+                <div>
+                    <span>Farmers</span>
+                    <strong>{{ cattleStats?.farmerCount || 0 }}</strong>
+                </div>
+            </div>
+            <div class="ad-stat">
+                <div class="ad-stat-icon ad-icon-teal">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" width="22" height="22">
+                        <path
+                            d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                    </svg>
+                </div>
+                <div>
+                    <span>Registered Cattle</span>
+                    <strong>{{ cattleStats?.uniqueCattleCount || 0 }}</strong>
+                </div>
+            </div>
+            <div class="ad-stat">
+                <div class="ad-stat-icon ad-icon-orange">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" width="22" height="22">
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                </div>
+                <div>
+                    <span>Cattle Searches</span>
+                    <strong>{{ cattleStats?.cattleSearchCount || 0 }}</strong>
+                </div>
+            </div>
+            <div class="ad-stat">
+                <div class="ad-stat-icon ad-icon-purple">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" width="22" height="22">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                        <polyline points="22 4 12 14.01 9 11.01" />
+                    </svg>
+                </div>
+                <div>
+                    <span>Pending Reviews</span>
+                    <strong [class.ad-stat-warn]="fieldTestMetrics.pendingReview > 0">{{ fieldTestMetrics.pendingReview
+                        }}</strong>
+                </div>
+            </div>
+            <div class="ad-stat">
+                <div class="ad-stat-icon ad-icon-red">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" width="22" height="22">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="15" y1="9" x2="9" y2="15" />
+                        <line x1="9" y1="9" x2="15" y2="15" />
+                    </svg>
+                </div>
+                <div>
+                    <span>Duplicates Blocked</span>
+                    <strong>{{ cattleStats?.blockedDuplicateEnrollmentCount || 0 }}</strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- Accuracy summary -->
+        <div class="ad-card" *ngIf="allMatchReviews.length">
+            <div class="ad-card-header">
+                <div>
+                    <h2 class="ad-card-title">AI Accuracy Summary</h2>
+                    <p class="ad-card-sub">Based on {{ fieldTestMetrics.reviewedSearches }} reviewed cattle searches</p>
+                </div>
+                <button type="button" class="ad-btn-ghost" (click)="adminTab = 'reviews'">View All Reviews →</button>
+            </div>
+            <div class="ad-accuracy-row">
+                <div class="ad-accuracy-item">
+                    <div class="ad-accuracy-ring" [style.--pct]="fieldTestMetrics.top1Accuracy + '%'">
+                        <strong>{{ fieldTestMetrics.top1Accuracy }}%</strong>
+                        <span>Top-1</span>
+                    </div>
+                    <p>First match was correct</p>
+                </div>
+                <div class="ad-accuracy-item">
+                    <div class="ad-accuracy-ring ad-ring-green" [style.--pct]="fieldTestMetrics.top5Accuracy + '%'">
+                        <strong>{{ fieldTestMetrics.top5Accuracy }}%</strong>
+                        <span>Top-5</span>
+                    </div>
+                    <p>Correct cow in top 5</p>
+                </div>
+                <div class="ad-confusion">
+                    <table class="ad-cm-table">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th>App: Found</th>
+                                <th>App: Not Found</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="ad-cm-label">Actually Found</td>
+                                <td class="ad-cm-tp">{{ fieldTestMetrics.cattleFoundCorrect }}<small>Correct</small>
+                                </td>
+                                <td class="ad-cm-fn">{{ fieldTestMetrics.noCattleFoundIncorrect }}<small>Missed</small>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="ad-cm-label">Not Found</td>
+                                <td class="ad-cm-fp">{{ fieldTestMetrics.cattleFoundIncorrect }}<small>Wrong
+                                        match</small></td>
+                                <td class="ad-cm-tn">{{ fieldTestMetrics.noCattleFoundCorrect }}<small>Correct</small>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Coverage by officer -->
+        <div class="ad-card">
+            <div class="ad-card-header">
+                <div>
+                    <h2 class="ad-card-title">Search Coverage by Officer</h2>
+                    <p class="ad-card-sub">How many enrolled cows have been verified through Cattle Search</p>
+                </div>
+                <div class="ad-filter-row">
+                    <select [(ngModel)]="coverageFilterOfficer" class="ad-select">
+                        <option value="all">All Officers</option>
+                        <option *ngFor="let o of coverageOfficerNames" [value]="o">{{ o }}</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="ad-coverage-metrics">
+                <div class="ad-cov-stat"><strong>{{ selectedCoverageMetrics.enrolled }}</strong><span>Enrolled</span>
+                </div>
+                <div class="ad-cov-stat ad-cov-green"><strong>{{ selectedCoverageMetrics.searched
+                        }}</strong><span>Searched</span></div>
+                <div class="ad-cov-stat ad-cov-amber"><strong>{{ selectedCoverageMetrics.notSearched
+                        }}</strong><span>Not Searched</span></div>
+                <div class="ad-cov-stat ad-cov-teal"><strong>{{ selectedCoverageMetrics.coveragePercent
+                        }}%</strong><span>Coverage</span></div>
+            </div>
+
+            <div class="ad-officer-table" *ngIf="officerEnrollmentCoverage.length">
+                <div class="ad-officer-head">
+                    <span>Officer</span><span>Enrolled</span><span>Searched</span><span>Coverage</span>
+                </div>
+                <button type="button" class="ad-officer-row" *ngFor="let o of officerEnrollmentCoverage"
+                    (click)="coverageFilterOfficer = o.officer">
+                    <span class="ad-officer-name">
+                        <div class="ad-mini-avatar">{{ o.officer.charAt(0) }}</div>
+                        {{ o.officer }}
+                    </span>
+                    <span>{{ o.enrolled }}</span>
+                    <span>{{ o.searched }}</span>
+                    <span>
+                        <div class="ad-progress-pill">
+                            <div class="ad-progress-fill" [style.width.%]="o.coveragePercent"></div>
+                            <span>{{ o.coveragePercent }}%</span>
+                        </div>
+                    </span>
+                </button>
+            </div>
+        </div>
+
+    </section>
+
+    <!-- ═══════════════════════════════════
+       TAB 2 — CATTLE RECORDS
+  ═══════════════════════════════════ -->
+    <!-- TAB 2 — CATTLE RECORDS (3-level drill-down) -->
+    <!-- TAB 2 — CATTLE RECORDS (3-level drill-down) -->
+    <section class="ad-page" *ngIf="adminTab === 'records'">
+
+        <!-- Breadcrumb navigation -->
+        <div class="dr-breadcrumb" *ngIf="recordsLevel !== 'officers'">
+            <button type="button" class="dr-bc-item"
+                (click)="recordsLevel = 'officers'; selectedOfficerName = ''; selectedFarmerKey2 = ''; selectedAdminCattle = undefined">
+                All Officers
+            </button>
+            <span class="dr-bc-sep">›</span>
+            <button type="button" class="dr-bc-item" *ngIf="recordsLevel === 'cattle'" (click)="drillBack()">
+                {{ selectedOfficerName }}
+            </button>
+            <span class="dr-bc-sep" *ngIf="recordsLevel === 'cattle'">›</span>
+            <span class="dr-bc-current" *ngIf="recordsLevel === 'farmers'">{{ selectedOfficerName }}</span>
+            <span class="dr-bc-current" *ngIf="recordsLevel === 'cattle'">
+                {{ selectedOfficerName }}
+            </span>
+        </div>
+
+        <!-- ════ LEVEL 1 — ALL OFFICERS ════ -->
+        <div *ngIf="recordsLevel === 'officers'">
+            <div class="ad-card-header" style="padding:20px 0 16px">
+                <div>
+                    <h2 class="ad-card-title">Field Officers</h2>
+                    <p class="ad-card-sub">{{ officerGroups.length }} officers · {{ uniqueCattleInventory.length }}
+                        cattle
+                        registered total</p>
+                </div>
+                <button type="button" class="ad-btn-ghost" (click)="loadCattleInventory()">Refresh</button>
+            </div>
+
+            <div class="ad-empty" *ngIf="!officerGroups.length">No registered cattle yet.</div>
+
+            <div class="dr-officer-grid">
+                <button type="button" class="dr-officer-card" *ngFor="let o of officerGroups"
+                    (click)="drillToOfficer(o.officerName)">
+                    <div class="dr-officer-avatar">{{ o.officerName.charAt(0).toUpperCase() }}</div>
+                    <div class="dr-officer-body">
+                        <strong>{{ o.officerName }}</strong>
+                        <p>{{ o.farmerCount }} farmers · {{ o.totalCattle }} cattle</p>
+                        <div class="dr-progress-row">
+                            <div class="dr-progress-track">
+                                <div class="dr-progress-fill" [style.width.%]="o.coveragePercent"
+                                    [class.dr-fill-low]="o.coveragePercent < 40"
+                                    [class.dr-fill-mid]="o.coveragePercent >= 40 && o.coveragePercent < 80"
+                                    [class.dr-fill-high]="o.coveragePercent >= 80">
+                                </div>
+                            </div>
+                            <span class="dr-progress-pct">{{ o.coveragePercent }}%</span>
+                        </div>
+                        <div class="dr-officer-stats">
+                            <span class="dr-stat-blocked" *ngIf="o.blockedDuplicates > 0">{{o.blockedDuplicates}}
+                                duplicate{{o.blockedDuplicates > 1 ? 's' : ''}} blocked</span>
+                            <span class="dr-stat-searched">{{ o.searchedCount }} searched</span>
+                            <span class="dr-stat-pending" *ngIf="o.notSearchedCount > 0">{{ o.notSearchedCount }} not
+                                searched</span>
+                        </div>
+                    </div>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                        stroke-linejoin="round" width="18" height="18" style="flex-shrink:0;color:#90aab5">
+                        <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- ════ LEVEL 2 — FARMERS FOR OFFICER ════ -->
+        <div *ngIf="recordsLevel === 'farmers'">
+            <div class="ad-card-header" style="padding:20px 0 16px">
+                <div>
+                    <h2 class="ad-card-title">{{ selectedOfficerName }}</h2>
+                    <p class="ad-card-sub">{{ selectedOfficerFarmerGroups.length }} farmers</p>
+                </div>
+                <button type="button" class="ad-btn-ghost" (click)="drillBack()">← Back</button>
+            </div>
+
+            <div class="dr-farmer-list">
+                <button type="button" class="dr-farmer-card" *ngFor="let fg of selectedOfficerFarmerGroups"
+                    (click)="drillToFarmer(fg.key)">
+                    <div class="dr-farmer-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                            <polyline points="9 22 9 12 15 12 15 22" />
+                        </svg>
+                    </div>
+                    <div class="dr-farmer-body">
+                        <strong>{{ fg.farmerName }}</strong>
+                        <p>{{ fg.farmerId || 'No Farmer ID' }} · {{ fg.cattle.length }} cattle</p>
+                        <div class="dr-farmer-pills">
+                            <span class="dr-pill-searched" *ngIf="fg.searchedCount > 0">{{ fg.searchedCount }}
+                                searched</span>
+                            <span class="dr-pill-pending" *ngIf="fg.notSearchedCount > 0">{{ fg.notSearchedCount }} not
+                                searched</span>
+                            <span class="dr-pill-done" *ngIf="fg.notSearchedCount === 0 && fg.cattle.length > 0">All
+                                searched</span>
+                        </div>
+                    </div>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                        stroke-linejoin="round" width="18" height="18" style="flex-shrink:0;color:#90aab5">
+                        <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                </button>
+                <div class="ad-empty" *ngIf="!selectedOfficerFarmerGroups.length">No farmers found for this officer.
+                </div>
+            </div>
+
+            <!-- Blocked duplicate enrolments for this officer -->
+            <div class="dr-blocked-section"
+                *ngIf="(duplicateEnrolmentsByOfficer.get(selectedOfficerName) || []).length > 0">
+                <!-- Header -->
+                <div class="drb-header">
+                    <div class="drb-header-left">
+                        <div class="drb-header-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+                                <circle cx="12" cy="12" r="10" />
+                                <line x1="15" y1="9" x2="9" y2="15" />
+                                <line x1="9" y1="9" x2="15" y2="15" />
+                            </svg>
+                        </div>
+                        <div>
+                            <strong>Duplicate Enrolment Attempts</strong>
+                            <p>These need your review before they can be finalised</p>
+                        </div>
+                    </div>
+                    <span class="drb-count">{{ (duplicateEnrolmentsByOfficer.get(selectedOfficerName) || []).length }}
+                        pending</span>
+                </div>
+
+                <!-- Cards -->
+                <div class="drb-list">
+                    <div class="drb-card"
+                        *ngFor="let d of (duplicateEnrolmentsByOfficer.get(selectedOfficerName) || [])">
+
+                        <!-- Card header -->
+                        <div class="drb-card-header">
+                            <div class="drb-card-info">
+                                <h3>{{ d.attemptRecord.farmerName || 'Unknown Farmer' }}</h3>
+                                <p>Attempted by <strong>{{ d.attemptRecord.fieldOfficerName }}</strong> &middot; {{
+                                    d.attemptRecord.lastCaptureDate || 'Unknown date' }}</p>
+                                <p>AI matched to <strong>{{ d.originalCattle?.cattleLabel || 'a registered cattle'
+                                        }}</strong> under <strong>{{ d.originalFarmerName }}</strong> by {{
+                                    d.originalCattle?.fieldOfficerName || 'another officer' }}</p>
+                            </div>
+                            <span class="drb-status-pill">Needs Review</span>
+                        </div>
+
+                        <!-- Photo comparison — SIDE BY SIDE same row -->
+                        <div class="drb-photos-row">
+
+                            <!-- Blocked side -->
+                            <div class="drb-photo-col drb-col-blocked">
+                                <div class="drb-col-label drb-label-blocked">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <line x1="15" y1="9" x2="9" y2="15" />
+                                        <line x1="9" y1="9" x2="15" y2="15" />
+                                    </svg>
+                                    Blocked Attempt
+                                    <span>{{ d.attemptRecord.fieldOfficerName }}</span>
+                                </div>
+                                <div class="drb-photo-grid">
+                                    <ng-container *ngFor="let session of d.attemptRecord.sessions">
+                                        <button type="button" class="drb-photo-btn" *ngFor="let img of session.images"
+                                            (click)="openImage(img.imageType, imageUrl(img))">
+                                            <img [src]="imageUrl(img)" [alt]="img.imageType">
+                                            <span>{{ img.imageType }}</span>
+                                        </button>
+                                    </ng-container>
+                                    <p class="drb-no-photo" *ngIf="!d.attemptRecord.sessions?.length">No photos</p>
+                                </div>
+                            </div>
+
+                            <!-- Divider -->
+                            <div class="drb-vs-col">
+                                <div class="drb-vs-dot">vs</div>
+                            </div>
+
+                            <!-- Registered side -->
+                            <div class="drb-photo-col drb-col-registered">
+                                <div class="drb-col-label drb-label-registered">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                    Registered Cattle
+                                    <span>{{ d.originalCattle?.fieldOfficerName || 'Unknown' }}</span>
+                                </div>
+                                <div class="drb-photo-grid">
+                                    <ng-container *ngFor="let session of d.originalCattle?.sessions">
+                                        <button type="button" class="drb-photo-btn" *ngFor="let img of session.images"
+                                            (click)="openImage(img.imageType, imageUrl(img))">
+                                            <img [src]="imageUrl(img)" [alt]="img.imageType">
+                                            <span>{{ img.imageType }}</span>
+                                        </button>
+                                    </ng-container>
+                                    <p class="drb-no-photo" *ngIf="!d.originalCattle?.sessions?.length">No photos</p>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Decision -->
+                        <div class="drb-decision">
+                            <p class="drb-decision-title">Your decision after reviewing the photos above:</p>
+                            <div class="drb-decision-btns">
+                                <button type="button" class="drb-btn-approve"
+                                    (click)="approveBlockedAsNewCattle(d.attemptRecord)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                        stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                                        <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                    <span>
+                                        <strong>Different Cow</strong>
+                                        <small>Register as new cattle</small>
+                                    </span>
+                                </button>
+                                <button type="button" class="drb-btn-block"
+                                    (click)="confirmBlockedDuplicate(d.attemptRecord)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                        stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <line x1="15" y1="9" x2="9" y2="15" />
+                                        <line x1="9" y1="9" x2="15" y2="15" />
+                                    </svg>
+                                    <span>
+                                        <strong>Same Cow</strong>
+                                        <small>Confirm the block</small>
+                                    </span>
+                                </button>
+                            </div>
+                            <p class="drb-consequence">
+                                <strong>Different Cow</strong> &rarr; Cattle registered. AI accuracy decreases.
+                                &nbsp;&nbsp;
+                                <strong>Same Cow</strong> &rarr; Block confirmed. AI accuracy unchanged.
+                            </p>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ════ LEVEL 3 — CATTLE FOR FARMER ════ -->
+        <div *ngIf="recordsLevel === 'cattle'">
+            <ng-container *ngFor="let fg of selectedOfficerFarmerGroups">
+                <ng-container *ngIf="fg.key === selectedFarmerKey2">
+                    <div class="ad-card-header" style="padding:20px 0 16px">
+                        <div>
+                            <h2 class="ad-card-title">{{ fg.farmerName }}</h2>
+                            <p class="ad-card-sub">
+                                {{ fg.farmerId || 'No Farmer ID' }} ·
+                                {{ fg.cattle.length }} cattle ·
+                                {{ fg.searchedCount }} searched ·
+                                {{ fg.notSearchedCount }} not searched
+                            </p>
+                        </div>
+                        <div class="ad-filter-row">
+                            <button type="button" class="ad-btn-ghost" (click)="drillBack()">← Back</button>
+                            <button type="button" class="ad-btn-primary" [disabled]="!selectedCattleIds.length"
+                                (click)="downloadSelectedImages()">Download ZIP</button>
+                        </div>
+                    </div>
+                </ng-container>
+            </ng-container>
+
+            <div class="dr-records-layout">
+                <!-- Cattle list -->
+                <div class="dr-cattle-list">
+                    <article class="dr-cattle-card" *ngFor="let cattle of selectedFarmerCattle"
+                        [class.dr-card-active]="selectedAdminCattle?.cattleId === cattle.cattleId"
+                        (click)="selectAdminCattle(cattle)">
+                        <label class="ad-checkbox" (click)="$event.stopPropagation()">
+                            <input type="checkbox" [checked]="isCattleSelected(cattle)"
+                                (change)="toggleCattleSelection(cattle)">
+                            <span></span>
+                        </label>
+                        <div class="dr-cattle-thumb">
+                            <img *ngIf="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl"
+                                [src]="cattle.lastCloudinaryUrl || cattle.lastPreviewUrl" alt="">
+                            <svg *ngIf="!cattle.lastCloudinaryUrl && !cattle.lastPreviewUrl" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="1.5" width="22" height="22">
+                                <path
+                                    d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                            </svg>
+                        </div>
+                        <div class="dr-cattle-info">
+                            <strong>{{ cattle.cattleLabel || 'Cattle' }}</strong>
+                            <p>Enrolled {{ cattle.lastCaptureDate || '—' }}</p>
+                            <span class="dr-search-badge dr-badge-none" *ngIf="(cattle.searchCount || 0) === 0">Not
+                                searched
+                                yet</span>
+                            <span class="dr-search-badge dr-badge-pending"
+                                *ngIf="(cattle.searchCount || 0) > 0 && cattle.searchReviewState === 'pending_review'">{{
+                                cattle.searchCount }} search · Pending review</span>
+                            <span class="dr-search-badge dr-badge-done"
+                                *ngIf="(cattle.searchCount || 0) > 0 && cattle.searchReviewState !== 'pending_review'">{{
+                                cattle.searchCount }} search · Reviewed</span>
+                        </div>
+                    </article>
+                    <div class="ad-empty" *ngIf="!selectedFarmerCattle.length">No cattle found.</div>
+                </div>
+
+                <!-- Detail panel -->
+                <aside class="ad-cattle-detail" *ngIf="selectedAdminCattle">
+                    <div class="ad-detail-head">
+                        <div>
+                            <span class="ad-detail-type">Registered Cattle</span>
+                            <h3>{{ selectedAdminCattle.farmerName }}</h3>
+                            <p>{{ selectedAdminCattle.cattleLabel }} · {{ shortId(selectedAdminCattle.cattleId) }}</p>
+                        </div>
+                        <span class="ad-session-count">{{ selectedAdminCattle.sessionCount }} capture(s)</span>
+                    </div>
+                    <article class="ad-session" *ngFor="let session of selectedAdminCattle.sessions; let i = index">
+                        <div class="ad-session-head">
+                            <strong>Capture {{ i + 1 }}</strong>
+                            <span>{{ session.captureDate }} · {{ session.imageCount }} photos</span>
+                        </div>
+                        <div class="ad-session-images">
+                            <button type="button" class="ad-thumb" *ngFor="let image of session.images"
+                                (click)="openImage(image.imageType, imageUrl(image))">
+                                <img [src]="imageUrl(image)" [alt]="image.imageType">
+                                <span>{{ image.imageType }}</span>
+                            </button>
+                        </div>
+                    </article>
+                </aside>
+                <aside class="ad-cattle-detail ad-empty" *ngIf="!selectedAdminCattle">Select a cattle record to view
+                    photos
+                </aside>
+            </div>
+        </div>
+
+    </section>
+
+    <section class="ad-page" *ngIf="adminTab === 'reviews'">
+        <div class="ad-card">
+            <div class="ad-card-header">
+                <div>
+                    <h2 class="ad-card-title">Match Reviews</h2>
+                    <p class="ad-card-sub">For each cattle search, confirm whether the AI's result was correct or wrong
+                    </p>
+                </div>
+                <div class="ad-filter-row">
+                    <select [(ngModel)]="reviewFilterDecision" (change)="applyReviewFilter()" class="ad-select">
+                        <option value="all">All Results</option>
+                        <option value="matched_existing">Cattle Found</option>
+                        <option value="new_cattle">No Cattle Found</option>
+                        <option value="pending">Needs Review</option>
+                    </select>
+                    <select [(ngModel)]="reviewFilterOfficer" (change)="applyReviewFilter()" class="ad-select">
+                        <option value="all">All Officers</option>
+                        <option *ngFor="let o of officerNamesForFilter" [value]="o">{{ o }}</option>
+                    </select>
+                    <button type="button" class="ad-btn-ghost" (click)="toggleReviewMode()">{{ showAllReviews ? 'Open
+                        Only' : 'Show All' }}</button>
+                    <button type="button" class="ad-btn-ghost" (click)="loadMatchReviews()">Refresh</button>
+                    <button type="button" class="ad-btn-primary" (click)="exportReviewsCsv()">Export CSV</button>
+                </div>
+            </div>
+
+            <div class="ad-empty" *ngIf="!matchReviews.length">No cattle search reviews to show.</div>
+
+            <article class="ad-review" *ngFor="let review of matchReviews"
+                [class.ad-review-open]="isReviewExpanded(review)">
+                <!-- Summary row -->
+                <button type="button" class="ad-review-row" (click)="toggleReviewDetails(review)">
+                    <div class="ad-review-thumb">
+                        <img *ngIf="review.images[0] as img" [src]="img.cloudinaryUrl || img.previewUrl" alt="Muzzle">
+                        <span *ngIf="!review.images.length">No image</span>
+                    </div>
+                    <div class="ad-review-info">
+                        <strong>{{ review.farmerName || 'Unknown Farmer' }}</strong>
+                        <p>{{ review.fieldOfficerName || 'Unknown officer' }} · {{ review.captureDate |
+                            date:'mediumDate' }}</p>
+                    </div>
+                    <div class="ad-review-result" [class.ad-result-found]="review.decision === 'matched_existing'"
+                        [class.ad-result-none]="review.decision === 'new_cattle'">
+                        <strong>{{ review.decision === 'matched_existing' ? 'Cattle Found' : 'No Match' }}</strong>
+                        <small *ngIf="review.topMatches?.[0] as best">{{ best.confidencePercent }}% confidence</small>
+                    </div>
+                    <div class="ad-review-status" [class.ad-status-pending]="!isReviewedCattleSearch(review)"
+                        [class.ad-status-done]="isReviewedCattleSearch(review)">
+                        {{ reviewResultLabel(review) }}
+                    </div>
+                    <span class="ad-review-toggle">{{ isReviewExpanded(review) ? '▴' : '▾' }}</span>
+                </button>
+
+                <!-- Expanded detail -->
+                <div class="ad-review-body" *ngIf="isReviewExpanded(review)">
+
+                    <!-- Captured photos -->
+                    <div class="ad-review-section">
+                        <p class="ad-review-section-label">Photos captured by agent</p>
+                        <div class="ad-gallery">
+                            <button type="button" *ngFor="let img of review.images" class="ad-thumb"
+                                (click)="openImage(img.imageType, img.cloudinaryUrl || img.previewUrl)">
+                                <img [src]="img.cloudinaryUrl || img.previewUrl" [alt]="img.imageType">
+                                <span>{{ img.imageType }}</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Top 5 candidates -->
+                    <div class="ad-review-section" *ngIf="topReviewCandidates(review, 5).length">
+                        <p class="ad-review-section-label">Top 5 candidate matches (ranked by AI)</p>
+                        <div class="ad-candidates">
+                            <div class="ad-candidate" *ngFor="let c of topReviewCandidates(review, 5); let rank = index"
+                                [class.ad-candidate-top]="rank === 0"
+                                [class.ad-candidate-expected]="expectedCattleId(review) === c.cattleId">
+                                <div class="ad-candidate-head">
+                                    <span class="ad-rank">#{{ rank + 1 }}</span>
+                                    <div>
+                                        <strong>{{ c.farmerName || 'Unknown' }} — {{ c.cattleLabel }}</strong>
+                                        <small>{{ matchSourceLabel(c.searchScope) }}</small>
+                                    </div>
+                                    <span class="ad-confidence">{{ c.confidencePercent }}%</span>
+                                </div>
+                                <div class="ad-candidate-images">
+                                    <button type="button" class="ad-thumb"
+                                        *ngFor="let img of candidateMuzzleImages(c.cattleId)"
+                                        (click)="openImage(img.imageType, img.cloudinaryUrl || img.previewUrl)">
+                                        <img [src]="img.cloudinaryUrl || img.previewUrl" [alt]="img.imageType"><span>{{
+                                            img.imageType }}</span>
+                                    </button>
+                                    <button type="button" class="ad-thumb"
+                                        *ngFor="let img of candidateEvidenceImages(c.cattleId)"
+                                        (click)="openImage(img.imageType, img.cloudinaryUrl || img.previewUrl)">
+                                        <img [src]="img.cloudinaryUrl || img.previewUrl" [alt]="img.imageType"><span>{{
+                                            img.imageType }}</span>
+                                    </button>
+                                </div>
+                                <button type="button" class="ad-confirm-btn"
+                                    (click)="confirmMatchReview(review, c.cattleId)">Confirm this cow</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Admin decision -->
+                    <div class="ad-decision-bar">
+                        <span class="ad-decision-label">Your decision:</span>
+                        <div class="ad-decision-btns">
+                            <button type="button" class="ad-btn-correct" *ngIf="review.decision === 'matched_existing'"
+                                (click)="confirmMatchReview(review)">✓ Correct Match</button>
+                            <button type="button" class="ad-btn-wrong" *ngIf="review.decision === 'matched_existing'"
+                                (click)="markFoundIncorrect(review)">✗ Wrong Match</button>
+                            <button type="button" class="ad-btn-correct" *ngIf="review.decision === 'new_cattle'"
+                                (click)="confirmNoCattleFound(review)">✓ Correct — New Cow</button>
+                            <button type="button" class="ad-btn-wrong" *ngIf="review.decision === 'new_cattle'"
+                                (click)="markNoCattleFoundIncorrect(review)">✗ Should Have Matched</button>
+                            <button type="button" class="ad-btn-ghost" *ngIf="review.decision === 'matched_existing'"
+                                (click)="moveWrongMatchToRegistered(review)">Register as New Cow</button>
+                        </div>
+                    </div>
+                </div>
+            </article>
+        </div>
+    </section>
+
+    <!-- ═══════════════════════════════════
+       TAB 4 — TEAM
+  ═══════════════════════════════════ -->
+    <section class="ad-page" *ngIf="adminTab === 'team'">
+        <div class="ad-two-col">
+
+            <!-- Create agent form -->
+            <div class="ad-card">
+                <div class="ad-card-header">
+                    <div>
+                        <h2 class="ad-card-title">Add Field Agent</h2>
+                        <p class="ad-card-sub">Create a new login for a field officer</p>
+                    </div>
+                </div>
+                <form class="ad-form" (ngSubmit)="createAgent()">
+                    <label class="ad-label">Agent Name<input name="agentName" [(ngModel)]="agentName"
+                            placeholder="Full name" class="ad-input"></label>
+                    <label class="ad-label">Phone Number<input name="agentPhone" [(ngModel)]="agentPhone"
+                            placeholder="9876543210" class="ad-input"></label>
+                    <label class="ad-label">Agent ID<input name="newAgentId" [(ngModel)]="newAgentId"
+                            placeholder="AGENT-001" class="ad-input"></label>
+                    <label class="ad-label">Password<input name="newAgentPassword" type="password"
+                            [(ngModel)]="newAgentPassword" placeholder="Temporary password" class="ad-input"></label>
+                    <button type="submit" class="ad-btn-primary" style="width:100%;min-height:50px">Create
+                        Agent</button>
+                    <div class="ad-notice" *ngIf="message && message !== 'Start a new cattle capture.'">{{ message }}
+                    </div>
+                </form>
+            </div>
+
+            <!-- Agent list -->
+            <div class="ad-card">
+                <div class="ad-card-header">
+                    <div>
+                        <h2 class="ad-card-title">Active Agents</h2>
+                        <p class="ad-card-sub">{{ agents.length }} field officer(s)</p>
+                    </div>
+                </div>
+                <div class="ad-agent-list">
+                    <div class="ad-agent" *ngFor="let agent of agents">
+                        <div class="ad-avatar">{{ agent.name.charAt(0) }}</div>
+                        <div>
+                            <strong>{{ agent.name }}</strong>
+                            <p>{{ agent.agentId }} · {{ agent.phone }}</p>
+                        </div>
+                        <span class="ad-agent-status" [class.ad-active]="agent.active">{{ agent.active ? 'Active' :
+                            'Inactive' }}</span>
+                    </div>
+                    <div class="ad-empty" *ngIf="!agents.length">No agents created yet.</div>
+                </div>
+            </div>
+
+        </div>
+    </section>
+
+</main>
+
+<main class="mobile-flow" *ngIf="isAgent && isNativeFieldApp">
+
+    <!-- ── Header ── -->
+    <header class="fh-header">
+        <button type="button" class="fh-back" *ngIf="agentScreen !== 'home'" (click)="goBack()">&#8592; Back</button>
+        <span class="fh-title">{{ agentScreen === 'home' ? ('Hi, ' + currentUser?.name) : agentScreenTitle }}</span>
+        <button type="button" class="fh-logout" (click)="logout()">Logout</button>
+    </header>
+
+    <!-- Progress bar (only during capture steps) -->
+    <div class="fh-progress-wrap" *ngIf="agentScreen !== 'home'">
+        <div class="fh-progress-bar" [style.width.%]="progressPercent"></div>
+        <span class="fh-progress-label">{{ totalCapturedImages }}/{{ totalImageCount }} photos &nbsp;&#183;&nbsp; {{
+            progressPercent }}%</span>
+    </div>
+
+    <!-- Status toast -->
+    <div class="fh-toast"><span class="fh-dot" [class.fh-dot-live]="autoCaptureOn || syncService.syncing"></span>{{
+        message }}</div>
+    <div class="fh-toast fh-toast-offline" *ngIf="isOffline">&#128245; Offline &#8212; capture still works, upload
+        starts when online</div>
+
+    <section class="screen-stage">
+
+        <!-- ══════════════════════════════════════
+         HOME SCREEN
+    ══════════════════════════════════════ -->
+        <section class="screen-card fh-home page-enter" *ngIf="agentScreen === 'home'">
+
+            <!-- Upload banner -->
+            <div class="fh-upload-banner" *ngIf="pendingSyncCount > 0" [class.fh-uploading]="syncService.syncing">
+                <div>
+                    <strong>{{ syncService.syncing ? 'Uploading...' : (pendingSyncCount + ' record(s) waiting to
+                        upload') }}</strong>
+                    <small *ngIf="syncService.syncing">{{ syncService.progressLabel }} &#8212; {{
+                        syncService.progressPercent }}%</small>
+                    <small *ngIf="!isOffline && !syncService.syncing">{{ syncService.lastError || 'Tap Retry to upload
+                        now' }}</small>
+                    <small *ngIf="isOffline">Will upload automatically when online</small>
+                </div>
+                <button type="button" class="ghost" *ngIf="!isOffline && !syncService.syncing"
+                    (click)="manualSync()">Retry</button>
+            </div>
+
+            <!-- Farmer data banner -->
+            <div class="fh-data-banner" [class.fh-data-ready]="farmerSyncInfo">
+                <div>
+                    <strong>{{ farmerSyncInfo ? (farmerSyncInfo.farmerCount + ' farmers ready') : 'Farmer data not
+                        downloaded' }}</strong>
+                    <small>{{ farmerSyncInfo ? ('Updated ' + (farmerSyncInfo.syncedAt | date:'mediumDate')) : 'Download
+                        once before field work' }}</small>
+                </div>
+                <button type="button" class="ghost" [disabled]="isOffline || updatingFarmerData"
+                    (click)="updateFarmerData()">
+                    {{ updatingFarmerData ? 'Updating...' : 'Update' }}
+                </button>
+            </div>
+
+            <!-- Main action buttons -->
+            <p class="fh-section-label">What are you doing now?</p>
+
+            <button type="button" class="fh-action fh-action-new" (click)="startNewFarmerMode()">
+                <span class="fh-action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
+                        <line x1="19" y1="8" x2="19" y2="14" />
+                        <line x1="16" y1="11" x2="22" y2="11" />
+                    </svg></span>
+                <span class="fh-action-body">
+                    <strong>New Farmer + First Cow</strong>
+                    <small>Farmer is not saved yet</small>
+                </span>
+            </button>
+
+            <button type="button" class="fh-action fh-action-add" (click)="findExistingFarmerForEnrollment()">
+                <span class="fh-action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 9l2-2 2 2M19 9l2-2 2 2M5 7v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7" />
+                        <path d="M9 7V4M15 7V4" />
+                        <circle cx="12" cy="14" r="2" />
+                    </svg></span>
+                <span class="fh-action-body">
+                    <strong>Add Another Cow</strong>
+                    <small>Same farmer, enrolling a new cow</small>
+                </span>
+            </button>
+
+            <button type="button" class="fh-action fh-action-check" (click)="startCattleSearchFlow()">
+                <span class="fh-action-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="7" />
+                        <line x1="16.5" y1="16.5" x2="22" y2="22" />
+                        <path d="M8 11a3 3 0 0 1 3-3" />
+                    </svg></span>
+                <span class="fh-action-body">
+                    <strong>Check a Cow (Cattle Search)</strong>
+                    <small>Cow may already be registered &#8212; verify identity</small>
+                </span>
+            </button>
+
+            <div class="fh-rule" *ngIf="registeredCattleCount > 0">
+                <strong>Important: Same cow again? Always use Check a Cow.</strong>
+                <span>Never enrol the same cow twice.</span>
+            </div>
+            <div class="fh-rule fh-rule-info" *ngIf="!registeredCattleCount">
+                <strong>No cows registered yet</strong>
+                <span>Start with New Farmer + First Cow.</span>
+            </div>
+
+            <!-- Stats row -->
+            <div class="fh-stats">
+                <div><strong>{{ cattleStats?.farmerCount || 0 }}</strong><small>Farmers</small></div>
+                <div><strong>{{ cattleStats?.uniqueCattleCount || 0 }}</strong><small>Cows Enrolled</small></div>
+                <div><strong>{{ cattleStats?.cattleSearchCount || 0 }}</strong><small>Searches</small></div>
+                <div><strong>{{ pendingSyncCount }}</strong><small>Pending Upload</small></div>
+            </div>
+
+            <!-- Enrolled cattle (collapsed) -->
+            <details class="fh-details" *ngIf="farmerCattleGroups.length">
+                <summary>View enrolled cattle ({{ registeredCattleCount }})</summary>
+                <div class="fh-farmer-list">
+                    <div class="fh-farmer" *ngFor="let group of farmerCattleGroups">
+                        <div class="fh-farmer-head">
+                            <div><strong>{{ group.farmerName }}</strong><small>{{ group.farmerId }} &#183; {{
+                                    group.cattle.length }} cattle</small></div>
+                            <button type="button" (click)="addCattleForFarmer(group)">+ Add Cow</button>
+                        </div>
+                        <div class="fh-chips">
+                            <span class="fh-chip" *ngFor="let c of group.cattle"
+                                [class.fh-chip-reviewed]="c.searchReviewState === 'reviewed'"
+                                [class.fh-chip-pending]="c.searchReviewState === 'pending_review'">
+                                {{ c.cattleLabel || 'Cow' }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+            <details class="fh-details" *ngIf="appVersion">
+                <summary>App info</summary>
+                <small>{{ appVersion.appVersion }} &#183; match {{ appVersion.thresholds.embeddingMatchPercent
+                    }}%</small>
+            </details>
+
+        </section>
+
+        <!-- ══════════════════════════════════════
+         FARMER SCREEN
+    ══════════════════════════════════════ -->
+        <form class="screen-card fh-form page-enter" *ngIf="agentScreen === 'farmer'" (ngSubmit)="continueToLocation()">
+
+            <!-- Hidden: field officer auto-filled from logged-in user -->
+            <input name="fieldOfficerName" [(ngModel)]="fieldOfficerName" type="hidden">
+
+            <!-- Header -->
+            <div class="ff-header">
+                <div class="ff-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" width="26" height="26">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
+                    </svg>
+                </div>
+                <div>
+                    <p class="ff-step">Step 1 of 5</p>
+                    <h2 class="ff-title">Register Farmer</h2>
+                    <p class="ff-sub">Enter the farmer&apos;s name and save your GPS location</p>
+                </div>
+            </div>
+
+            <!-- Farmer name input -->
+            <div class="ff-field-wrap">
+                <label class="ff-field-label" for="farmerNameInput">Farmer Name</label>
+                <div class="ff-input-wrap">
+                    <span class="ff-input-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                            <circle cx="12" cy="7" r="4" />
+                        </svg>
+                    </span>
+                    <input id="farmerNameInput" name="farmerName" class="ff-input" [(ngModel)]="farmerName"
+                        placeholder="e.g. Ramesh Kumar" autocomplete="off">
+                </div>
+            </div>
+
+            <!-- GPS location card -->
+            <div class="ff-location-card" [class.ff-location-ready]="hasGps" (click)="!hasGps && useGps()">
+                <div class="ff-location-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+                        stroke-linejoin="round" width="22" height="22">
+                        <circle cx="12" cy="11" r="3" />
+                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
+                    </svg>
+                </div>
+                <div class="ff-location-body">
+                    <strong>{{ hasGps ? 'Location Saved' : 'Tap to Get Location' }}</strong>
+                    <span *ngIf="hasGps">{{ locationLat | number:'1.4-4' }},&nbsp;{{ locationLon | number:'1.4-4'
+                        }}</span>
+                    <span *ngIf="!hasGps">GPS is required before starting capture</span>
+                </div>
+                <button type="button" class="ff-location-btn" (click)="useGps(); $event.stopPropagation()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+                        stroke-linejoin="round" width="16" height="16">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                    </svg>
+                    {{ hasGps ? 'Refresh' : 'Get GPS' }}
+                </button>
+            </div>
+
+            <!-- Start button -->
+            <button type="button" class="ff-start-btn" [disabled]="!farmerName.trim() || !hasGps"
+                (click)="startNewFarmerCapture()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                    stroke-linejoin="round" width="20" height="20">
+                    <circle cx="12" cy="12" r="10" />
+                    <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none" />
+                </svg>
+                Start Cow Registration
+            </button>
+
+        </form>
+
+        <!-- ══════════════════════════════════════
+         LOCATION / FIND FARMER SCREEN
+    ══════════════════════════════════════ -->
+        <section class="screen-card page-enter" *ngIf="agentScreen === 'location'">
+            <p class="fh-step-label">{{ isCattleSearchFlow ? 'Step 1 of 4 &#8212; Set Up Cattle Search' : 'Step 2 of 5
+                &#8212; Find Farmer' }}</p>
+
+            <div class="fh-mode-badge" [class.fh-mode-search]="isCattleSearchFlow">
+                {{ isCattleSearchFlow ? 'Cattle Search &#8212; will NOT create a new registered cow' : 'Cattle Enrolment
+                &#8212; will register a new cow' }}
+            </div>
+
+            <ng-container *ngIf="!enrollment">
+                <div class="fh-gps-card" [class.fh-gps-ready]="hasGps">
+                    <strong>{{ hasGps ? 'GPS Ready' : 'Getting GPS...' }}</strong>
+                    <span *ngIf="hasGps">{{ locationLat | number:'1.5-5' }}, {{ locationLon | number:'1.5-5' }}{{
+                        locationAccuracyM ? (' &#177;' + locationAccuracyM + ' m') : '' }}</span>
+                    <span *ngIf="!hasGps">GPS is needed for every capture</span>
+                    <button type="button" class="ghost" style="margin-top:8px;width:auto" (click)="useGps(true)">Refresh
+                        GPS</button>
+                </div>
+
+                <label class="fh-label">
+                    {{ isCattleSearchFlow ? 'Farmer Name or ID (optional)' : 'Search for Farmer *' }}
+                    <input name="farmerSearch" [(ngModel)]="farmerSearchQuery" placeholder="Type name or ID...">
+                </label>
+                <div class="fh-btn-row">
+                    <button type="button" class="ghost" (click)="findFarmersByGps()">{{ searchingGpsFarmers ?
+                        'Searching...' : 'Nearby Farmers' }}</button>
+                    <button type="button" class="ghost" (click)="findFarmersByName()">{{ searchingNameFarmers ?
+                        'Searching...' : 'Search by Name' }}</button>
+                </div>
+
+                <div class="fh-results" *ngIf="gpsFarmerMatches.length">
+                    <p class="fh-results-label">Nearby farmers</p>
+                    <button type="button" class="fh-result-card" *ngFor="let farmer of gpsFarmerMatches"
+                        (click)="selectFarmer(farmer)">
+                        <strong>{{ farmer.farmerName || 'Unknown' }}</strong>
+                        <small>{{ farmer.farmerId }} &#183; {{ farmer.distanceKm !== null ? ((farmer.distanceKm |
+                            number:'1.1-1') + ' km') : '' }} &#183; {{ farmer.cattleCount }} cows</small>
+                    </button>
+                </div>
+
+                <div class="fh-results" *ngIf="nameFarmerMatches.length">
+                    <p class="fh-results-label">Name matches</p>
+                    <button type="button" class="fh-result-card" *ngFor="let farmer of nameFarmerMatches"
+                        (click)="selectFarmer(farmer)">
+                        <strong>{{ farmer.farmerName || 'Unknown' }}</strong>
+                        <small>{{ farmer.farmerId }} &#183; {{ farmer.cattleCount }} cows</small>
+                    </button>
+                </div>
+
+                <div class="fh-match-list" *ngIf="cattleMatches.length">
+                    <p class="fh-results-label">Existing cows for selected farmer</p>
+                    <button type="button" class="fh-result-card" *ngFor="let match of cattleMatches"
+                        (click)="selectRegisteredCattle(match)">
+                        <strong>{{ match.cattleLabel || 'Cow' }}</strong>
+                        <small>{{ match.farmerName }} &#183; {{ match.sessionCount }} captures</small>
+                    </button>
+                </div>
+
+                <div class="fh-selected" *ngIf="selectedFarmerKey">
+                    <strong>Selected: {{ farmerName || farmerId }}</strong>
+                    <button type="button" class="fh-text-btn" *ngIf="isCattleSearchFlow"
+                        (click)="clearSelectedFarmer()">Remove</button>
+                </div>
+                <div class="fh-info-box" *ngIf="isCattleSearchFlow && !selectedFarmerKey">
+                    <span>No farmer selected &#8212; that&#8217;s OK. Search will use GPS location.</span>
+                </div>
+
+                <!-- Farmer data update -->
+                <div class="fh-data-banner fh-data-compact" [class.fh-data-ready]="farmerSyncInfo">
+                    <div>
+                        <strong>{{ farmerSyncInfo ? (farmerSyncInfo.farmerCount + ' farmers') : 'No farmer data'
+                            }}</strong>
+                        <small>{{ farmerSyncInfo ? ('Updated ' + (farmerSyncInfo.syncedAt | date:'short')) : 'Download
+                            before offline work' }}</small>
+                    </div>
+                    <button type="button" class="ghost" [disabled]="isOffline || updatingFarmerData"
+                        (click)="updateFarmerData()">{{ updatingFarmerData ? 'Updating...' : 'Update' }}</button>
+                </div>
+            </ng-container>
+
+            <div class="fh-gps-card fh-gps-ready" *ngIf="enrollment">
+                <strong>Capture already started</strong>
+                <span>{{ farmerName || 'GPS search' }} &#8212; continue to muzzle camera</span>
+            </div>
+
+            <button type="button" class="primary-action" style="min-height:54px;margin-top:12px;width:100%"
+                [disabled]="!enrollment && !canStartExistingFarmerCapture" (click)="continueOrCreateCapture()">
+                {{ enrollment ? 'Continue to Camera &#8594;' : locationPrimaryActionLabel }}
+            </button>
+        </section>
+
+        <!-- ══════════════════════════════════════
+         MUZZLE CAMERA SCREEN
+    ══════════════════════════════════════ -->
+        <section class="screen-card camera-card page-enter" *ngIf="agentScreen === 'muzzle'">
+
+            <div class="cm-header-row">
+                <div>
+                    <p class="ff-step">Step 3 of 5</p>
+                    <h2 class="ff-title">Muzzle Scan</h2>
+                    <p class="ff-sub">Point camera at the cow's nose</p>
+                </div>
+                <div class="cm-counter" [class.cm-counter-done]="muzzlePreviews.length >= muzzleImageCount">
+                    <strong>{{ muzzlePreviews.length }}</strong><span>/{{ muzzleImageCount }}</span>
+                </div>
+            </div>
+
+            <div class="cm-viewport" [class.cm-live]="cameraOn" [class.cm-good]="muzzleGateState === 'good'"
+                [class.cm-bad]="muzzleGateState === 'bad' || muzzleGateState === 'error'"
+                [class.cm-saving]="muzzleGateState === 'uploading'">
+                <video #video muted playsinline></video>
+                <div class="scan-layer" *ngIf="autoCaptureOn"><i></i></div>
+                <div class="camera-guide" *ngIf="autoCaptureOn && (!detectionBox || detectionBox.confidence < 0.5)">
+                    <div class="guide-dot tl"></div>
+                    <div class="guide-dot tr"></div>
+                    <div class="guide-dot bl"></div>
+                    <div class="guide-dot br"></div>
+                </div>
+                <div class="detection-box" [class.good]="muzzleGateState === 'good' || muzzleGateState === 'uploading'"
+                    [class.bad]="muzzleGateState === 'bad' || muzzleGateState === 'error'" *ngIf="detectionBox"
+                    [style.left.%]="detectionBox.left" [style.top.%]="detectionBox.top"
+                    [style.width.%]="detectionBox.width" [style.height.%]="detectionBox.height">
+                    <span>{{ muzzleGateLabel }} {{ detectionBox.confidence | percent:'1.0-0' }}</span>
+                </div>
+                <div class="cm-gate-pill" [class.cm-gate-good]="muzzleGateState === 'good'"
+                    [class.cm-gate-bad]="muzzleGateState === 'bad' || muzzleGateState === 'error'"
+                    [class.cm-gate-saving]="muzzleGateState === 'uploading'" *ngIf="cameraOn">{{ muzzleGateLabel }}
+                </div>
+                <div class="cm-off-state" *ngIf="!cameraOn">
+                    <div class="cm-off-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                            stroke-linecap="round" stroke-linejoin="round" width="44" height="44">
+                            <path
+                                d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                            <circle cx="12" cy="13" r="4" />
+                        </svg>
+                    </div>
+                    <p>Tap <strong>Start Camera</strong> to begin</p>
+                    <small>Then tap <strong>Auto-Scan</strong> to detect muzzle</small>
+                </div>
+
+                <!-- Idea 2: Live confidence meter (visible while scanning) -->
+                <div class="cm-confidence-bar" *ngIf="cameraOn && autoCaptureOn && muzzleLiveConfidence > 0">
+                    <div class="cm-conf-track">
+                        <div class="cm-conf-fill" [style.width.%]="muzzleLiveConfidence"
+                            [class.cm-conf-low]="muzzleLiveConfidence < 35"
+                            [class.cm-conf-mid]="muzzleLiveConfidence >= 35 && muzzleLiveConfidence < 50"
+                            [class.cm-conf-high]="muzzleLiveConfidence >= 50">
+                        </div>
+                    </div>
+                    <span>{{ muzzleLiveConfidence }}%</span>
+                </div>
+
+            </div>
+            <canvas #canvas hidden></canvas>
+
+            <!-- Idea 1: Live rejection reason feedback -->
+            <div class="cm-feedback" *ngIf="autoCaptureOn && muzzleRejectionReason">
+                <div class="cm-feedback-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" width="18" height="18">
+                        <circle cx="12" cy="12" r="10" />
+                        <line x1="12" y1="8" x2="12" y2="12" />
+                        <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                </div>
+                <span>{{ muzzleRejectionReason }}</span>
+            </div>
+
+            <!-- Idea 2: Live confidence meter -->
+            <div class="cm-conf-row" *ngIf="autoCaptureOn && muzzleLiveConfidence > 0">
+                <span class="cm-conf-label">Confidence</span>
+                <div class="cm-conf-track">
+                    <div class="cm-conf-fill" [style.width.%]="muzzleLiveConfidence"
+                        [class.cm-conf-low]="muzzleLiveConfidence < 35"
+                        [class.cm-conf-mid]="muzzleLiveConfidence >= 35 && muzzleLiveConfidence < 50"
+                        [class.cm-conf-high]="muzzleLiveConfidence >= 50">
+                    </div>
+                </div>
+                <span class="cm-conf-pct">{{ muzzleLiveConfidence }}%</span>
+            </div>
+
+            <!-- Camera controls -->
+            <div class="cm-controls">
+                <button type="button" class="cm-btn-ghost" (click)="cameraOn ? stopCamera() : startCamera()">
+                    {{ cameraOn ? 'Stop' : 'Start Camera' }}
+                </button>
+                <button type="button" class="cm-btn-scan" [class.cm-scanning]="autoCaptureOn"
+                    [disabled]="!cameraOn || muzzlePreviews.length >= muzzleImageCount" (click)="toggleAutoCapture()">
+                    {{ autoCaptureOn ? 'Scanning...' : 'Auto-Scan Muzzle' }}
+                </button>
+            </div>
+
+            <!-- Manual capture fallback: hidden -->
+
+            <div class="cm-strip">
+                <div class="cm-strip-slot cm-slot-done" *ngFor="let preview of muzzlePreviews; let i = index">
+                    <img [src]="preview.url" [alt]="'Muzzle ' + (i + 1)">
+                    <div class="cm-slot-check">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                            stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                            <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                    </div>
+                    <span class="cm-slot-num">{{ i + 1 }}</span>
+                </div>
+                <div class="cm-strip-slot cm-slot-empty" *ngFor="let slot of missingMuzzleSlots">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                        stroke-linejoin="round" width="26" height="26">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                        <circle cx="12" cy="13" r="4" />
+                    </svg>
+                    <span class="cm-slot-num">{{ slot }}</span>
+                </div>
+            </div>
+
+            <details class="fh-details">
+                <summary>System Status</summary>
+                <div class="fh-sys-grid">
+                    <div [class.fh-sys-ok]="yoloStatus?.ok"><strong>Muzzle Gate</strong><span>{{ yoloStatus?.ok ?
+                            'Ready' : (yoloStatus?.error || 'Checking...') }}</span><button type="button" class="ghost"
+                            (click)="checkYoloStatus()">Check</button></div>
+                    <div [class.fh-sys-ok]="embeddingStatus?.ok"><strong>Cow Match</strong><span>{{ embeddingStatus?.ok
+                            ? 'Ready' : 'Not ready' }}</span><button type="button" class="ghost"
+                            (click)="checkEmbeddingStatus()">Check</button></div>
+                    <div [class.fh-sys-ok]="pineconeStatus?.ok"><strong>Record Search</strong><span>{{
+                            pineconeStatus?.ok ? ((pineconeStatus?.totalVectorCount || 0) + ' records') : 'Not ready'
+                            }}</span><button type="button" class="ghost" (click)="checkPineconeStatus()">Check</button>
+                    </div>
+                </div>
+            </details>
+
+        </section>
+
+        <!-- ══════════════════════════════════════
+         EVIDENCE PHOTOS SCREEN
+    ══════════════════════════════════════ -->
+        <section class="screen-card page-enter" *ngIf="agentScreen === 'evidence'">
+            <div class="fh-step-row">
+                <p class="fh-step-label" style="margin:0">Step 4 of 5 — Cattle Photos</p>
+                <span class="fh-badge">{{ capturedOtherImages }}/7</span>
+            </div>
+            <p class="fh-hint">Photograph the cow from all angles: face, sides, back and udder.</p>
+
+            <div class="action-row" *ngIf="!evidenceCameraActive && capturedOtherImages < requiredImages.length">
+                <button type="button" class="primary-action big" (click)="startEvidenceCamera()">Start Quick
+                    Camera</button>
+            </div>
+
+            <div class="camera-screen evidence-camera" [class.live]="cameraOn" *ngIf="evidenceCameraActive">
+                <video #video muted playsinline></video>
+                <div class="camera-empty" *ngIf="!cameraOn"><strong>Camera Ready</strong></div>
+                <div class="camera-guide-text" *ngIf="cameraOn">{{ requiredImages[evidenceCameraIndex].label }}</div>
+            </div>
+
+            <div class="action-row camera-actions" *ngIf="evidenceCameraActive">
+                <button type="button" class="ghost" (click)="cameraOn ? stopEvidenceCamera() : startCamera()">{{
+                    cameraOn ? 'Stop Camera' : 'Start Camera' }}</button>
+                <button type="button" class="ghost" *ngIf="cameraOn" (click)="skipEvidencePhoto()">Skip</button>
+                <button type="button" class="primary-action" *ngIf="cameraOn" (click)="captureEvidencePhoto()">Capture
+                    Photo</button>
+            </div>
+
+            <div class="slot-grid" *ngIf="!evidenceCameraActive">
+                <label class="slot-card" *ngFor="let item of requiredImages" [class.saved]="item.previewUrl"
+                    [class.uploading]="item.uploading">
+                    <input type="file" accept="image/*" capture="environment"
+                        (change)="uploadRequiredImage($event, item)">
+                    <img *ngIf="item.previewUrl" [src]="item.previewUrl" [alt]="item.label">
+                    <span>{{ item.group }}</span>
+                    <strong>{{ item.uploading ? 'Saving...' : item.label }}</strong>
+                </label>
+            </div>
+
+            <button type="button" class="primary-action big" [disabled]="capturedOtherImages < requiredImages.length"
+                (click)="goAgentScreen('review')">
+                Review &amp; Save →
+            </button>
+        </section>
+
+        <!-- ══════════════════════════════════════
+         REVIEW & SAVE SCREEN
+    ══════════════════════════════════════ -->
+        <section class="screen-card page-enter" *ngIf="agentScreen === 'review'">
+            <div class="fh-step-row">
+                <p class="fh-step-label" style="margin:0">Step 5 of 5 — Review &amp; Save</p>
+                <span class="fh-badge">{{ enrollmentStage }}</span>
+            </div>
+
+            <div class="fh-review-summary">
+                <div><small>Farmer</small><strong>{{ farmerName || enrollment?.farmerName || 'NA' }}</strong></div>
+                <div><small>Farmer ID</small><strong>{{ farmerId || enrollment?.farmerId || 'NA' }}</strong></div>
+                <div><small>Photos</small><strong>{{ totalCapturedImages }}/{{ totalImageCount }}</strong></div>
+                <div><small>Mode</small><strong>{{ isCattleSearchFlow ? 'Cattle Search' : 'Enrolment' }}</strong></div>
+            </div>
+
+            <div class="match-result" *ngIf="matchResolution">
+                <strong>{{ matchResolution.decision === 'matched_existing' ? 'Cow Found' : 'No Match &#8212; New Cow'
+                    }}</strong>
+                <ng-container *ngIf="matchResolution.topMatches[0] as bestMatch">
+                    <p *ngIf="matchResolution.decision === 'matched_existing'">Matched under {{ bestMatch.farmerName ||
+                        'unknown farmer' }} &#8212; {{ bestMatch.confidencePercent }}% confidence</p>
+                    <p class="result-source">Best match {{ bestMatch.confidencePercent }}% / {{
+                        matchSourceLabel(bestMatch.searchScope) }}</p>
+                </ng-container>
+                <p *ngIf="matchResolution.decision === 'new_cattle'">No registered cow matched. Admin will review.</p>
+            </div>
+
+            <div class="final-gallery">
+                <div class="final-thumb" *ngFor="let preview of muzzlePreviews.slice(0, muzzleImageCount)">
+                    <img [src]="preview.url" alt="Muzzle preview">
+                    <div class="quality-badges" *ngIf="preview.confidence || preview.sharpness">
+                        <span class="badge conf" *ngIf="preview.confidence">{{ preview.confidence | percent:'1.0-0'
+                            }}</span>
+                        <span class="badge sharp" *ngIf="preview.sharpness">S:{{ preview.sharpness }}</span>
+                    </div>
+                </div>
+                <img *ngFor="let item of requiredImages" [src]="item.previewUrl" [alt]="item.label"
+                    [hidden]="!item.previewUrl">
+            </div>
+
+            <button type="button" class="primary-action big" [disabled]="!canComplete" (click)="completeEnrollment()">{{
+                completeButtonLabel }}</button>
+        </section>
+
+    </section>
+
+    <!-- Upload progress overlay -->
+    <section class="upload-progress-overlay" *ngIf="syncService.syncing" role="status" aria-live="assertive">
+        <div class="upload-progress-card">
+            <div class="upload-progress-icon" aria-hidden="true"></div>
+            <p class="eyebrow">Secure Upload</p>
+            <h2>{{ captureWorkflow === 'cattle_search' ? 'Searching cattle' : 'Registering cattle' }}</h2>
+            <strong class="upload-progress-stage">{{ syncService.progressLabel }}</strong>
+            <div class="upload-progress-track" role="progressbar" [attr.aria-valuenow]="syncService.progressPercent"
+                aria-valuemin="0" aria-valuemax="100">
+                <span [style.width.%]="syncService.progressPercent"></span>
+            </div>
+            <div class="upload-progress-number">{{ syncService.progressPercent }}%</div>
+            <p>Do not close the app. Photos are uploading.</p>
+            <small *ngIf="syncService.totalCaptures > 1">Record {{ syncService.activeCaptureNumber }} of {{
+                syncService.totalCaptures }}</small>
+            <div class="upload-progress-safety">Record is safe on this phone even if the network stops.</div>
+        </div>
+    </section>
+
+    <!-- Bottom navigation -->
+    <nav class="bottom-nav">
+        <button type="button" [class.active]="agentScreen === 'home'" (click)="goAgentScreen('home')">Home</button>
+        <button type="button" [class.active]="agentScreen === 'farmer' || agentScreen === 'location'"
+            (click)="goAgentScreen(farmerNavTarget)">{{ farmerNavLabel }}</button>
+        <button type="button" [class.active]="agentScreen === 'muzzle'"
+            (click)="goAgentScreen('muzzle')">Camera</button>
+        <button type="button" [class.active]="agentScreen === 'review'"
+            (click)="goAgentScreen('review')">Review</button>
+    </nav>
+
+</main>
+
+
+<div class="image-viewer" *ngIf="imageViewer" (click)="closeImageViewer()">
+    <div class="image-viewer-card" (click)="$event.stopPropagation()">
+        <div class="panel-title">
+            <div>
+                <p class="eyebrow">Image Viewer</p>
+                <h2>{{ imageViewer.title }}</h2>
+            </div>
+            <button type="button" class="ghost" (click)="closeImageViewer()">Close</button>
+        </div>
+        <img [src]="imageViewer.url" [alt]="imageViewer.title">
+        <a [href]="imageViewer.url" target="_blank" rel="noreferrer">Open original</a>
+    </div>
+</div>

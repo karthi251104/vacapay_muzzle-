@@ -1,0 +1,14 @@
+{
+  "name": "vacapay-demo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "install:all": "pnpm --dir backend install && pnpm --dir frontend install",
+    "dev:backend": "pnpm --dir backend dev",
+    "dev:frontend": "pnpm --dir frontend start",
+    "dev": "concurrently \"pnpm dev:backend\" \"pnpm dev:frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

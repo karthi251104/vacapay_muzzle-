@@ -1,0 +1,33 @@
+{
+  "id": "chatcmpl-b2828813-05dc-4937-8c98-540705548465",
+  "object": "chat.completion",
+  "created": 1782907961,
+  "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n\"selected_rank\": 1,\n  \"selected_label\": \"TOP 1 MUZZLE\",\n  \"confidence\": \"high\",\n  \"reason\": \"muzzle texture and pattern match\",\n  \"match_boxes\": [\n    {\"label\": \"query matching pattern\", \"box\": [0, 0, 400, 400]},\n    {\"label\": \"candidate matching pattern\", \"box\": [450, 50, 650, 350]}\n  ]\n}"
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "queue_time": 1.772281688,
+    "prompt_tokens": 2101,
+    "prompt_time": 0.099036216,
+    "completion_tokens": 99,
+    "completion_time": 0.230010146,
+    "total_tokens": 2200,
+    "total_time": 0.329046362
+  },
+  "usage_breakdown": null,
+  "system_fingerprint": "fp_fa001c7fdb",
+  "x_groq": {
+    "id": "req_01kwesgyajfx9r2ynbfxahgf7h",
+    "seed": 501362637
+  },
+  "service_tier": "on_demand"
+}

@@ -1,0 +1,439 @@
+{
+  "sampleId": "sample_01",
+  "queryClass": "class_000009",
+  "queryImage": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000009\\image_4.jpg",
+  "candidates": [
+    {
+      "classId": "class_000104",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000104\\image_1.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_01"
+    },
+    {
+      "classId": "class_000041",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000041\\image_10.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_02"
+    },
+    {
+      "classId": "class_000884",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000884\\490_jpg.rf.3d9d965d7a3fb4ba40460c86aaf6023b.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_03"
+    },
+    {
+      "classId": "class_000119",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000119\\image_11.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_04"
+    },
+    {
+      "classId": "class_000746",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000746\\22_jpg.rf.d9789a550fae7ca09bd10fa715e5c375.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_05"
+    },
+    {
+      "classId": "class_000076",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000076\\image_13.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_06"
+    },
+    {
+      "classId": "class_000078",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000078\\image_11.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_07"
+    },
+    {
+      "classId": "class_000174",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000174\\IMG_0277.JPG",
+      "expectedCorrect": false,
+      "slotId": "candidate_08"
+    },
+    {
+      "classId": "class_000455",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000455\\IMG_3527.JPG",
+      "expectedCorrect": false,
+      "slotId": "candidate_09"
+    },
+    {
+      "classId": "class_000105",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000105\\image_1.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_10"
+    },
+    {
+      "classId": "class_000009",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000009\\image_5.jpg",
+      "expectedCorrect": true,
+      "slotId": "candidate_11"
+    },
+    {
+      "classId": "class_000129",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000129\\image_1.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_12"
+    },
+    {
+      "classId": "class_000394",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000394\\IMG_2489.JPG",
+      "expectedCorrect": false,
+      "slotId": "candidate_13"
+    },
+    {
+      "classId": "class_000066",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000066\\image_12.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_14"
+    },
+    {
+      "classId": "class_000888",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000888\\677_jpg.rf.37ee190d5098eeaf888aa76ce4af7e2b.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_15"
+    },
+    {
+      "classId": "class_000113",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000113\\image_10.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_16"
+    },
+    {
+      "classId": "class_000167",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000167\\IMG_0181.JPG",
+      "expectedCorrect": false,
+      "slotId": "candidate_17"
+    },
+    {
+      "classId": "class_000495",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000495\\cattle_0900_DSCF3950.jpg",
+      "expectedCorrect": false,
+      "slotId": "candidate_18"
+    },
+    {
+      "classId": "class_000165",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000165\\IMG_0026.JPG",
+      "expectedCorrect": false,
+      "slotId": "candidate_19"
+    },
+    {
+      "classId": "class_000839",
+      "imagePath": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000839\\IMG_3284.JPG",
+      "expectedCorrect": false,
+      "slotId": "candidate_20"
+    }
+  ],
+  "layout": {
+    "width": 2100,
+    "height": 1250,
+    "tiles": {
+      "query": {
+        "x": 34,
+        "y": 110,
+        "width": 460,
+        "height": 340,
+        "visibleImage": {
+          "x": 149,
+          "y": 110,
+          "width": 230,
+          "height": 308
+        },
+        "label": "QUERY MUZZLE",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000009\\image_4.jpg"
+      },
+      "candidate_01": {
+        "x": 540,
+        "y": 110,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 618,
+          "y": 110,
+          "width": 124,
+          "height": 158
+        },
+        "label": "class_000104",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000104\\image_1.jpg"
+      },
+      "candidate_02": {
+        "x": 842,
+        "y": 110,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 919,
+          "y": 110,
+          "width": 126,
+          "height": 158
+        },
+        "label": "class_000041",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000041\\image_10.jpg"
+      },
+      "candidate_03": {
+        "x": 1144,
+        "y": 110,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1200,
+          "y": 110,
+          "width": 167,
+          "height": 158
+        },
+        "label": "class_000884",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000884\\490_jpg.rf.3d9d965d7a3fb4ba40460c86aaf6023b.jpg"
+      },
+      "candidate_04": {
+        "x": 1446,
+        "y": 110,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1516,
+          "y": 110,
+          "width": 139,
+          "height": 158
+        },
+        "label": "class_000119",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000119\\image_11.jpg"
+      },
+      "candidate_05": {
+        "x": 1748,
+        "y": 110,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1824,
+          "y": 110,
+          "width": 128,
+          "height": 158
+        },
+        "label": "class_000746",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000746\\22_jpg.rf.d9789a550fae7ca09bd10fa715e5c375.jpg"
+      },
+      "candidate_06": {
+        "x": 540,
+        "y": 326,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 616,
+          "y": 326,
+          "width": 127,
+          "height": 158
+        },
+        "label": "class_000076",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000076\\image_13.jpg"
+      },
+      "candidate_07": {
+        "x": 842,
+        "y": 326,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 922,
+          "y": 326,
+          "width": 120,
+          "height": 158
+        },
+        "label": "class_000078",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000078\\image_11.jpg"
+      },
+      "candidate_08": {
+        "x": 1144,
+        "y": 326,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1214,
+          "y": 326,
+          "width": 140,
+          "height": 158
+        },
+        "label": "class_000174",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000174\\IMG_0277.JPG"
+      },
+      "candidate_09": {
+        "x": 1446,
+        "y": 326,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1497,
+          "y": 326,
+          "width": 178,
+          "height": 158
+        },
+        "label": "class_000455",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000455\\IMG_3527.JPG"
+      },
+      "candidate_10": {
+        "x": 1748,
+        "y": 326,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1832,
+          "y": 326,
+          "width": 111,
+          "height": 158
+        },
+        "label": "class_000105",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000105\\image_1.jpg"
+      },
+      "candidate_11": {
+        "x": 540,
+        "y": 542,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 620,
+          "y": 542,
+          "width": 120,
+          "height": 158
+        },
+        "label": "class_000009",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000009\\image_5.jpg"
+      },
+      "candidate_12": {
+        "x": 842,
+        "y": 542,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 925,
+          "y": 542,
+          "width": 113,
+          "height": 158
+        },
+        "label": "class_000129",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000129\\image_1.jpg"
+      },
+      "candidate_13": {
+        "x": 1144,
+        "y": 542,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1187,
+          "y": 542,
+          "width": 194,
+          "height": 158
+        },
+        "label": "class_000394",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000394\\IMG_2489.JPG"
+      },
+      "candidate_14": {
+        "x": 1446,
+        "y": 542,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1511,
+          "y": 542,
+          "width": 150,
+          "height": 158
+        },
+        "label": "class_000066",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000066\\image_12.jpg"
+      },
+      "candidate_15": {
+        "x": 1748,
+        "y": 542,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1819,
+          "y": 542,
+          "width": 138,
+          "height": 158
+        },
+        "label": "class_000888",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000888\\677_jpg.rf.37ee190d5098eeaf888aa76ce4af7e2b.jpg"
+      },
+      "candidate_16": {
+        "x": 540,
+        "y": 758,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 605,
+          "y": 758,
+          "width": 149,
+          "height": 158
+        },
+        "label": "class_000113",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000113\\image_10.jpg"
+      },
+      "candidate_17": {
+        "x": 842,
+        "y": 758,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 907,
+          "y": 758,
+          "width": 150,
+          "height": 158
+        },
+        "label": "class_000167",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000167\\IMG_0181.JPG"
+      },
+      "candidate_18": {
+        "x": 1144,
+        "y": 758,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1227,
+          "y": 758,
+          "width": 113,
+          "height": 158
+        },
+        "label": "class_000495",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000495\\cattle_0900_DSCF3950.jpg"
+      },
+      "candidate_19": {
+        "x": 1446,
+        "y": 758,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1535,
+          "y": 758,
+          "width": 101,
+          "height": 158
+        },
+        "label": "class_000165",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000165\\IMG_0026.JPG"
+      },
+      "candidate_20": {
+        "x": 1748,
+        "y": 758,
+        "width": 280,
+        "height": 190,
+        "visibleImage": {
+          "x": 1804,
+          "y": 758,
+          "width": 168,
+          "height": 158
+        },
+        "label": "class_000839",
+        "path": "F:\\muzzle_embedding_dataset_final\\muzzle_embedding_dataset_final\\test\\class_000839\\IMG_3284.JPG"
+      }
+    }
+  },
+  "collageImage": "assets/sample_01/collage_gemini_shuffled_top20.jpg",
+  "boxedImage": "assets/sample_01/collage_gemini_shuffled_top20_with_boxes.jpg",
+  "selectedClass": "class_000009",
+  "model": "gemini-3.5-flash",
+  "confidence": "high",
+  "reason": "The query muzzle and class_000009 share a highly distinctive central groove pattern with diagonal ridges spreading outwards to the left and a darker patch on the right side.",
+  "coordinateStatus": {
+    "queryBoxInsideImage": true,
+    "candidateBoxInsideImage": true,
+    "valid": true
+  },
+  "correct": true
+}

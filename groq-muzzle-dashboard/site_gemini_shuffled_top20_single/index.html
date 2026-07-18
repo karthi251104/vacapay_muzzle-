@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gemini Shuffled Top-20 Single Muzzle Test</title>
+  <style>
+    * { box-sizing:border-box; }
+    body { margin:0; background:#f4f1ea; color:#20221d; font-family:Inter,Segoe UI,Arial,sans-serif; }
+    main { width:min(1500px, calc(100vw - 32px)); margin:0 auto; padding:28px 0 42px; }
+    h1 { margin:0; font-size:clamp(26px,4vw,42px); letter-spacing:0; }
+    p { color:#6a6258; line-height:1.5; }
+    .metrics { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin:22px 0; }
+    .metric,.card { background:#fffdf8; border:1px solid #d8cdbb; border-radius:8px; box-shadow:0 14px 36px rgba(54,45,28,.08); }
+    .metric { padding:16px; }
+    .metric small { display:block; color:#746b5f; font-weight:800; text-transform:uppercase; font-size:12px; }
+    .metric strong { display:block; color:#2f744b; font-size:25px; margin-top:8px; overflow-wrap:anywhere; }
+    .pill { display:inline-flex; border-radius:999px; padding:6px 10px; font-weight:900; font-size:12px; }
+    .pill.ok { background:#e8f2eb; color:#205437; }
+    .pill.bad { background:#fff0eb; color:#9a3926; }
+    .card { padding:14px; }
+    .card img { width:100%; border-radius:8px; border:1px solid #d8cdbb; display:block; background:#fff; }
+    dl { display:grid; grid-template-columns:180px 160px 160px 1fr; gap:10px; margin:12px 0 0; }
+    dt { color:#746b5f; font-size:12px; font-weight:900; text-transform:uppercase; }
+    dd { margin:4px 0 0; font-weight:800; }
+    dl div:nth-child(4), dl div:nth-child(5) { grid-column:1 / -1; }
+    @media (max-width:900px) { .metrics,dl { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Gemini Shuffled Top-20 Single Muzzle Test</h1>
+    <p>One query cattle is compared against 20 randomly shuffled candidate classes. Candidate labels are class names only, with no rank hints.</p>
+    <section class="metrics">
+      <div class="metric"><small>Query Class</small><strong>class_000009</strong></div>
+      <div class="metric"><small>Candidates</small><strong>20</strong></div>
+      <div class="metric"><small>Selected</small><strong>class_000009</strong></div>
+      <div class="metric"><small>Model</small><strong>gemini-3.5-flash</strong></div>
+      <div class="metric"><small>Status</small><strong><span class="pill ok">Correct</span></strong></div>
+    </section>
+    <article class="card">
+      <img src="assets/sample_01/collage_gemini_shuffled_top20_with_boxes.jpg" alt="Top-20 boxed collage">
+      <dl>
+        <div><dt>Confidence</dt><dd>high</dd></div>
+        <div><dt>Box Valid</dt><dd>True</dd></div>
+        <div><dt>Correct</dt><dd>True</dd></div>
+        <div><dt>Candidate Order</dt><dd>class_000104, class_000041, class_000884, class_000119, class_000746, class_000076, class_000078, class_000174, class_000455, class_000105, class_000009, class_000129, class_000394, class_000066, class_000888, class_000113, class_000167, class_000495, class_000165, class_000839</dd></div>
+        <div><dt>Reason</dt><dd>The query muzzle and class_000009 share a highly distinctive central groove pattern with diagonal ridges spreading outwards to the left and a darker patch on the right side.</dd></div>
+      </dl>
+    </article>
+  </main>
+</body>
+</html>

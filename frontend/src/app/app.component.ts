@@ -1,0 +1,2901 @@
+import { CommonModule } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { App as CapacitorApp } from '@capacitor/app';
+import { firstValueFrom } from 'rxjs';
+import { ApiService, AppUser, AppVersionStatus, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, FarmerMatch, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
+import { TfliteMuzzleDetectorService } from './tflite-muzzle-detector.service';
+import { CachedFarmer, FarmerSyncInfo, OfflineStorageService, PendingCapture } from './offline-storage.service';
+import { SyncService } from './sync.service';
+
+interface RequiredImage {
+  type: string;
+  label: string;
+  group: string;
+  previewUrl?: string;
+  uploading: boolean;
+}
+
+interface DetectionBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  confidence: number;
+}
+
+type AgentScreen = 'home' | 'farmer' | 'location' | 'muzzle' | 'evidence' | 'review';
+
+
+interface FieldTestMetrics {
+  registeredCattle: number;
+  cattleSearches: number;
+  reviewedSearches: number;
+  cattleFoundResults: number;
+  cattleFoundCorrect: number;
+  cattleFoundIncorrect: number;
+  noCattleFoundResults: number;
+  noCattleFoundCorrect: number;
+  noCattleFoundIncorrect: number;
+  top1Accuracy: number;
+  top5Accuracy: number;
+  pendingReview: number;
+}
+
+interface OfficerFieldSummary {
+  officer: string;
+  cattleSearches: number;
+  reviewedSearches: number;
+  cattleFoundCorrect: number;
+  cattleFoundIncorrect: number;
+  noCattleFoundCorrect: number;
+  noCattleFoundIncorrect: number;
+  top1Accuracy: number;
+  top5Accuracy: number;
+  avgScore: number;
+  captureQuality: string;
+}
+
+interface CattleSearchCoverageRow {
+  cattleId: string;
+  cattleLabel: string;
+  farmerId: string;
+  farmerName: string;
+  fieldOfficerName: string;
+  searchCount: number;
+  lastSearchDate: string | null;
+}
+
+interface OfficerEnrollmentCoverage {
+  officer: string;
+  enrolled: number;
+  searched: number;
+  notSearched: number;
+  coveragePercent: number;
+}
+interface FarmerCattleGroup {
+  key: string;
+  farmerId: string;
+  farmerName: string;
+  cattle: CattleSummary[];
+  searchedCount: number;
+  reviewedCount: number;
+}
+interface AgentStep {
+  key: AgentScreen;
+  label: string;
+  caption: string;
+}
+
+@Component({
+  selector: 'app-root',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
+  templateUrl: './app.component.html',
+  styleUrl: './app.component.css'
+})
+export class AppComponent implements OnInit, OnDestroy {
+  batteryLevel?: number;
+  captureStartTime = 0;
+  isOffline = !navigator.onLine;
+  pendingSyncCount = 0;
+  lastCompletedWorkflow?: 'cattle_enrolment' | 'cattle_search';
+  lastRecordUploaded = false;
+  showAgentManagement = false;
+  adminTab: 'overview' | 'records' | 'reviews' | 'team' = 'overview';
+
+  // 3-level drill-down state for Cattle Records tab
+  recordsLevel: 'officers' | 'farmers' | 'cattle' = 'officers';
+  selectedOfficerName = '';
+  selectedFarmerKey2 = '';  // key for level-3 farmer selection
+  finalizingRecord = false;
+  evidenceCameraActive = false;
+  evidenceCameraIndex = 0;
+  private gpsCache?: { lat: number; lon: number; timestamp: number };
+  private offlineCaptureId?: string;
+  private batteryManager?: EventTarget;
+  private nativeBackListener?: { remove: () => Promise<void> };
+  private adminRefreshTimer?: number;
+  private readonly onOnline = () => {
+    this.isOffline = false;
+    this.syncService.refreshPendingCount().then((count) => {
+      this.pendingSyncCount = count;
+      if (count > 0 && this.currentUser?.role === 'agent') {
+        void this.syncPendingRecords('online');
+      } else {
+        this.message = 'Back online.';
+      }
+    });
+  };
+  private readonly onOffline = () => {
+    this.isOffline = true;
+    this.message = 'You are offline. Capture continues on this phone; upload later from Home.';
+  };
+  private readonly onBatteryLevelChange = () => {
+    const battery = this.batteryManager as { level?: number } | undefined;
+    this.batteryLevel = battery?.level;
+    if (this.batteryLevel !== undefined && this.batteryLevel < 0.20) {
+      this.message = 'Battery is low. Connect charger if you have many cows to capture.';
+    }
+  };
+  ngOnInit(): void {
+    void this.setupNativeBackButton();
+    this.loadAppVersion();
+    this.checkBattery();
+    this.setupConnectivityListeners();
+    this.syncService.refreshPendingCount().then(count => {
+      this.pendingSyncCount = count;
+      if (count > 0 && navigator.onLine && this.currentUser?.role === 'agent') {
+        void this.syncPendingRecords('startup');
+      }
+    });
+    void this.loadFarmerCacheStatus();
+  }
+
+  private setupConnectivityListeners(): void {
+    window.addEventListener('online', this.onOnline);
+    window.addEventListener('offline', this.onOffline);
+  }
+
+  private loadAppVersion(): void {
+    this.api.appVersion().subscribe({
+      next: (version) => {
+        this.appVersion = version;
+      },
+      error: () => {
+        this.appVersion = undefined;
+      }
+    });
+  }
+
+  private async loadFarmerCacheStatus(): Promise<void> {
+    try {
+      this.farmerSyncInfo = await this.offlineStorage.getFarmerSyncInfo();
+    } catch {
+      this.farmerSyncInfo = undefined;
+    }
+  }
+
+  async updateFarmerData(): Promise<void> {
+    if (!navigator.onLine) {
+      this.message = 'Connect to the internet once to update farmer data.';
+      return;
+    }
+
+    this.message = 'Downloading the latest farmer data...';
+    try {
+      await this.refreshFarmerCache(true);
+      if (this.agentScreen === 'location' && this.hasGps) {
+        await this.findFarmersByGps();
+      }
+    } catch (error) {
+      this.message = `Farmer update failed: ${this.errorMessage(error)}`;
+    }
+  }
+
+  private async setupNativeBackButton(): Promise<void> {
+    if (!this.isNativeFieldApp) return;
+
+    this.nativeBackListener = await CapacitorApp.addListener('backButton', () => {
+      if (this.syncService.syncing || this.finalizingRecord) {
+        this.message = 'Upload is in progress. Keep the app open until it finishes.';
+        return;
+      }
+      if (this.imageViewer) {
+        this.closeImageViewer();
+        return;
+      }
+      if (this.isAgent && this.agentScreen !== 'home') {
+        this.goBack();
+        return;
+      }
+      void CapacitorApp.minimizeApp();
+    });
+  }
+
+  private async refreshFarmerCache(announce: boolean): Promise<void> {
+    if (!navigator.onLine) throw new Error('No internet connection.');
+    if (this.farmerRefreshPromise) return this.farmerRefreshPromise;
+
+    this.updatingFarmerData = true;
+    this.farmerRefreshPromise = (async () => {
+      const response = await firstValueFrom(this.api.downloadFarmerData());
+      await this.offlineStorage.replaceFarmers(response.farmers, {
+        farmerCount: response.farmerCount,
+        syncedAt: new Date().toISOString(),
+        datasetVersion: response.datasetVersion
+      });
+      this.lastAutomaticFarmerRefreshAt = Date.now();
+      await this.loadFarmerCacheStatus();
+      if (announce) {
+        this.message = `${response.farmerCount} farmer record(s) updated. Offline search is ready.`;
+      }
+    })();
+
+    try {
+      await this.farmerRefreshPromise;
+    } finally {
+      this.farmerRefreshPromise = undefined;
+      this.updatingFarmerData = false;
+    }
+  }
+
+  private refreshFarmerCacheInBackground(): void {
+    if (!navigator.onLine || Date.now() - this.lastAutomaticFarmerRefreshAt < 5 * 60 * 1000) return;
+    void this.refreshFarmerCache(false).catch(() => undefined);
+  }
+
+  private async checkBattery(): Promise<void> {
+    try {
+      if ('getBattery' in navigator) {
+        const battery = await (navigator as any).getBattery();
+        this.batteryManager = battery;
+        this.batteryLevel = battery.level;
+        battery.addEventListener('levelchange', this.onBatteryLevelChange);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  private playBeep(success: boolean): void {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = success ? 'sine' : 'square';
+      osc.frequency.setValueAtTime(success ? 800 : 300, ctx.currentTime);
+      if (success) {
+        osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+      }
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.1);
+    } catch {
+      // ignore
+    }
+  }
+  @ViewChild('video') video?: ElementRef<HTMLVideoElement>;
+  @ViewChild('canvas') canvas?: ElementRef<HTMLCanvasElement>;
+
+  currentUser?: AppUser;
+  loginIdentifier = '';
+  loginPassword = '';
+  loginMode: 'agent' | 'admin' = 'agent';
+  agents: AppUser[] = [];
+  matchReviews: MatchReview[] = [];
+  allMatchReviews: MatchReview[] = [];
+  cattleInventory: CattleSummary[] = [];
+  cattleStats?: CattleStats;
+  selectedCattleIds: string[] = [];
+  selectedAdminCattle?: CattleSummary;
+  adminRegistryView: 'unique' | 'duplicates' = 'unique';
+  imageViewer?: { title: string; url: string };
+  showAllReviews = false;
+  reviewFilterDecision = 'all';
+  reviewFilterOfficer = 'all';
+  coverageFilterOfficer = 'all';
+  coverageFilterStatus: 'all' | 'searched' | 'not_searched' = 'all';
+  officerNamesForFilter: string[] = [];
+  loadedMatchedImages: Record<string, CattleImageSummary[]> = {};
+  expandedReviewId = '';
+  readonly isNativeFieldApp = true;
+
+  agentName = '';
+  agentPhone = '';
+  newAgentId = '';
+  newAgentPassword = '';
+
+  enrollment?: Enrollment;
+  cattleId = '';
+  captureWorkflow: 'cattle_enrolment' | 'cattle_search' = 'cattle_enrolment';
+  farmerId = '';
+  farmerName = '';
+  farmerSearchQuery = '';
+  fieldOfficerName = '';
+  locationLat: number | null = null;
+  locationLon: number | null = null;
+  locationAccuracyM: number | null = null;
+  locationCapturedAt = '';
+  radiusKm = 7;
+  selectedFarmerKey = '';
+  farmerMatches: FarmerMatch[] = [];
+  gpsFarmerMatches: FarmerMatch[] = [];
+  nameFarmerMatches: FarmerMatch[] = [];
+  searchingFarmers = false;
+  searchingGpsFarmers = false;
+  searchingNameFarmers = false;
+  cattleMatches: CattleMatch[] = [];
+  searchingCattle = false;
+  farmerSyncInfo?: FarmerSyncInfo;
+  updatingFarmerData = false;
+  private farmerRefreshPromise?: Promise<void>;
+  private lastAutomaticFarmerRefreshAt = 0;
+
+  muzzlePreviews: { url: string; confidence?: number; sharpness?: number }[] = [];
+  cameraOn = false;
+  autoCaptureOn = false;
+  isDetecting = false;
+  message = 'Start a new cattle capture.';
+  lastConfidence?: number;
+  detectionBox?: DetectionBox;
+  muzzleGateState: 'idle' | 'scanning' | 'good' | 'bad' | 'uploading' | 'error' = 'idle';
+  muzzleGateLabel = 'Ready';
+  muzzleLiveConfidence = 0;
+  muzzleRejectionReason = '';
+  muzzleScanSeconds = 0;
+  private muzzleScanTimer?: number;
+  yoloStatus?: YoloStatus;
+  embeddingStatus?: EmbeddingStatus;
+  pineconeStatus?: PineconeStatus;
+  appVersion?: AppVersionStatus;
+  matchResolution?: MuzzleMatchResolution;
+  checkingYolo = false;
+  checkingEmbedding = false;
+  checkingPinecone = false;
+  agentScreen: AgentScreen = 'home';
+
+  readonly muzzleImageCount = 3;
+
+  readonly agentScreens: AgentStep[] = [
+    { key: 'home', label: 'Home', caption: 'Start' },
+    { key: 'farmer', label: 'Farmer', caption: 'Add' },
+    { key: 'location', label: 'Find', caption: 'GPS/Name' },
+    { key: 'muzzle', label: 'Muzzle', caption: `${this.muzzleImageCount} photos` },
+    { key: 'evidence', label: 'Other', caption: 'Photos' },
+    { key: 'review', label: 'Save', caption: 'Finish' }
+  ];
+
+  readonly requiredImages: RequiredImage[] = [
+    { type: 'face1', label: 'Face 1', group: 'Face', uploading: false },
+    { type: 'face2', label: 'Face 2', group: 'Face', uploading: false },
+    { type: 'face3', label: 'Face 3', group: 'Face', uploading: false },
+    { type: 'leftside', label: 'Left Side', group: 'Body', uploading: false },
+    { type: 'rightside', label: 'Right Side', group: 'Body', uploading: false },
+    { type: 'back', label: 'Back', group: 'Body', uploading: false },
+    { type: 'udder', label: 'Udder', group: 'Udder', uploading: false }
+  ];
+  readonly totalImageCount = this.muzzleImageCount + this.requiredImages.length;
+
+  private stream?: MediaStream;
+  private captureTimer?: number;
+
+  constructor(
+    private readonly api: ApiService,
+    private readonly muzzleDetector: TfliteMuzzleDetectorService,
+    private readonly offlineStorage: OfflineStorageService,
+    public readonly syncService: SyncService
+  ) {
+    if (!this.isNativeFieldApp) this.loginMode = 'admin';
+    const savedUser = localStorage.getItem('vacapay_user');
+    if (savedUser) {
+      try {
+        const parsedUser = JSON.parse(savedUser) as Partial<AppUser>;
+        if (parsedUser.role !== 'admin' && parsedUser.role !== 'agent') {
+          throw new Error('Saved user role is no longer supported.');
+        }
+        this.currentUser = parsedUser as AppUser;
+      } catch {
+        this.api.clearToken();
+        localStorage.removeItem('vacapay_user');
+        this.currentUser = undefined;
+        this.message = 'Please sign in again after the app update.';
+        return;
+      }
+      if (this.currentUser.role === 'agent') {
+        this.fieldOfficerName = this.currentUser.name;
+      }
+      if (this.currentUser.role === 'admin') {
+        this.loadAgents();
+        this.loadMatchReviews();
+        this.loadCattleInventory();
+        this.startAdminAutoRefresh();
+      }
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.stopCamera();
+    window.removeEventListener('online', this.onOnline);
+    window.removeEventListener('offline', this.onOffline);
+    this.batteryManager?.removeEventListener?.('levelchange', this.onBatteryLevelChange);
+    if (this.adminRefreshTimer) window.clearInterval(this.adminRefreshTimer);
+    void this.nativeBackListener?.remove();
+    this.syncService.destroy();
+  }
+
+  login(): void {
+    this.message = 'Signing in...';
+    this.api.login(this.loginIdentifier, this.loginPassword).subscribe({
+      next: ({ token, user }) => {
+        this.api.setToken(token);
+        this.currentUser = user;
+        localStorage.setItem('vacapay_user', JSON.stringify(user));
+        this.loginPassword = '';
+        this.message = user.role === 'admin' ? 'Admin signed in.' : 'Agent signed in.';
+
+        if (user.role === 'agent') {
+          this.agentScreen = 'home';
+          this.fieldOfficerName = user.name;
+          void this.loadFarmerCacheStatus();
+          void this.syncService.refreshPendingCount().then((count) => {
+            this.pendingSyncCount = count;
+            if (count > 0 && navigator.onLine) void this.syncPendingRecords('startup');
+          });
+          this.checkYoloStatus();
+          this.checkEmbeddingStatus();
+          this.checkPineconeStatus();
+          this.loadCattleInventory();
+        } else {
+          this.loadAgents();
+          this.loadMatchReviews();
+          this.loadCattleInventory();
+          this.startAdminAutoRefresh();
+        }
+      },
+      error: (error) => {
+        this.message = this.loginErrorMessage(error);
+      }
+    });
+  }
+
+  checkYoloStatus(): void {
+    this.checkingYolo = true;
+    this.muzzleDetector.isReady()
+      .then(() => {
+        this.yoloStatus = {
+          ok: true,
+          modelPath: '/assets/models/best.tflite',
+          task: 'phone_tflite_detection'
+        };
+        this.checkingYolo = false;
+        this.message = 'Phone muzzle check is ready.';
+      })
+      .catch((error) => {
+        this.checkingYolo = false;
+        this.yoloStatus = {
+          ok: false,
+          modelPath: '/assets/models/best.tflite',
+          error: error instanceof Error ? error.message : 'Phone TFLite model could not load.'
+        };
+        this.message = `Phone muzzle check not ready: ${this.yoloStatus.error}`;
+      });
+  }
+
+  checkEmbeddingStatus(): void {
+    this.checkingEmbedding = true;
+    this.api.embeddingStatus().subscribe({
+      next: (status) => {
+        this.embeddingStatus = status;
+        this.checkingEmbedding = false;
+      },
+      error: (error) => {
+        this.checkingEmbedding = false;
+        this.embeddingStatus = {
+          ok: false,
+          modelPath: '',
+          threshold: 0.70,
+          error: this.errorMessage(error)
+        };
+      }
+    });
+  }
+
+  checkPineconeStatus(): void {
+    this.checkingPinecone = true;
+    this.api.pineconeStatus().subscribe({
+      next: (status) => {
+        this.pineconeStatus = status;
+        this.checkingPinecone = false;
+      },
+      error: (error) => {
+        this.checkingPinecone = false;
+        this.pineconeStatus = {
+          ok: false,
+          enabled: false,
+          error: this.errorMessage(error)
+        };
+      }
+    });
+  }
+
+  logout(): void {
+    this.stopCamera();
+    if (this.adminRefreshTimer) {
+      window.clearInterval(this.adminRefreshTimer);
+      this.adminRefreshTimer = undefined;
+    }
+    this.api.clearToken();
+    localStorage.removeItem('vacapay_user');
+    this.currentUser = undefined;
+    this.enrollment = undefined;
+    this.agentScreen = 'home';
+    this.selectedCattleIds = [];
+    this.selectedAdminCattle = undefined;
+    this.imageViewer = undefined;
+    this.message = 'Signed out.';
+  }
+
+  goAgentScreen(screen: AgentScreen): void {
+    if (screen === 'home') {
+      void this.goHome();
+      return;
+    }
+
+    if (screen === 'muzzle' && !this.enrollment) {
+      this.message = 'Start capture before opening the camera.';
+      return;
+    }
+
+    if ((screen === 'evidence' || screen === 'review') && this.muzzlePreviews.length < this.muzzleImageCount) {
+      this.message = `Capture all ${this.muzzleImageCount} muzzle images before moving ahead.`;
+      return;
+    }
+
+    if (screen === 'review' && this.capturedOtherImages < this.requiredImages.length) {
+      this.message = 'Finish the 7 supporting images before final review.';
+      return;
+    }
+
+    this.agentScreen = screen;
+    this.scrollToTop();
+  }
+
+  async goHome(): Promise<void> {
+    if (this.syncService.syncing || this.finalizingRecord) {
+      this.message = 'Please wait until the current save or upload finishes.';
+      return;
+    }
+
+    const hasDraft = Boolean(this.enrollment || this.offlineCaptureId);
+    const hasPhotos = this.totalCapturedImages > 0;
+    if (hasDraft && hasPhotos && !window.confirm('Discard this unfinished cattle capture and return Home?')) {
+      return;
+    }
+
+    if (this.offlineCaptureId) {
+      try {
+        await this.offlineStorage.deleteCapture(this.offlineCaptureId);
+      } catch {
+        this.message = 'Could not discard the unfinished phone record. Try again.';
+        return;
+      }
+    }
+
+    this.resetCaptureState(false);
+    this.agentScreen = 'home';
+    this.message = hasDraft
+      ? 'Unfinished capture discarded. Ready for the next cattle.'
+      : 'Ready for the next cattle. Start a new capture when ready.';
+    this.scrollToTop();
+  }
+
+  goBack(): void {
+    if (this.syncService.syncing || this.finalizingRecord) {
+      this.message = 'Please wait until the current save or upload finishes.';
+      return;
+    }
+
+    if (this.cameraOn) this.stopCamera();
+    if (this.agentScreen === 'review') this.agentScreen = 'evidence';
+    else if (this.agentScreen === 'evidence') this.agentScreen = 'muzzle';
+    else if (this.agentScreen === 'muzzle') this.agentScreen = 'location';
+    else if (this.agentScreen === 'location' && this.captureWorkflow === 'cattle_enrolment' && !this.selectedFarmerKey && !this.enrollment) this.agentScreen = 'farmer';
+    else {
+      void this.goHome();
+      return;
+    }
+
+    this.message = this.enrollment && this.agentScreen === 'location'
+      ? 'Capture setup is locked. Continue to return to the muzzle camera.'
+      : `Back to ${this.agentScreenTitle}.`;
+    this.scrollToTop();
+  }
+
+  continueOrCreateCapture(): void {
+    if (this.enrollment) {
+      this.agentScreen = 'muzzle';
+      this.message = `Continue capturing muzzle photos (${this.muzzlePreviews.length}/${this.muzzleImageCount}).`;
+      this.scrollToTop();
+      return;
+    }
+    void this.createEnrollment();
+  }
+
+  private scrollToTop(): void {
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  }
+
+  beginEnrollmentFlow(): void {
+    this.startNewFarmerMode();
+    this.useGps();
+  }
+
+  startNewFarmerMode(): void {
+    this.resetCaptureState(true);
+    this.lastCompletedWorkflow = undefined;
+    this.lastRecordUploaded = false;
+    this.captureWorkflow = 'cattle_enrolment';
+    this.farmerId = this.generateFarmerId();
+    this.agentScreen = 'farmer';
+    this.message = 'Farmer ID generated. Enter farmer name, save GPS, then start the first cow.';
+  }
+
+  startExistingFarmerSearch(): void {
+    this.startCattleSearchFlow();
+  }
+
+  startCattleSearchFlow(): void {
+    this.resetCaptureState(true);
+    this.lastCompletedWorkflow = undefined;
+    this.lastRecordUploaded = false;
+    this.captureWorkflow = 'cattle_search';
+    this.agentScreen = 'location';
+    this.message = this.registeredCattleCount
+      ? 'Getting a fresh GPS location. Farmer selection is optional.'
+      : 'No registered cattle yet. First use Cattle Enrolment to save cows, then use Cattle Search to test matches.';
+    this.useGps(true);
+  }
+
+  findExistingFarmerForEnrollment(): void {
+    this.resetCaptureState(true);
+    this.lastCompletedWorkflow = undefined;
+    this.lastRecordUploaded = false;
+    this.captureWorkflow = 'cattle_enrolment';
+    this.agentScreen = 'location';
+    this.message = 'Cattle enrolment selected. Search and select a farmer, then enroll the cow under that farmer.';
+    this.useGps(true);
+  }
+
+  startNewEnrollment(): void {
+    this.startNewFarmerMode();
+  }
+
+  addCattleForFarmer(group: FarmerCattleGroup): void {
+    this.resetCaptureState(true);
+    this.lastCompletedWorkflow = undefined;
+    this.lastRecordUploaded = false;
+    this.captureWorkflow = 'cattle_enrolment';
+    this.farmerId = group.farmerId;
+    this.farmerName = group.farmerName;
+    this.farmerSearchQuery = group.farmerName || group.farmerId;
+    this.selectedFarmerKey = group.key;
+    this.agentScreen = 'location';
+    this.message = `${group.farmerName || group.farmerId} selected. Capturing fresh GPS before adding a new cow.`;
+    this.useGps(true);
+  }
+
+  startNewFarmerCapture(): void {
+    this.captureWorkflow = 'cattle_enrolment';
+    if (!this.farmerName.trim()) {
+      this.message = 'Enter farmer name before adding a new farmer.';
+      return;
+    }
+
+    if (!this.farmerId.trim()) {
+      this.farmerId = this.generateFarmerId();
+    }
+
+    if (!this.hasGps) {
+      this.message = 'Use GPS first before creating this farmer.';
+      return;
+    }
+
+    this.farmerMatches = [];
+    this.gpsFarmerMatches = [];
+    this.nameFarmerMatches = [];
+    this.cattleMatches = [];
+    this.message = 'New farmer selected. Starting first cow capture...';
+    this.createEnrollment();
+  }
+  startFromRecent(cattle: CattleSummary): void {
+    this.resetCaptureState(true);
+    this.captureWorkflow = 'cattle_search';
+    this.farmerId = cattle.farmerId || '';
+    this.farmerName = cattle.farmerName || '';
+    this.selectedFarmerKey = [this.farmerId, this.farmerName].join(':');
+    this.agentScreen = 'location';
+    this.message = 'Cattle Search selected. Capturing fresh GPS before checking this cow against registered cattle.';
+    this.useGps(true);
+  }
+
+  continueToLocation(): void {
+    if (!this.farmerName.trim()) {
+      this.message = 'Farmer name is required before GPS check.';
+      return;
+    }
+
+    if (!this.farmerId.trim()) {
+      this.farmerId = this.generateFarmerId();
+    }
+
+    this.agentScreen = 'location';
+    this.message = 'Use GPS or name search. Select the farmer, then capture muzzle photos.';
+  }
+
+  loadAgents(): void {
+    this.api.listAgents().subscribe({
+      next: ({ agents }) => {
+        this.agents = agents;
+      },
+      error: (error) => {
+        this.message = this.errorMessage(error);
+      }
+    });
+  }
+
+  loadCattleInventory(): void {
+    if (!this.currentUser) return;
+
+    this.api.listCattle().subscribe({
+      next: ({ stats, cattle }) => {
+        this.cattleStats = stats;
+        this.cattleInventory = cattle;
+        const visibleRecords = this.visibleCattleInventory;
+        if (this.selectedAdminCattle) {
+          const selected = visibleRecords.find((item) => item.cattleId === this.selectedAdminCattle?.cattleId);
+          this.selectedAdminCattle = selected;
+        }
+        this.preloadExpandedReviewImages();
+      },
+      error: (error) => {
+        this.message = this.errorMessage(error);
+      }
+    });
+  }
+
+  loadMatchReviews(): void {
+    this.api.listMatchReviews(false).subscribe({
+      next: ({ reviews }) => {
+        this.allMatchReviews = (reviews || []).sort(
+          (a, b) => new Date(b.captureDate).getTime() - new Date(a.captureDate).getTime()
+        );
+        this.updateOfficerNamesForFilter();
+        this.applyReviewFilter();
+        this.preloadExpandedReviewImages();
+      },
+      error: (error) => {
+        this.message = this.errorMessage(error);
+      }
+    });
+  }
+
+  applyReviewFilter(): void {
+    let filtered = this.showAllReviews
+      ? this.allMatchReviews
+      : this.allMatchReviews.filter((review) => !this.isClosedReview(review));
+
+    if (this.reviewFilterDecision !== 'all') {
+      if (this.reviewFilterDecision === 'pending') {
+        filtered = filtered.filter((review) => !this.isReviewedCattleSearch(review));
+      } else {
+        filtered = filtered.filter((review) => review.decision === this.reviewFilterDecision);
+      }
+    }
+
+    if (this.reviewFilterOfficer !== 'all') {
+      filtered = filtered.filter((review) => review.fieldOfficerName === this.reviewFilterOfficer);
+    }
+
+    this.matchReviews = filtered;
+    if (this.expandedReviewId && !filtered.some((review) => review.auditId === this.expandedReviewId)) {
+      this.expandedReviewId = '';
+    }
+    this.preloadExpandedReviewImages();
+  }
+
+  isClosedReview(review: MatchReview): boolean {
+    return ['confirmed', 'found_correct', 'found_incorrect', 'no_cattle_correct', 'no_cattle_incorrect', 'wrong_moved_to_registered'].includes(review.reviewStatus);
+  }
+
+  toggleReviewMode(): void {
+    this.showAllReviews = !this.showAllReviews;
+    this.applyReviewFilter();
+  }
+
+  confirmMatchReview(review: MatchReview, correctCattleId?: string): void {
+    this.api
+      .updateMatchReview(review.auditId, {
+        reviewStatus: correctCattleId ? 'found_incorrect' : 'found_correct',
+        correctCattleId: correctCattleId || review.matchedCattleId || review.finalCattleId,
+        reviewNotes: correctCattleId ? 'Admin selected a different expected cow from candidate list.' : 'Admin confirmed the cattle-found result is correct.'
+      })
+      .subscribe({
+        next: ({ review: updated }) => {
+          this.allMatchReviews = this.allMatchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
+          this.applyReviewFilter();
+          this.message = `Review saved for ${updated.finalCattleId}.`;
+        },
+        error: (error) => {
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
+  markFoundIncorrect(review: MatchReview): void {
+    this.api
+      .updateMatchReview(review.auditId, {
+        reviewStatus: 'found_incorrect',
+        correctCattleId: review.finalCattleId,
+        reviewNotes: 'Admin confirmed the cattle-found result is incorrect.'
+      })
+      .subscribe({
+        next: ({ review: updated }) => {
+          this.allMatchReviews = this.allMatchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
+          this.applyReviewFilter();
+          this.message = `Cattle-found result marked incorrect for ${updated.finalCattleId}.`;
+        },
+        error: (error) => {
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
+  confirmNoCattleFound(review: MatchReview): void {
+    this.api
+      .updateMatchReview(review.auditId, {
+        reviewStatus: 'no_cattle_correct',
+        correctCattleId: review.finalCattleId,
+        reviewNotes: 'Admin confirmed the no-cattle-found result is correct.'
+      })
+      .subscribe({
+        next: ({ review: updated }) => {
+          this.allMatchReviews = this.allMatchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
+          this.applyReviewFilter();
+          this.message = `No-cattle-found result saved for ${updated.finalCattleId}.`;
+        },
+        error: (error) => {
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
+  markNoCattleFoundIncorrect(review: MatchReview): void {
+    this.api
+      .updateMatchReview(review.auditId, {
+        reviewStatus: 'no_cattle_incorrect',
+        correctCattleId: this.metricTopMatches(review)[0]?.cattleId || review.finalCattleId,
+        reviewNotes: 'Admin confirmed this should have found an existing registered cow.'
+      })
+      .subscribe({
+        next: ({ review: updated }) => {
+          this.allMatchReviews = this.allMatchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
+          this.applyReviewFilter();
+          this.message = `No-cattle-found result marked incorrect for ${updated.finalCattleId}.`;
+        },
+        error: (error) => {
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
+  moveWrongMatchToRegistered(review: MatchReview): void {
+    const ok = window.confirm('Move this cattle search out and keep it as a registered cattle record?');
+    if (!ok) return;
+
+    this.api
+      .updateMatchReview(review.auditId, {
+        reviewStatus: 'wrong_moved_to_registered',
+        correctCattleId: review.finalCattleId,
+        reviewNotes: 'Face/side photo review showed this automatic match was wrong. Moved out as registered cattle.',
+        action: 'move_out_as_registered'
+      })
+      .subscribe({
+        next: ({ review: updated }) => {
+          this.allMatchReviews = this.allMatchReviews.map((item) => item.auditId === updated.auditId ? updated : item);
+          this.applyReviewFilter();
+          this.loadCattleInventory();
+          this.message = `Wrong match moved out. ${this.shortId(updated.finalCattleId)} is now registered cattle.`;
+        },
+        error: (error) => {
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
+  createAgent(): void {
+    this.api
+      .createAgent({
+        name: this.agentName,
+        phone: this.agentPhone,
+        agentId: this.newAgentId,
+        password: this.newAgentPassword
+      })
+      .subscribe({
+        next: ({ agent }) => {
+          this.agents = [agent, ...this.agents];
+          this.agentName = '';
+          this.agentPhone = '';
+          this.newAgentId = '';
+          this.newAgentPassword = '';
+          this.message = `Agent ${agent.name} created.`;
+        },
+        error: (error) => {
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
+  async createEnrollment(): Promise<void> {
+    if (this.captureWorkflow === 'cattle_enrolment') {
+      if (!this.farmerId.trim()) {
+        this.farmerId = this.generateFarmerId();
+      }
+      if (!this.farmerName.trim()) {
+        this.message = 'Farmer name is required for cattle enrolment.';
+        return;
+      }
+    } else if (!this.selectedFarmerKey) {
+      this.farmerId = '';
+      this.farmerName = '';
+    }
+
+    if (!this.hasGps) {
+      this.message = 'Use GPS first before starting cow capture.';
+      return;
+    }
+
+    const newFarmer = this.captureWorkflow === 'cattle_enrolment' && !this.selectedFarmerKey;
+    this.offlineCaptureId = `field_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    this.cattleId = `local_cow_${this.offlineCaptureId}`;
+    this.enrollment = {
+      cattleId: this.cattleId,
+      farmerId: this.farmerId,
+      farmerName: this.farmerName,
+      fieldOfficerName: this.currentUser?.name || this.fieldOfficerName,
+      fieldOfficerId: this.currentUser?.agentId || '',
+      locationLat: this.locationLat,
+      locationLon: this.locationLon,
+      locationAccuracyM: this.locationAccuracyM,
+      locationCapturedAt: this.locationCapturedAt,
+      workflow: this.captureWorkflow,
+      rootFolderLocation: 'On phone',
+      folderLocation: 'On phone - not uploaded',
+      activeSessionId: this.offlineCaptureId,
+      captureDateTime: new Date().toISOString(),
+      uploadDateTime: '',
+      status: 'local_draft'
+    };
+
+    this.message = 'Preparing secure phone storage...';
+    try {
+      await this.offlineStorage.saveCapture({
+        id: this.offlineCaptureId,
+        cattleId: this.cattleId,
+        farmerId: this.farmerId,
+        farmerName: this.farmerName,
+        fieldOfficerName: this.enrollment.fieldOfficerName,
+        fieldOfficerId: this.enrollment.fieldOfficerId,
+        locationLat: this.locationLat,
+        locationLon: this.locationLon,
+        locationAccuracyM: this.locationAccuracyM,
+        locationCapturedAt: this.locationCapturedAt,
+        matchRadiusKm: this.radiusKm,
+        workflow: this.captureWorkflow,
+        newFarmer,
+        muzzleBlobs: [],
+        evidenceBlobs: [],
+        createdAt: new Date().toISOString(),
+        syncStatus: 'draft',
+        retryCount: 0
+      });
+    } catch (error) {
+      this.enrollment = undefined;
+      this.offlineCaptureId = undefined;
+      this.message = `Could not start phone capture: ${error instanceof Error ? error.message : 'Phone storage failed.'}`;
+      return;
+    }
+
+    this.muzzlePreviews = [];
+    this.matchResolution = undefined;
+    this.requiredImages.forEach(item => { item.previewUrl = undefined; item.uploading = false; });
+    this.agentScreen = 'muzzle';
+    this.message = this.captureWorkflow === 'cattle_search'
+      ? 'Cattle search ready. Photos stay on this phone until you upload.'
+      : 'Cattle enrolment ready. Photos stay on this phone until you upload.';
+  }
+
+  useGps(forceFresh = false): void {
+    // GPS requires HTTPS — show a clear message on plain HTTP
+    if (!window.isSecureContext && !window.location.hostname.includes('localhost')) {
+      this.message = 'GPS requires HTTPS. Open the app using the Cloudflare tunnel link (https://...) instead of the local IP address.';
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      this.message = 'GPS is not available in this browser.';
+      return;
+    }
+
+    if (!forceFresh && this.gpsCache && Date.now() - this.gpsCache.timestamp < 5 * 60 * 1000) {
+      this.locationLat = this.gpsCache.lat;
+      this.locationLon = this.gpsCache.lon;
+      this.locationCapturedAt = new Date(this.gpsCache.timestamp).toISOString();
+      this.message = `Using cached GPS (${this.locationLat}, ${this.locationLon}).`;
+      if (this.agentScreen === 'location') {
+        this.findFarmersByGps();
+      }
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        this.locationLat = Number(position.coords.latitude.toFixed(6));
+        this.locationLon = Number(position.coords.longitude.toFixed(6));
+        this.locationAccuracyM = Number.isFinite(position.coords.accuracy) ? Math.round(position.coords.accuracy) : null;
+        this.locationCapturedAt = new Date().toISOString();
+        this.gpsCache = { lat: this.locationLat, lon: this.locationLon, timestamp: Date.now() };
+        this.message = `GPS location saved (${this.locationLat}, ${this.locationLon}).`;
+        if (this.agentScreen === 'location') {
+          this.findFarmersByGps();
+        }
+      },
+      () => {
+        this.message = 'Could not read GPS location.';
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }
+
+  findFarmers(): void {
+    this.findFarmersByGps();
+    this.findFarmersByName();
+  }
+
+  async findFarmersByGps(): Promise<void> {
+    if (this.locationLat === null || this.locationLon === null) {
+      this.message = 'Use GPS first, then search nearby existing farmers.';
+      return;
+    }
+
+    this.searchingFarmers = true;
+    this.searchingGpsFarmers = true;
+    this.message = navigator.onLine ? 'Checking latest nearby farmers...' : 'Checking nearby farmers saved on this phone...';
+    try {
+      if (navigator.onLine) {
+        const { farmers } = await firstValueFrom(this.api.searchFarmers({
+          lat: this.locationLat,
+          lon: this.locationLon,
+          radiusKm: this.radiusKm
+        }));
+        this.gpsFarmerMatches = farmers;
+        this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+        this.message = farmers.length
+          ? `${farmers.length} nearby farmer(s) found from the server.`
+          : 'No registered farmer is near this GPS. Search by name or continue Cattle Search without a farmer.';
+        this.refreshFarmerCacheInBackground();
+        return;
+      }
+
+      const farmers = await this.offlineStorage.getAllFarmers();
+      this.gpsFarmerMatches = farmers
+        .map((farmer) => this.cachedFarmerToMatch(farmer, this.distanceKm(this.locationLat!, this.locationLon!, farmer.locationLat, farmer.locationLon)))
+        .filter((farmer) => farmer.distanceKm !== null && farmer.distanceKm <= this.radiusKm)
+        .sort((a, b) => Number(a.distanceKm) - Number(b.distanceKm))
+        .slice(0, 25);
+      this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+      this.message = this.gpsFarmerMatches.length
+        ? `${this.gpsFarmerMatches.length} nearby farmer(s) found on this phone. Selecting one is optional for Cattle Search.`
+        : (farmers.length
+          ? 'No downloaded farmer is near this GPS. You can search by name or continue Cattle Search without a farmer.'
+          : 'No farmer data is stored on this phone. Tap Update Farmer Data when online. Cattle Search can still continue without a farmer.');
+    } catch (error) {
+      const farmers = await this.offlineStorage.getAllFarmers().catch(() => []);
+      this.gpsFarmerMatches = farmers
+        .map((farmer) => this.cachedFarmerToMatch(farmer, this.distanceKm(this.locationLat!, this.locationLon!, farmer.locationLat, farmer.locationLon)))
+        .filter((farmer) => farmer.distanceKm !== null && farmer.distanceKm <= this.radiusKm)
+        .sort((a, b) => Number(a.distanceKm) - Number(b.distanceKm))
+        .slice(0, 25);
+      this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+      this.message = this.gpsFarmerMatches.length
+        ? `Server unavailable. Showing ${this.gpsFarmerMatches.length} nearby farmer(s) saved on this phone.`
+        : `Could not reach the server and no nearby farmer is saved on this phone: ${this.errorMessage(error)}`;
+    } finally {
+      this.searchingFarmers = false;
+      this.searchingGpsFarmers = false;
+    }
+  }
+
+  async findFarmersByName(): Promise<void> {
+    const q = (this.farmerSearchQuery || this.farmerName || this.farmerId).trim();
+    if (!q) {
+      this.message = 'Enter farmer name or farmer ID to search by name.';
+      return;
+    }
+
+    this.searchingFarmers = true;
+    this.searchingNameFarmers = true;
+    this.message = navigator.onLine ? 'Searching latest farmer records...' : 'Searching farmer data saved on this phone...';
+    try {
+      if (navigator.onLine) {
+        const { farmers } = await firstValueFrom(this.api.searchFarmers({
+          q,
+          lat: this.locationLat,
+          lon: this.locationLon,
+          radiusKm: this.radiusKm
+        }));
+        this.nameFarmerMatches = farmers;
+        this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+        this.message = farmers.length
+          ? `${farmers.length} farmer(s) found from the server. Select the correct farmer.`
+          : 'No registered farmer matches that name or ID.';
+        this.refreshFarmerCacheInBackground();
+        return;
+      }
+
+      const normalizedQuery = q.toLocaleLowerCase();
+      const farmers = await this.offlineStorage.getAllFarmers();
+      this.nameFarmerMatches = farmers
+        .filter((farmer) => farmer.farmerId.toLocaleLowerCase().includes(normalizedQuery) || farmer.farmerName.toLocaleLowerCase().includes(normalizedQuery))
+        .map((farmer) => this.cachedFarmerToMatch(
+          farmer,
+          this.hasGps ? this.distanceKm(this.locationLat!, this.locationLon!, farmer.locationLat, farmer.locationLon) : null
+        ))
+        .sort((a, b) => String(a.farmerName || a.farmerId).localeCompare(String(b.farmerName || b.farmerId)))
+        .slice(0, 25);
+      this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+      this.message = this.nameFarmerMatches.length
+        ? `${this.nameFarmerMatches.length} farmer(s) found on this phone. Select only when the farmer is known.`
+        : (farmers.length
+          ? 'No downloaded farmer matches that name or ID. Check spelling or continue Cattle Search without a farmer.'
+          : 'No farmer data is stored on this phone. Tap Update Farmer Data when online.');
+    } catch (error) {
+      const normalizedQuery = q.toLocaleLowerCase();
+      const farmers = await this.offlineStorage.getAllFarmers().catch(() => []);
+      this.nameFarmerMatches = farmers
+        .filter((farmer) => farmer.farmerId.toLocaleLowerCase().includes(normalizedQuery) || farmer.farmerName.toLocaleLowerCase().includes(normalizedQuery))
+        .map((farmer) => this.cachedFarmerToMatch(
+          farmer,
+          this.hasGps ? this.distanceKm(this.locationLat!, this.locationLon!, farmer.locationLat, farmer.locationLon) : null
+        ))
+        .slice(0, 25);
+      this.farmerMatches = [...this.gpsFarmerMatches, ...this.nameFarmerMatches];
+      this.message = this.nameFarmerMatches.length
+        ? `Server unavailable. Showing ${this.nameFarmerMatches.length} matching farmer(s) saved on this phone.`
+        : `Could not reach the server and no saved farmer matches: ${this.errorMessage(error)}`;
+    } finally {
+      this.searchingFarmers = false;
+      this.searchingNameFarmers = false;
+    }
+  }
+
+  selectFarmer(match: FarmerMatch): void {
+    this.farmerId = match.farmerId || this.farmerId;
+    this.farmerName = match.farmerName || this.farmerName;
+    this.farmerSearchQuery = this.farmerName || this.farmerId;
+    this.selectedFarmerKey = match.key || `${match.farmerId}:${match.farmerName}`;
+    this.cattleMatches = [];
+    this.message = `${match.farmerName || match.farmerId} selected. The backend will check this farmer's ${match.cattleCount} cow(s) first, then cattle near the captured GPS.`;
+  }
+
+  clearSelectedFarmer(): void {
+    this.farmerId = '';
+    this.farmerName = '';
+    this.farmerSearchQuery = '';
+    this.selectedFarmerKey = '';
+    this.cattleMatches = [];
+    this.message = 'Farmer cleared. Cattle Search will use the captured GPS location.';
+  }
+  findRegisteredCattle(): void {
+    this.searchingCattle = true;
+    this.message = 'Loading this farmer\'s saved cattle records...';
+    this.api
+      .searchRegisteredCattle({
+        farmerId: this.farmerId,
+        farmerName: this.farmerName,
+        lat: this.locationLat,
+        lon: this.locationLon,
+        radiusKm: this.radiusKm
+      })
+      .subscribe({
+        next: ({ cattle }) => {
+          this.cattleMatches = cattle;
+          this.searchingCattle = false;
+          this.message = cattle.length
+            ? `Found ${cattle.length} saved cow record(s) for this farmer. Now take muzzle photos to identify the correct cow.`
+            : (this.captureWorkflow === 'cattle_search'
+              ? 'No saved cows found under this farmer. Cattle Search can still check registered cattle near the captured GPS.'
+              : 'No saved cows found for this farmer. Start capture to enroll the first cow.');
+        },
+        error: (error) => {
+          this.searchingCattle = false;
+          this.message = this.errorMessage(error);
+        }
+      });
+  }
+
+  selectRegisteredCattle(match: CattleMatch): void {
+    this.farmerId = match.farmerId || this.farmerId;
+    this.farmerName = match.farmerName || this.farmerName;
+    this.message = `${match.cattleLabel || 'Cow'} selected for context. Muzzle photos will still confirm the exact cow before saving.`;
+  }
+
+  async startCamera(): Promise<void> {
+    if (!this.enrollment) {
+      this.message = 'Start capture first.';
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      this.message = 'Camera blocked: open this app with an HTTPS dev tunnel URL, not local HTTP/IP.';
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.message = 'Camera API is not available in this browser.';
+      return;
+    }
+
+    try {
+      await this.openCamera({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      this.captureStartTime = Date.now();
+      this.message = 'Camera ready. Start auto capture when muzzle is visible.';
+    } catch (error) {
+      if (this.shouldRetryCameraWithBasicConstraint(error)) {
+        try {
+          await this.openCamera({ video: true, audio: false });
+          this.captureStartTime = Date.now();
+          this.message = 'Camera ready. Browser used the default camera because back camera settings were rejected.';
+          return;
+        } catch (retryError) {
+          this.message = this.cameraErrorMessage(retryError);
+          return;
+        }
+      }
+
+      this.message = this.cameraErrorMessage(error);
+    }
+  }
+
+  private async openCamera(constraints: MediaStreamConstraints): Promise<void> {
+    this.stopCamera();
+    this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+    if (this.video?.nativeElement) {
+      this.video.nativeElement.srcObject = this.stream;
+      this.video.nativeElement.muted = true;
+      this.video.nativeElement.playsInline = true;
+      await this.video.nativeElement.play();
+      await this.waitForVideoFrame(this.video.nativeElement);
+    }
+
+    this.cameraOn = true;
+  }
+
+  private waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
+    if (video.videoWidth > 0 && video.videoHeight > 0 && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('Camera opened but no video frame was received.'));
+      }, 5000);
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        video.removeEventListener('loadedmetadata', onReady);
+        video.removeEventListener('canplay', onReady);
+        video.removeEventListener('playing', onReady);
+      };
+      const onReady = () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          cleanup();
+          resolve();
+        }
+      };
+      video.addEventListener('loadedmetadata', onReady);
+      video.addEventListener('canplay', onReady);
+      video.addEventListener('playing', onReady);
+      onReady();
+    });
+  }
+
+  private shouldRetryCameraWithBasicConstraint(error: unknown): boolean {
+    const cameraError = error instanceof DOMException ? error.name : '';
+    return ['OverconstrainedError', 'NotReadableError', 'AbortError'].includes(cameraError);
+  }
+
+  private cameraErrorMessage(error: unknown): string {
+    const cameraError = error instanceof DOMException ? error.name : error instanceof Error ? error.name : 'CameraError';
+    const detail = error instanceof Error && error.message ? ` (${error.message})` : '';
+
+    if (cameraError === 'NotAllowedError' || cameraError === 'PermissionDeniedError') {
+      return `Camera permission is blocked by Chrome${detail}. Tap the site controls icon near the address bar, allow Camera, then press Start Camera again.`;
+    }
+
+    if (cameraError === 'NotFoundError' || cameraError === 'DevicesNotFoundError') {
+      return `No camera was found on this device${detail}.`;
+    }
+
+    if (cameraError === 'NotReadableError' || cameraError === 'TrackStartError') {
+      return `Camera is busy or Android blocked access${detail}. Close other camera apps/browser tabs and try again.`;
+    }
+
+    if (cameraError === 'SecurityError') {
+      return `Camera blocked by browser security${detail}. Use the HTTPS Cloudflare link and allow camera for this site.`;
+    }
+
+    if (cameraError === 'OverconstrainedError') {
+      return `This phone rejected the requested back-camera settings${detail}. Try again; the app will use the default camera fallback.`;
+    }
+
+    return `Camera could not start: ${cameraError}${detail}. Use HTTPS and allow camera permission.`;
+  }
+
+  stopCamera(): void {
+    window.clearInterval(this.captureTimer);
+    window.clearInterval(this.muzzleScanTimer);
+    this.captureTimer = undefined;
+    this.muzzleScanTimer = undefined;
+    this.autoCaptureOn = false;
+    this.cameraOn = false;
+    this.detectionBox = undefined;
+    this.muzzleGateState = 'idle';
+    this.muzzleGateLabel = 'Ready';
+    this.muzzleLiveConfidence = 0;
+    this.muzzleRejectionReason = '';
+    this.muzzleScanSeconds = 0;
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stream = undefined;
+  }
+
+  toggleAutoCapture(): void {
+    if (this.autoCaptureOn) {
+      window.clearInterval(this.captureTimer);
+      window.clearInterval(this.muzzleScanTimer);
+      this.captureTimer = undefined;
+      this.muzzleScanTimer = undefined;
+      this.autoCaptureOn = false;
+      this.muzzleGateState = 'idle';
+      this.muzzleGateLabel = 'Paused';
+      this.muzzleLiveConfidence = 0;
+      this.muzzleRejectionReason = '';
+      this.muzzleScanSeconds = 0;
+      this.message = 'Auto capture paused.';
+      return;
+    }
+
+    this.autoCaptureOn = true;
+    this.muzzleScanSeconds = 0;
+    this.muzzleLiveConfidence = 0;
+    this.muzzleRejectionReason = '';
+    this.message = 'Looking for clear muzzle...';
+    this.muzzleGateState = 'scanning';
+    this.muzzleGateLabel = 'Scanning';
+    this.captureTimer = window.setInterval(() => {
+      void this.tryCaptureMuzzle();
+    }, 350);
+    // Scan timer — increments every second for manual fallback button
+    this.muzzleScanTimer = window.setInterval(() => {
+      this.muzzleScanSeconds += 1;
+    }, 1000);
+    void this.tryCaptureMuzzle();
+  }
+
+  async tryCaptureMuzzle(): Promise<void> {
+    if (!this.enrollment || !this.video || !this.canvas || this.isDetecting || this.muzzlePreviews.length >= this.muzzleImageCount) {
+      if (this.muzzlePreviews.length >= this.muzzleImageCount) this.toggleAutoCapture();
+      return;
+    }
+
+    this.isDetecting = true;
+    this.muzzleGateState = 'scanning';
+    this.muzzleGateLabel = 'Scanning';
+    const slot = this.muzzlePreviews.length + 1;
+    if (this.video.nativeElement.videoWidth <= 0 || this.video.nativeElement.videoHeight <= 0) {
+      this.isDetecting = false;
+      this.message = 'Camera preview is not ready yet. Wait one second and start auto capture again.';
+      return;
+    }
+
+    this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on phone...`;
+
+    let localResult;
+    try {
+      localResult = await this.muzzleDetector.detectAndCrop(this.video.nativeElement);
+    } catch (error) {
+      this.detectionBox = undefined;
+      this.isDetecting = false;
+      this.muzzleGateState = 'error';
+      this.muzzleGateLabel = 'Model error';
+      this.message = `Phone muzzle check error: ${error instanceof Error ? error.message : 'TFLite failed.'}`;
+      return;
+    }
+
+    this.lastConfidence = localResult.confidence;
+    this.muzzleLiveConfidence = Math.round((localResult.confidence || 0) * 100);
+    this.detectionBox = this.toDetectionBox(localResult.bbox || undefined, localResult.imageSize, localResult.confidence);
+
+    if (!localResult.accepted || !localResult.cropBlob) {
+      this.isDetecting = false;
+      this.muzzleGateState = 'bad';
+
+      // Idea 1 — specific, meaningful rejection reason
+      if (localResult.className === 'none' || !localResult.bbox) {
+        this.muzzleGateLabel = 'No muzzle found';
+        this.muzzleRejectionReason = 'Move closer and point the camera directly at the cow\'s nose.';
+      } else if (localResult.className !== 'goodmuzzle') {
+        this.muzzleGateLabel = 'Bad angle';
+        this.muzzleRejectionReason = 'Hold the phone steady and face the muzzle straight on.';
+      } else if (localResult.confidence < 0.50) {
+        this.muzzleGateLabel = `Low confidence ${this.muzzleLiveConfidence}%`;
+        this.muzzleRejectionReason = `Confidence is ${this.muzzleLiveConfidence}% — need 50%. Try better lighting or move closer.`;
+      } else {
+        this.muzzleGateLabel = 'Too blurry';
+        this.muzzleRejectionReason = 'Image is blurry. Hold the phone still and wait for focus.';
+      }
+
+      this.message = this.muzzleRejectionReason;
+      return;
+    }
+
+    this.muzzleGateState = 'good';
+    this.muzzleGateLabel = 'Good muzzle';
+
+    if (this.offlineCaptureId) {
+      if (navigator.vibrate) navigator.vibrate(200);
+      this.playBeep(true);
+
+      this.offlineStorage.addMuzzleToCapture(
+        this.offlineCaptureId,
+        slot,
+        localResult.cropBlob,
+        localResult.confidence,
+        localResult.sharpness
+      ).then(() => {
+        this.muzzlePreviews.push({
+          url: URL.createObjectURL(localResult.cropBlob as Blob),
+          confidence: localResult.confidence,
+          sharpness: localResult.sharpness
+        });
+        this.message = `Good muzzle ${slot}/${this.muzzleImageCount} saved on phone.`;
+        this.muzzleGateState = 'good';
+        this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
+        this.isDetecting = false;
+        if (this.muzzlePreviews.length >= this.muzzleImageCount && this.autoCaptureOn) {
+          this.toggleAutoCapture();
+          this.agentScreen = 'evidence';
+          this.message = `All ${this.muzzleImageCount} muzzle photos saved on phone. Add supporting photos next.`;
+        }
+      }).catch((error) => {
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        this.playBeep(false);
+        this.isDetecting = false;
+        this.muzzleGateState = 'error';
+        this.muzzleGateLabel = `Save failed ${slot}/${this.muzzleImageCount}`;
+        this.message = `Could not save muzzle ${slot} on this phone: ${error instanceof Error ? error.message : 'Phone storage failed.'}`;
+      });
+      return;
+    }
+
+    this.muzzleGateState = 'uploading';
+    this.muzzleGateLabel = `Saving ${slot}/${this.muzzleImageCount}`;
+    this.api.captureMuzzle(this.enrollment.cattleId, localResult.cropBlob, slot, true).subscribe({
+      next: (response) => {
+        if (navigator.vibrate) navigator.vibrate(200);
+        this.playBeep(true);
+        this.lastConfidence = localResult.confidence;
+        this.detectionBox = this.toDetectionBox(localResult.bbox || undefined, localResult.imageSize, localResult.confidence);
+        this.muzzlePreviews.push({
+          url: localResult.cropUrl || response.cloudinaryUrl || this.api.mediaUrl(response.previewUrl),
+          confidence: localResult.confidence,
+          sharpness: localResult.sharpness
+        });
+        this.message = `Good muzzle ${slot}/${this.muzzleImageCount} saved from phone crop.`;
+        this.isDetecting = false;
+        this.muzzleGateState = 'good';
+        this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
+
+        if (response.matchResolution) {
+          this.applyMatchResolution(response.matchResolution);
+        }
+
+        if (this.muzzlePreviews.length >= this.muzzleImageCount && this.autoCaptureOn) {
+          this.toggleAutoCapture();
+          if (response.matchPending) {
+            this.message = `All ${this.muzzleImageCount} muzzle photos are saved. Matching runs when you save the completed record.`;
+          } else if (!response.matchResolution) {
+            this.message = `All ${this.muzzleImageCount} muzzle photos captured. They will be checked against selected-farmer cattle first, then nearby GPS cattle after upload.`;
+          }
+          this.agentScreen = 'evidence';
+        }
+      },
+      error: (error) => {
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        this.playBeep(false);
+        this.detectionBox = undefined;
+        this.muzzleGateState = 'error';
+        this.muzzleGateLabel = `Save failed ${slot}/${this.muzzleImageCount}`;
+        this.message = error.status === 422
+          ? `Muzzle was not clear for photo ${slot}/${this.muzzleImageCount}. Hold steady and show the full muzzle.`
+          : `Capture error: ${this.errorMessage(error)}`;
+        this.isDetecting = false;
+      }
+    });
+  }
+
+  uploadRequiredImage(event: Event, item: RequiredImage): void {
+    if (!this.enrollment) {
+      this.message = 'Start capture first.';
+      return;
+    }
+
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    if (this.offlineCaptureId) {
+      item.uploading = true;
+      this.offlineStorage.addEvidenceToCapture(this.offlineCaptureId, item.type, file).then(() => {
+        item.previewUrl = URL.createObjectURL(file);
+        item.uploading = false;
+        this.message = `${item.label} saved on phone.`;
+        if (this.capturedOtherImages === this.requiredImages.length && this.muzzlePreviews.length === this.muzzleImageCount) {
+          this.agentScreen = 'review';
+        }
+      });
+      return;
+    }
+
+    item.uploading = true;
+    this.api.saveImage(this.enrollment.cattleId, item.type, file).subscribe({
+      next: (response) => {
+        item.previewUrl = response.cloudinaryUrl || this.api.mediaUrl(response.previewUrl);
+        item.uploading = false;
+        this.message = `${item.label} saved.`;
+        if (this.capturedOtherImages === this.requiredImages.length && this.muzzlePreviews.length === this.muzzleImageCount) {
+          this.agentScreen = 'review';
+          this.loadCattleInventory();
+        }
+      },
+      error: (error) => {
+        item.uploading = false;
+        this.message = this.errorMessage(error);
+      }
+    });
+  }
+
+  async completeEnrollment(): Promise<void> {
+    if (!this.enrollment || this.finalizingRecord || this.syncService.syncing) return;
+    this.finalizingRecord = true;
+
+    const savedFarmerId = this.farmerId || this.enrollment.farmerId || '';
+    const savedFarmerName = this.farmerName || this.enrollment.farmerName || '';
+    const completedWorkflow = this.captureWorkflow;
+    const captureDurationSeconds = this.captureStartTime ? Math.round((Date.now() - this.captureStartTime) / 1000) : undefined;
+
+    if (this.offlineCaptureId) {
+      const captureId = this.offlineCaptureId;
+      this.message = 'Finalizing record on phone...';
+      try {
+        await this.offlineStorage.setCaptureDuration(captureId, captureDurationSeconds);
+        await this.offlineStorage.markReadyForSync(captureId);
+        this.pendingSyncCount = await this.syncService.refreshPendingCount();
+        this.resetCaptureState(false);
+        this.farmerId = savedFarmerId;
+        this.farmerName = savedFarmerName;
+        this.selectedFarmerKey = savedFarmerId || savedFarmerName ? `${savedFarmerId}:${savedFarmerName}` : '';
+        this.agentScreen = 'home';
+        this.lastCompletedWorkflow = completedWorkflow;
+        this.lastRecordUploaded = false;
+
+        if (navigator.onLine) {
+          await this.syncPendingRecords('completion', completedWorkflow);
+        } else {
+          this.message = completedWorkflow === 'cattle_search'
+            ? 'Cattle Search is safe on this phone. It will upload automatically when internet returns.'
+            : 'Cattle enrolment is safe on this phone. It will upload automatically when internet returns.';
+        }
+      } catch (error) {
+        this.message = `Could not finalize record on phone: ${error instanceof Error ? error.message : 'Phone storage failed.'}`;
+      } finally {
+        this.finalizingRecord = false;
+      }
+      return;
+    }
+
+    this.api.complete(this.enrollment.cattleId, captureDurationSeconds).subscribe({
+      next: ({ enrollment }) => {
+        this.enrollment = enrollment;
+        this.loadCattleInventory();
+        this.resetCaptureState(false);
+        this.farmerId = savedFarmerId;
+        this.farmerName = savedFarmerName;
+        this.selectedFarmerKey = savedFarmerId || savedFarmerName ? `${savedFarmerId}:${savedFarmerName}` : '';
+        this.agentScreen = 'home';
+        this.lastCompletedWorkflow = completedWorkflow;
+        this.lastRecordUploaded = true;
+        this.findRegisteredCattle();
+        window.setTimeout(() => this.loadCattleInventory(), 900);
+        if (enrollment.status === 'duplicate_saved_separately' || enrollment.workflow === 'cattle_search') {
+          this.message = 'Cattle Search saved separately for admin review.';
+        } else {
+          this.message = 'Cow enrolled successfully! Use "Enrol Next Cow" to add another cow for the same farmer.';
+        }
+        this.finalizingRecord = false;
+      },
+      error: (error) => {
+        this.prepareMissingImageRetakes(error);
+        this.message = this.errorMessage(error);
+        this.finalizingRecord = false;
+      }
+    });
+  }
+
+  quickEnrolNextCow(): void {
+    const savedFarmerId = this.farmerId;
+    const savedFarmerName = this.farmerName;
+    const savedOfficer = this.fieldOfficerName;
+    this.resetCaptureState(true);
+    this.lastCompletedWorkflow = undefined;
+    this.lastRecordUploaded = false;
+    this.captureWorkflow = 'cattle_enrolment';
+    this.farmerId = savedFarmerId;
+    this.farmerName = savedFarmerName;
+    this.fieldOfficerName = savedOfficer;
+    this.selectedFarmerKey = `${savedFarmerId}:${savedFarmerName}`;
+    this.agentScreen = 'location';
+    this.message = 'Same farmer selected. Capturing fresh GPS before the next cow.';
+    this.useGps(true);
+  }
+
+  startEvidenceCamera(): void {
+    this.evidenceCameraIndex = this.requiredImages.findIndex(item => !item.previewUrl);
+    if (this.evidenceCameraIndex < 0) {
+      this.message = 'All evidence photos are already captured.';
+      return;
+    }
+    this.evidenceCameraActive = true;
+    this.message = `Point camera at: ${this.requiredImages[this.evidenceCameraIndex].label}`;
+    void this.startCamera();
+  }
+
+  async captureEvidencePhoto(): Promise<void> {
+    if (!this.enrollment || !this.video || this.evidenceCameraIndex < 0) return;
+    const item = this.requiredImages[this.evidenceCameraIndex];
+    if (!item) return;
+
+    try {
+      const blob = await this.frameBlob();
+
+      if (this.offlineCaptureId) {
+        item.uploading = true;
+        this.offlineStorage.addEvidenceToCapture(this.offlineCaptureId, item.type, blob).then(() => {
+          item.previewUrl = URL.createObjectURL(blob);
+          item.uploading = false;
+          if (navigator.vibrate) navigator.vibrate(100);
+          this.playBeep(true);
+
+          const nextIndex = this.requiredImages.findIndex((img, idx) => idx > this.evidenceCameraIndex && !img.previewUrl);
+          if (nextIndex >= 0) {
+            this.evidenceCameraIndex = nextIndex;
+            this.message = `${item.label} saved on phone. Now capture: ${this.requiredImages[nextIndex].label}`;
+          } else {
+            this.evidenceCameraActive = false;
+            this.stopCamera();
+            this.message = 'All evidence photos saved on phone. Review your record.';
+            if (this.muzzlePreviews.length >= this.muzzleImageCount) {
+              this.agentScreen = 'review';
+            }
+          }
+        });
+        return;
+      }
+
+      item.uploading = true;
+      this.api.saveImage(this.enrollment.cattleId, item.type, blob).subscribe({
+        next: (response) => {
+          item.previewUrl = response.cloudinaryUrl || this.api.mediaUrl(response.previewUrl);
+          item.uploading = false;
+          if (navigator.vibrate) navigator.vibrate(100);
+          this.playBeep(true);
+
+          // Find next un-captured evidence
+          const nextIndex = this.requiredImages.findIndex((img, idx) => idx > this.evidenceCameraIndex && !img.previewUrl);
+          if (nextIndex >= 0) {
+            this.evidenceCameraIndex = nextIndex;
+            this.message = `${item.label} saved! Now point camera at: ${this.requiredImages[nextIndex].label}`;
+          } else {
+            this.evidenceCameraActive = false;
+            this.stopCamera();
+            this.message = 'All evidence photos captured! Review your record.';
+            if (this.muzzlePreviews.length >= this.muzzleImageCount) {
+              this.agentScreen = 'review';
+            }
+          }
+        },
+        error: (error) => {
+          item.uploading = false;
+          this.message = `Evidence upload error: ${this.errorMessage(error)}`;
+        }
+      });
+    } catch {
+      this.message = 'Could not capture evidence photo from camera.';
+    }
+  }
+
+  skipEvidencePhoto(): void {
+    const nextIndex = this.requiredImages.findIndex((img, idx) => idx > this.evidenceCameraIndex && !img.previewUrl);
+    if (nextIndex >= 0) {
+      this.evidenceCameraIndex = nextIndex;
+      this.message = `Skipped. Now point camera at: ${this.requiredImages[nextIndex].label}`;
+    } else {
+      this.evidenceCameraActive = false;
+      this.stopCamera();
+      this.message = 'Evidence capture finished.';
+    }
+  }
+
+  approveBlockedAsNewCattle(cattle: CattleSummary): void {
+    const confirmed = window.confirm(
+      `Register "${cattle.farmerName || 'this cattle'}" as a NEW registered cow?\n\nThis means the AI match was wrong. The cattle will be moved to registered cattle and the AI accuracy score will decrease.`
+    );
+    if (!confirmed) return;
+
+    this.message = `Registering "${cattle.farmerName || 'cattle'}" as new cattle...`;
+
+    // Use the direct approve-blocked endpoint (no audit record needed)
+    this.api.approveBlockedCattle(cattle.cattleId, 'Admin confirmed this is a different cow. AI match was incorrect.')
+      .subscribe({
+        next: (result) => {
+          this.loadCattleInventory();
+          this.loadMatchReviews();
+          this.message = `"${result.cattle?.farmerName || 'Cattle'}" is now registered as a new cow.`;
+        },
+        error: (error) => {
+          // Fallback: try through match audit if direct endpoint fails
+          const audit = this.allMatchReviews.find(r =>
+            r.finalCattleId === cattle.cattleId || r.cattleId === cattle.cattleId
+          );
+          if (audit) {
+            this.api.updateMatchReview(audit.auditId, {
+              reviewStatus: 'wrong_moved_to_registered',
+              correctCattleId: cattle.cattleId,
+              reviewNotes: 'Admin confirmed this is a different cow.',
+              action: 'move_out_as_registered'
+            }).subscribe({
+              next: () => {
+                this.loadCattleInventory();
+                this.loadMatchReviews();
+                this.message = `"${cattle.farmerName || 'Cattle'}" registered as a new cow.`;
+              },
+              error: (err2) => { this.message = this.errorMessage(err2); }
+            });
+          } else {
+            this.message = this.errorMessage(error);
+          }
+        }
+      });
+  }
+
+  confirmBlockedDuplicate(cattle: CattleSummary): void {
+    const confirmed = window.confirm(
+      `Confirm that "${cattle.farmerName || 'this cattle'}" is the SAME cow as the registered one?\n\nThe block will be marked as confirmed correct.`
+    );
+    if (!confirmed) return;
+
+    const audit = this.allMatchReviews.find(r =>
+      r.finalCattleId === cattle.cattleId || r.cattleId === cattle.cattleId
+    );
+
+    if (audit) {
+      this.api.updateMatchReview(audit.auditId, {
+        reviewStatus: 'found_correct',
+        correctCattleId: audit.matchedCattleId || cattle.duplicateOfCattleId || '',
+        reviewNotes: 'Admin confirmed the duplicate block was correct. Same cow.'
+      }).subscribe({
+        next: () => {
+          this.loadMatchReviews();
+          this.message = `Block confirmed. The AI was correct — same cow.`;
+        },
+        error: (error) => { this.message = this.errorMessage(error); }
+      });
+    } else {
+      this.message = 'Block confirmed locally. No audit record to update.';
+    }
+  }
+
+  stopEvidenceCamera(): void {
+    this.evidenceCameraActive = false;
+    this.stopCamera();
+    this.message = 'Evidence camera stopped. You can still use file picker for remaining photos.';
+  }
+
+  async manualCaptureMuzzle(): Promise<void> {
+    if (!this.enrollment || !this.video || !this.canvas) return;
+    if (this.muzzlePreviews.length >= this.muzzleImageCount) return;
+
+    const slot = this.muzzlePreviews.length + 1;
+    this.muzzleGateState = 'uploading';
+    this.muzzleGateLabel = `Saving ${slot}/${this.muzzleImageCount}`;
+    this.message = `Manually capturing muzzle ${slot}/${this.muzzleImageCount}...`;
+
+    try {
+      // Capture the current frame as-is without gate check
+      const blob = await this.frameBlob();
+
+      if (this.offlineCaptureId) {
+        await this.offlineStorage.addMuzzleToCapture(this.offlineCaptureId, slot, blob, 0, 0);
+        this.muzzlePreviews.push({ url: URL.createObjectURL(blob) });
+        this.muzzleGateState = 'good';
+        this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
+        this.muzzleScanSeconds = 0;
+        this.muzzleRejectionReason = '';
+        this.message = `Photo ${slot}/${this.muzzleImageCount} saved manually.`;
+        if (navigator.vibrate) navigator.vibrate(200);
+        if (this.muzzlePreviews.length >= this.muzzleImageCount) {
+          if (this.autoCaptureOn) this.toggleAutoCapture();
+          this.agentScreen = 'evidence';
+          this.message = `All ${this.muzzleImageCount} muzzle photos saved. Add cattle photos next.`;
+        }
+        return;
+      }
+
+      this.api.captureMuzzle(this.enrollment.cattleId, blob, slot, true).subscribe({
+        next: () => {
+          this.muzzlePreviews.push({ url: URL.createObjectURL(blob) });
+          this.muzzleGateState = 'good';
+          this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
+          this.muzzleScanSeconds = 0;
+          this.muzzleRejectionReason = '';
+          this.message = `Photo ${slot}/${this.muzzleImageCount} saved manually.`;
+          if (navigator.vibrate) navigator.vibrate(200);
+          if (this.muzzlePreviews.length >= this.muzzleImageCount) {
+            if (this.autoCaptureOn) this.toggleAutoCapture();
+            this.agentScreen = 'evidence';
+          }
+        },
+        error: (error) => {
+          this.muzzleGateState = 'error';
+          this.muzzleGateLabel = 'Save failed';
+          this.message = this.errorMessage(error);
+        }
+      });
+    } catch {
+      this.muzzleGateState = 'error';
+      this.message = 'Could not capture photo. Try again.';
+    }
+  }
+
+  async manualSync(): Promise<void> {
+    if (this.syncService.syncing) {
+      this.message = 'Upload is already running.';
+      return;
+    }
+    if (!navigator.onLine) {
+      this.message = 'Still offline. Cannot sync now.';
+      return;
+    }
+    await this.syncPendingRecords('manual');
+  }
+
+  private async syncPendingRecords(
+    trigger: 'completion' | 'manual' | 'online' | 'startup',
+    completedWorkflow?: 'cattle_enrolment' | 'cattle_search'
+  ): Promise<void> {
+    if (!navigator.onLine) return;
+    if (this.syncService.syncing) {
+      if (trigger === 'completion') this.message = 'Saved on phone. Waiting for the current upload to finish...';
+      for (let attempt = 0; attempt < 240 && this.syncService.syncing; attempt += 1) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
+      }
+      if (this.syncService.syncing || !navigator.onLine) return;
+    }
+
+    this.message = trigger === 'completion'
+      ? 'Saved on phone. Uploading automatically...'
+      : 'Uploading saved records...';
+
+    const result = await this.syncService.syncAll();
+    this.pendingSyncCount = this.syncService.pendingCount;
+
+    if (result.synced > 0) {
+      this.lastRecordUploaded = this.pendingSyncCount === 0;
+      this.loadCattleInventory();
+      if (completedWorkflow === 'cattle_enrolment') {
+        this.message = 'Cow enrolled and uploaded. Next: enrol another cow, or use Cattle Search when checking this cow later.';
+      } else if (completedWorkflow === 'cattle_search') {
+        this.message = 'Cattle Search uploaded. The match result is ready for admin review.';
+      } else {
+        this.message = `${result.synced} saved record(s) uploaded successfully.${result.failed ? ` ${result.failed} still need retry.` : ''}`;
+      }
+      return;
+    }
+
+    if (result.failed > 0) {
+      this.lastRecordUploaded = false;
+      this.message = `Upload paused: ${this.syncService.lastError || 'The server could not finish the record.'} The record is safe on this phone.`;
+    } else if (trigger === 'manual') {
+      this.message = 'No pending records to upload.';
+    }
+  }
+
+  private startAdminAutoRefresh(): void {
+    if (this.adminRefreshTimer) return;
+    this.adminRefreshTimer = window.setInterval(() => {
+      if (this.currentUser?.role !== 'admin' || document.hidden) return;
+      this.loadCattleInventory();
+      this.loadMatchReviews();
+    }, 30_000);
+  }
+
+  private applyMatchResolution(resolution: MuzzleMatchResolution): void {
+    this.matchResolution = resolution;
+    this.enrollment = resolution.enrollment;
+    this.cattleId = resolution.enrollment.cattleId;
+    this.refreshMuzzlePreviewsFromEnrollment(resolution.enrollment);
+
+    if (resolution.decision === 'matched_existing') {
+      const bestMatch = resolution.topMatches?.[0];
+      const source = this.matchSourceLabel(bestMatch?.searchScope);
+      const owner = bestMatch?.farmerName ? ` under farmer ${bestMatch.farmerName}` : '';
+      const cow = bestMatch?.cattleLabel || this.shortId(resolution.matchedCattleId || resolution.enrollment.cattleId);
+      this.loadCattleInventory();
+      if (resolution.enrollment.workflow === 'cattle_enrolment') {
+        this.message = `This cow already exists${owner} (${cow}). Do not enrol it again; use Cattle Search for repeat testing.`;
+        return;
+      }
+      this.message = `Cattle search matched in ${source}${owner} (${cow}). This search record is saved separately for testing.`;
+      return;
+    }
+
+    this.loadCattleInventory();
+    this.message = 'No enrolled cattle matched in the selected farmer stage or nearby-location stage. Admin can confirm whether No Cattle Found is correct.';
+  }
+  private refreshMuzzlePreviewsFromEnrollment(enrollment: Enrollment): void {
+    const session = enrollment.sessions?.find((item) => item.sessionId === enrollment.activeSessionId) || enrollment.sessions?.at(-1);
+    if (!session?.images) return;
+
+    const previews = Array.from({ length: this.muzzleImageCount }, (_, index) => session.images?.[`muzzle${index + 1}`]?.previewUrl)
+      .filter((preview): preview is string => Boolean(preview))
+      .map((preview) => ({ url: this.api.mediaUrl(preview) }));
+
+    if (previews.length === this.muzzleImageCount) {
+      this.muzzlePreviews = previews;
+    }
+  }
+
+  selectAdminCattle(cattle: CattleSummary): void {
+    this.selectedAdminCattle = cattle;
+  }
+
+  shortId(id?: string | null): string {
+    if (!id) return 'NA';
+    return id.length > 12 ? `${id.slice(0, 8)}...${id.slice(-4)}` : id;
+  }
+
+  matchSourceLabel(scope?: 'farmer_cattle' | 'nearby_location' | 'outside_location' | 'all_other_muzzle'): string {
+    if (scope === 'farmer_cattle') return 'selected farmer cattle';
+    if (scope === 'nearby_location') return 'nearby GPS cattle';
+    if (scope === 'outside_location') return 'outside search location';
+    return 'legacy all-cattle search';
+  }
+  openImage(title: string, url?: string | null): void {
+    if (!url) return;
+    this.imageViewer = { title, url: this.api.mediaUrl(url) };
+  }
+
+  closeImageViewer(): void {
+    this.imageViewer = undefined;
+  }
+
+  imageUrl(image: CattleImageSummary): string {
+    return image.cloudinaryUrl || this.api.mediaUrl(image.previewUrl);
+  }
+
+  toggleCattleSelection(cattle: CattleSummary): void {
+    if (this.selectedCattleIds.includes(cattle.cattleId)) {
+      this.selectedCattleIds = this.selectedCattleIds.filter((id) => id !== cattle.cattleId);
+      return;
+    }
+
+    this.selectedCattleIds = [...this.selectedCattleIds, cattle.cattleId];
+  }
+
+  isCattleSelected(cattle: CattleSummary): boolean {
+    return this.selectedCattleIds.includes(cattle.cattleId);
+  }
+  mergeSelectedIntoMainCattle(): void {
+    if (!this.selectedAdminCattle) {
+      this.message = 'Select the correct registered cattle row first.';
+      return;
+    }
+
+    const sourceCattleIds = this.selectedCattleIds.filter((id) => id !== this.selectedAdminCattle?.cattleId);
+    if (!sourceCattleIds.length) {
+      this.message = 'Tick cattle search or extra cattle rows to merge into the selected registered cattle record.';
+      return;
+    }
+
+    const ok = window.confirm(`Merge ${sourceCattleIds.length} selected cattle/search record(s) into ${this.shortId(this.selectedAdminCattle.cattleId)}?`);
+    if (!ok) return;
+
+    this.message = 'Merging selected cattle/search records...';
+    this.api.mergeCattleRecords(this.selectedAdminCattle.cattleId, sourceCattleIds).subscribe({
+      next: ({ target, mergedCattleIds }) => {
+        this.selectedCattleIds = [];
+        this.selectedAdminCattle = target;
+        this.message = `Merged ${mergedCattleIds.length} selected record(s). Registered cattle now has ${target.sessionCount} captures.`;
+        this.loadCattleInventory();
+      },
+      error: (error) => {
+        this.message = this.errorMessage(error);
+      }
+    });
+  }
+
+  private updateOfficerNamesForFilter(): void {
+    const officers = new Set<string>();
+    for (const r of this.allMatchReviews) {
+      if (r.fieldOfficerName) officers.add(r.fieldOfficerName);
+    }
+    this.officerNamesForFilter = Array.from(officers).sort();
+  }
+
+  loadMatchedCattleImages(cattleId: string, silent = false): void {
+    if (this.loadedMatchedImages[cattleId]) return;
+    const cattle = this.cattleInventory.find((item) => item.cattleId === cattleId);
+    const images = cattle?.sessions?.flatMap((session) => session.images || []) || [];
+
+    if (images.length) {
+      this.loadedMatchedImages[cattleId] = images;
+      if (!silent) this.message = 'Matched cattle images loaded.';
+    } else if (!silent) {
+      this.loadedMatchedImages[cattleId] = [];
+      this.message = 'No enrolled images found for this cow. Refresh cattle records and try again.';
+    } else {
+      this.loadedMatchedImages[cattleId] = [];
+    }
+  }
+
+  toggleReviewDetails(review: MatchReview): void {
+    this.expandedReviewId = this.expandedReviewId === review.auditId ? '' : review.auditId;
+    if (this.expandedReviewId) this.preloadReviewCandidateImages(review);
+  }
+
+  isReviewExpanded(review: MatchReview): boolean {
+    return this.expandedReviewId === review.auditId;
+  }
+
+  topReviewCandidates(review: MatchReview, limit = 20): MatchReview['topMatches'] {
+    return this.metricTopMatches(review).slice(0, limit);
+  }
+
+  candidateMuzzleImages(cattleId: string): CattleImageSummary[] {
+    return this.candidateImages(cattleId).filter((image) => /^muzzle\d+$/i.test(image.imageType));
+  }
+
+  candidateEvidenceImages(cattleId: string): CattleImageSummary[] {
+    const order = ['face1', 'face2', 'face3', 'leftside', 'rightside', 'back', 'udder'];
+    return this.candidateImages(cattleId)
+      .filter((image) => order.includes(image.imageType))
+      .sort((a, b) => order.indexOf(a.imageType) - order.indexOf(b.imageType));
+  }
+
+  private candidateImages(cattleId: string): CattleImageSummary[] {
+    if (!this.loadedMatchedImages[cattleId]) this.loadMatchedCattleImages(cattleId, true);
+    return this.loadedMatchedImages[cattleId] || [];
+  }
+
+  private preloadExpandedReviewImages(): void {
+    const review = this.matchReviews.find((item) => item.auditId === this.expandedReviewId);
+    if (review) this.preloadReviewCandidateImages(review);
+  }
+
+  private preloadReviewCandidateImages(review: MatchReview): void {
+    for (const candidate of this.topReviewCandidates(review, 5)) {
+      this.loadMatchedCattleImages(candidate.cattleId, true);
+    }
+  }
+
+  exportReviewsCsv(): void {
+    if (!this.matchReviews.length) return;
+    const headers = ['Cattle ID', 'Date', 'Officer', 'Farmer', 'App Decision', 'Review Status', 'Top Match ID', 'Confidence', 'Capture Seconds', 'App Version', 'DINOv2 Model', 'TFLite Model', 'Correct?'];
+    const rows = this.matchReviews.map(r => {
+      return [
+        r.finalCattleId,
+        new Date(r.captureDate).toISOString(),
+        r.fieldOfficerName || 'NA',
+        r.farmerName || 'NA',
+        r.decision,
+        r.reviewStatus || 'pending',
+        r.topMatches?.[0]?.cattleId || '',
+        r.topMatches?.[0]?.confidencePercent || '',
+        r.captureDurationSeconds || '',
+        r.appVersion || '',
+        r.dinov2ModelVersion || '',
+        r.tfliteMuzzleModelVersion || '',
+        this.reviewResultLabel(r)
+      ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(',');
+    });
+    const csvContent = headers.join(',') + "\n" + rows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+    const encodedUri = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `vacapay_reviews_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(encodedUri);
+  }
+
+  downloadSelectedImages(): void {
+    if (!this.selectedCattleIds.length) {
+      this.message = 'Select one or more cattle to download.';
+      return;
+    }
+
+    this.message = 'Preparing ZIP download...';
+    this.api.downloadCattleZip(this.selectedCattleIds).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `vacapay-cattle-${new Date().toISOString().slice(0, 10)}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        this.message = `ZIP downloaded for ${this.selectedCattleIds.length} selected cattle.`;
+      },
+      error: (error) => {
+        this.message = this.errorMessage(error);
+      }
+    });
+  }
+
+  setAdminRegistryView(view: 'unique' | 'duplicates'): void {
+    this.adminRegistryView = view;
+    this.selectedCattleIds = [];
+    this.selectedAdminCattle = undefined;
+  }
+
+  isDuplicateEvidence(cattle?: CattleSummary | null): boolean {
+    return Boolean(cattle?.isDuplicateEvidence);
+  }
+
+  // ── Duplicate enrolment attempts mapped to original cattle ──
+  get duplicateEnrolmentsByOfficer(): Map<string, Array<{
+    attemptRecord: CattleSummary;
+    originalCattleId: string;
+    originalFarmerName: string;
+    originalCattle?: CattleSummary;
+  }>> {
+    const result = new Map<string, Array<{ attemptRecord: CattleSummary; originalCattleId: string; originalFarmerName: string; originalCattle?: CattleSummary }>>();
+    const uniqueById = new Map(this.uniqueCattleInventory.map(c => [c.cattleId, c]));
+
+    for (const dup of this.duplicateCattleInventory) {
+      // Only enrolment duplicates (not cattle searches)
+      if (dup.workflow !== 'cattle_enrolment' && dup.status !== 'enrolment_duplicate_blocked') continue;
+      const officer = dup.fieldOfficerName || 'Unknown Officer';
+      const list = result.get(officer) || [];
+      list.push({
+        attemptRecord: dup,
+        originalCattleId: dup.duplicateOfCattleId || '',
+        originalFarmerName: dup.duplicateOfFarmerName || dup.farmerName || '',
+        originalCattle: dup.duplicateOfCattleId ? uniqueById.get(dup.duplicateOfCattleId) : undefined
+      });
+      result.set(officer, list);
+    }
+    return result;
+  }
+
+  // ── Level-1: group all enrolled cattle by officer ──
+  get officerGroups(): Array<{
+    officerName: string;
+    totalCattle: number;
+    searchedCount: number;
+    notSearchedCount: number;
+    farmerCount: number;
+    coveragePercent: number;
+    blockedDuplicates: number;
+  }> {
+    const map = new Map<string, { cattle: CattleSummary[]; farmers: Set<string> }>();
+    for (const c of this.uniqueCattleInventory) {
+      const officer = c.fieldOfficerName || 'Unknown Officer';
+      const entry = map.get(officer) || { cattle: [], farmers: new Set() };
+      entry.cattle.push(c);
+      if (c.farmerId) entry.farmers.add(c.farmerId);
+      else if (c.farmerName) entry.farmers.add(c.farmerName);
+      map.set(officer, entry);
+    }
+    return Array.from(map.entries())
+      .map(([officerName, { cattle, farmers }]) => {
+        const searched = cattle.filter(c => (c.searchCount || 0) > 0).length;
+        const blockedCount = (this.duplicateEnrolmentsByOfficer.get(officerName) || []).length;
+        return {
+          officerName,
+          totalCattle: cattle.length,
+          searchedCount: searched,
+          notSearchedCount: cattle.length - searched,
+          farmerCount: farmers.size,
+          coveragePercent: cattle.length ? Math.round((searched / cattle.length) * 100) : 0,
+          blockedDuplicates: blockedCount
+        };
+      })
+      .sort((a, b) => b.totalCattle - a.totalCattle);
+  }
+
+  // ── Level-2: farmers for selected officer ──
+  get selectedOfficerFarmerGroups(): Array<{
+    key: string;
+    farmerId: string;
+    farmerName: string;
+    cattle: CattleSummary[];
+    searchedCount: number;
+    notSearchedCount: number;
+  }> {
+    if (!this.selectedOfficerName) return [];
+    const cattle = this.uniqueCattleInventory.filter(
+      c => (c.fieldOfficerName || 'Unknown Officer') === this.selectedOfficerName
+    );
+    const map = new Map<string, { farmerId: string; farmerName: string; cattle: CattleSummary[] }>();
+    for (const c of cattle) {
+      const key = c.farmerId || c.farmerName || 'unknown';
+      const entry = map.get(key) || { farmerId: c.farmerId || '', farmerName: c.farmerName || 'Unknown Farmer', cattle: [] };
+      entry.cattle.push(c);
+      map.set(key, entry);
+    }
+    return Array.from(map.entries())
+      .map(([key, { farmerId, farmerName, cattle: fc }]) => {
+        const searched = fc.filter(c => (c.searchCount || 0) > 0).length;
+        return { key, farmerId, farmerName, cattle: fc, searchedCount: searched, notSearchedCount: fc.length - searched };
+      })
+      .sort((a, b) => a.farmerName.localeCompare(b.farmerName));
+  }
+
+  // ── Level-3: cattle for selected farmer ──
+  get selectedFarmerCattle(): CattleSummary[] {
+    if (!this.selectedFarmerKey2) return [];
+    const group = this.selectedOfficerFarmerGroups.find(g => g.key === this.selectedFarmerKey2);
+    return group ? group.cattle.sort((a, b) => Number(a.cattleNumber || 0) - Number(b.cattleNumber || 0)) : [];
+  }
+
+  drillToOfficer(officerName: string): void {
+    this.selectedOfficerName = officerName;
+    this.selectedFarmerKey2 = '';
+    this.selectedAdminCattle = undefined;
+    this.recordsLevel = 'farmers';
+  }
+
+  drillToFarmer(key: string): void {
+    this.selectedFarmerKey2 = key;
+    this.selectedAdminCattle = undefined;
+    this.recordsLevel = 'cattle';
+  }
+
+  drillBack(): void {
+    if (this.recordsLevel === 'cattle') {
+      this.recordsLevel = 'farmers';
+      this.selectedFarmerKey2 = '';
+      this.selectedAdminCattle = undefined;
+    } else if (this.recordsLevel === 'farmers') {
+      this.recordsLevel = 'officers';
+      this.selectedOfficerName = '';
+      this.selectedFarmerKey2 = '';
+      this.selectedAdminCattle = undefined;
+    }
+  }
+
+  get uniqueCattleInventory(): CattleSummary[] {
+    return this.cattleInventory.filter((cattle) => cattle.workflow === 'cattle_enrolment' && !this.isDuplicateEvidence(cattle));
+  }
+
+  get duplicateCattleInventory(): CattleSummary[] {
+    return this.cattleInventory.filter((cattle) => this.isDuplicateEvidence(cattle));
+  }
+
+  get visibleCattleInventory(): CattleSummary[] {
+    return this.adminRegistryView === 'duplicates' ? this.duplicateCattleInventory : this.uniqueCattleInventory;
+  }
+
+  get cattleSearchCoverageRows(): CattleSearchCoverageRow[] {
+    const registeredIds = new Set(this.uniqueCattleInventory.map((cattle) => cattle.cattleId));
+    const searchesByCattle = new Map<string, MatchReview[]>();
+
+    for (const review of this.allMatchReviews.filter((item) => this.isCattleSearchCandidate(item))) {
+      const cattleId = this.coverageCattleId(review, registeredIds);
+      if (!cattleId) continue;
+      searchesByCattle.set(cattleId, [...(searchesByCattle.get(cattleId) || []), review]);
+    }
+
+    return this.uniqueCattleInventory
+      .map((cattle) => {
+        const searches = searchesByCattle.get(cattle.cattleId) || [];
+        const latestSearch = searches.reduce<MatchReview | null>((latest, review) => {
+          if (!latest) return review;
+          return new Date(review.captureDate).getTime() > new Date(latest.captureDate).getTime() ? review : latest;
+        }, null);
+        return {
+          cattleId: cattle.cattleId,
+          cattleLabel: cattle.cattleLabel || `Cattle ${cattle.cattleNumber || ''}`.trim(),
+          farmerId: cattle.farmerId,
+          farmerName: cattle.farmerName,
+          fieldOfficerName: cattle.fieldOfficerName || 'Unknown officer',
+          searchCount: searches.length,
+          lastSearchDate: latestSearch?.captureDate || null
+        };
+      })
+      .sort((a, b) => b.searchCount - a.searchCount || a.fieldOfficerName.localeCompare(b.fieldOfficerName) || a.cattleLabel.localeCompare(b.cattleLabel));
+  }
+
+  get filteredCattleSearchCoverageRows(): CattleSearchCoverageRow[] {
+    return this.cattleSearchCoverageRows.filter((row) => {
+      const officerMatches = this.coverageFilterOfficer === 'all' || row.fieldOfficerName === this.coverageFilterOfficer;
+      const statusMatches = this.coverageFilterStatus === 'all'
+        || (this.coverageFilterStatus === 'searched' && row.searchCount > 0)
+        || (this.coverageFilterStatus === 'not_searched' && row.searchCount === 0);
+      return officerMatches && statusMatches;
+    });
+  }
+
+  get coverageOfficerNames(): string[] {
+    return Array.from(new Set(this.uniqueCattleInventory.map((cattle) => cattle.fieldOfficerName || 'Unknown officer'))).sort();
+  }
+
+  get selectedCoverageMetrics(): { enrolled: number; searched: number; notSearched: number; coveragePercent: number } {
+    const rows = this.cattleSearchCoverageRows.filter((row) => this.coverageFilterOfficer === 'all' || row.fieldOfficerName === this.coverageFilterOfficer);
+    const searched = rows.filter((row) => row.searchCount > 0).length;
+    return {
+      enrolled: rows.length,
+      searched,
+      notSearched: rows.length - searched,
+      coveragePercent: this.percent(searched, rows.length)
+    };
+  }
+
+  get officerEnrollmentCoverage(): OfficerEnrollmentCoverage[] {
+    return this.coverageOfficerNames.map((officer) => {
+      const rows = this.cattleSearchCoverageRows.filter((row) => row.fieldOfficerName === officer);
+      const searched = rows.filter((row) => row.searchCount > 0).length;
+      return {
+        officer,
+        enrolled: rows.length,
+        searched,
+        notSearched: rows.length - searched,
+        coveragePercent: this.percent(searched, rows.length)
+      };
+    }).sort((a, b) => b.enrolled - a.enrolled || a.officer.localeCompare(b.officer));
+  }
+
+  private coverageCattleId(review: MatchReview, registeredIds: Set<string>): string | null {
+    if (review.correctCattleId && registeredIds.has(review.correctCattleId)) return review.correctCattleId;
+    if (this.isReviewedCattleSearch(review) && (this.isCattleFoundIncorrect(review) || this.isNoCattleFoundCorrect(review))) return null;
+    if (review.decision === 'matched_existing' && review.matchedCattleId && registeredIds.has(review.matchedCattleId)) {
+      return review.matchedCattleId;
+    }
+    return null;
+  }
+
+  get fieldTestMetrics(): FieldTestMetrics {
+    const reviews = this.allMatchReviews.filter((review) => this.isCattleSearchCandidate(review));
+    const reviewed = reviews.filter((review) => this.isReviewedCattleSearch(review));
+    const cattleFoundResults = reviews.filter((review) => review.decision === 'matched_existing').length;
+    const noCattleFoundResults = reviews.filter((review) => review.decision === 'new_cattle').length;
+    const cattleFoundCorrect = reviewed.filter((review) => this.isCattleFoundCorrect(review)).length;
+    const cattleFoundIncorrect = reviewed.filter((review) => this.isCattleFoundIncorrect(review)).length;
+    const noCattleFoundCorrect = reviewed.filter((review) => this.isNoCattleFoundCorrect(review)).length;
+    const noCattleFoundIncorrect = reviewed.filter((review) => this.isNoCattleFoundIncorrect(review)).length;
+    const top1Correct = reviewed.filter((review) => this.isTopKCorrect(review, 1)).length;
+    const top5Correct = reviewed.filter((review) => this.isTopKCorrect(review, 5)).length;
+
+    return {
+      registeredCattle: this.cattleStats?.uniqueCattleCount || this.cattleStats?.cattleCount || 0,
+      cattleSearches: reviews.length,
+      reviewedSearches: reviewed.length,
+      cattleFoundResults,
+      cattleFoundCorrect,
+      cattleFoundIncorrect,
+      noCattleFoundResults,
+      noCattleFoundCorrect,
+      noCattleFoundIncorrect,
+      top1Accuracy: this.percent(top1Correct, reviewed.length),
+      top5Accuracy: this.percent(top5Correct, reviewed.length),
+      pendingReview: reviews.filter((review) => !this.isReviewedCattleSearch(review)).length
+    };
+  }
+
+  get officerFieldSummaries(): OfficerFieldSummary[] {
+    const groups = new Map<string, MatchReview[]>();
+    for (const review of this.allMatchReviews) {
+      const officer = review.fieldOfficerName || 'Unknown officer';
+      groups.set(officer, [...(groups.get(officer) || []), review]);
+    }
+
+    return Array.from(groups.entries())
+      .map(([officer, reviews]) => {
+        const searchReviews = reviews.filter((review) => this.isCattleSearchCandidate(review));
+        const reviewed = searchReviews.filter((review) => this.isReviewedCattleSearch(review));
+        const cattleFoundCorrect = reviewed.filter((review) => this.isCattleFoundCorrect(review)).length;
+        const cattleFoundIncorrect = reviewed.filter((review) => this.isCattleFoundIncorrect(review)).length;
+        const noCattleFoundCorrect = reviewed.filter((review) => this.isNoCattleFoundCorrect(review)).length;
+        const noCattleFoundIncorrect = reviewed.filter((review) => this.isNoCattleFoundIncorrect(review)).length;
+        const top1Correct = reviewed.filter((review) => this.isTopKCorrect(review, 1)).length;
+        const top5Correct = reviewed.filter((review) => this.isTopKCorrect(review, 5)).length;
+        const avgScore = this.percent(searchReviews.reduce((total, review) => total + Number(review.confidence || 0), 0), searchReviews.length);
+
+        return {
+          officer,
+          cattleSearches: searchReviews.length,
+          reviewedSearches: reviewed.length,
+          cattleFoundCorrect,
+          cattleFoundIncorrect,
+          noCattleFoundCorrect,
+          noCattleFoundIncorrect,
+          top1Accuracy: this.percent(top1Correct, reviewed.length),
+          top5Accuracy: this.percent(top5Correct, reviewed.length),
+          avgScore,
+          captureQuality: this.captureQualityLabel(avgScore)
+        };
+      })
+      .sort((a, b) => b.reviewedSearches - a.reviewedSearches || b.cattleSearches - a.cattleSearches || a.officer.localeCompare(b.officer));
+  }
+
+  isCattleSearchCandidate(review: MatchReview): boolean {
+    return review.workflow === 'cattle_search' && (review.decision === 'matched_existing' || review.decision === 'new_cattle');
+  }
+
+  isReviewedCattleSearch(review: MatchReview): boolean {
+    return this.isCattleSearchCandidate(review) && [
+      'confirmed',
+      'found_correct',
+      'found_incorrect',
+      'no_cattle_correct',
+      'no_cattle_incorrect',
+      'wrong_moved_to_registered'
+    ].includes(review.reviewStatus);
+  }
+  expectedCattleId(review: MatchReview): string | null {
+    return review.correctCattleId || null;
+  }
+
+  isCorrectMatchedReview(review: MatchReview): boolean {
+    const expected = this.expectedCattleId(review);
+    return Boolean(expected && review.decision === 'matched_existing' && review.matchedCattleId === expected);
+  }
+
+  isCorrectNoCattleFoundReview(review: MatchReview): boolean {
+    const expected = this.expectedCattleId(review);
+    return Boolean(expected && review.decision === 'new_cattle' && expected === review.finalCattleId);
+  }
+
+  isMissedReview(review: MatchReview): boolean {
+    const expected = this.expectedCattleId(review);
+    return Boolean(expected && review.decision === 'new_cattle' && expected !== review.finalCattleId);
+  }
+
+  isWrongMatchedReview(review: MatchReview): boolean {
+    const expected = this.expectedCattleId(review);
+    return Boolean(expected && review.decision === 'matched_existing' && review.matchedCattleId && review.matchedCattleId !== expected);
+  }
+
+  isCattleFoundCorrect(review: MatchReview): boolean {
+    return review.reviewStatus === 'found_correct' || this.isCorrectMatchedReview(review);
+  }
+
+  isCattleFoundIncorrect(review: MatchReview): boolean {
+    return review.reviewStatus === 'found_incorrect' || review.reviewStatus === 'wrong_moved_to_registered' || this.isWrongMatchedReview(review);
+  }
+
+  isNoCattleFoundCorrect(review: MatchReview): boolean {
+    return review.reviewStatus === 'no_cattle_correct' || this.isCorrectNoCattleFoundReview(review);
+  }
+
+  isNoCattleFoundIncorrect(review: MatchReview): boolean {
+    return review.reviewStatus === 'no_cattle_incorrect' || this.isMissedReview(review);
+  }
+
+  isTopKCorrect(review: MatchReview, k: number): boolean {
+    const expected = this.expectedCattleId(review);
+    if (!expected) return false;
+    return this.metricTopMatches(review).slice(0, k).some((match) => match.cattleId === expected);
+  }
+
+  metricTopMatches(review: MatchReview): MatchReview['topMatches'] {
+    return review.rankedTopMatches?.length ? review.rankedTopMatches : review.topMatches;
+  }
+
+  reviewResultLabel(review: MatchReview): string {
+    if (this.isCattleFoundCorrect(review)) return 'Cattle found correct';
+    if (this.isCattleFoundIncorrect(review)) return 'Cattle found incorrect';
+    if (this.isNoCattleFoundCorrect(review)) return 'No cattle found correct';
+    if (this.isNoCattleFoundIncorrect(review)) return 'No cattle found incorrect';
+    if (!this.expectedCattleId(review)) return 'Needs admin review';
+    if (this.isCorrectMatchedReview(review)) return 'Correct match';
+    if (this.isCorrectNoCattleFoundReview(review)) return 'Correct no cattle found';
+    if (this.isMissedReview(review)) return 'Missed';
+    if (this.isWrongMatchedReview(review)) return 'Wrong';
+    if (this.isTopKCorrect(review, 5)) return 'In Top 5';
+    return 'Check';
+  }
+
+  percent(numerator: number, denominator: number): number {
+    if (!denominator) return 0;
+    return Math.round((numerator / denominator) * 1000) / 10;
+  }
+
+  captureQualityLabel(scorePercent: number): string {
+    if (scorePercent >= 85) return 'Good';
+    if (scorePercent >= 70) return 'Medium';
+    return 'Needs work';
+  }
+  get ownerRecordGroups(): Array<{ key: string; label: string; count: number; captures: number }> {
+    const groups = new Map<string, { key: string; label: string; count: number; captures: number }>();
+    for (const cattle of this.uniqueCattleInventory) {
+      const key = (cattle.farmerId || cattle.farmerName || 'unknown').trim().toLowerCase();
+      const label = cattle.farmerName || cattle.farmerId || 'Unknown farmer';
+      const group = groups.get(key) || { key, label, count: 0, captures: 0 };
+      group.count += 1;
+      group.captures += cattle.sessionCount;
+      groups.set(key, group);
+    }
+    return Array.from(groups.values()).filter((group) => group.count > 1).sort((a, b) => b.count - a.count);
+  }
+
+  get mergeSourceCount(): number {
+    if (!this.selectedAdminCattle) return 0;
+    return this.selectedCattleIds.filter((id) => id !== this.selectedAdminCattle?.cattleId).length;
+  }
+  get selectedImageCount(): number {
+    return this.cattleInventory
+      .filter((cattle) => this.selectedCattleIds.includes(cattle.cattleId))
+      .reduce((total, cattle) => total + cattle.imageCount, 0);
+  }
+
+  get farmerCattleGroups(): FarmerCattleGroup[] {
+    const groups = new Map<string, FarmerCattleGroup>();
+    for (const cattle of this.uniqueCattleInventory) {
+      const farmerId = String(cattle.farmerId || '').trim();
+      const farmerName = String(cattle.farmerName || '').trim() || 'Unknown farmer';
+      const key = farmerId || farmerName.toLocaleLowerCase();
+      const group = groups.get(key) || {
+        key,
+        farmerId,
+        farmerName,
+        cattle: [],
+        searchedCount: 0,
+        reviewedCount: 0
+      };
+      group.cattle.push(cattle);
+      if ((cattle.searchCount || 0) > 0) group.searchedCount += 1;
+      if (cattle.searchReviewState === 'reviewed') group.reviewedCount += 1;
+      groups.set(key, group);
+    }
+
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        cattle: group.cattle.sort((a, b) => Number(a.cattleNumber || 0) - Number(b.cattleNumber || 0))
+      }))
+      .sort((a, b) => a.farmerName.localeCompare(b.farmerName));
+  }
+
+  cattleSearchStatusLabel(cattle: CattleSummary): string {
+    if (cattle.searchReviewState === 'reviewed') return 'Admin Reviewed';
+    if (cattle.searchReviewState === 'pending_review') return 'Searched - Awaiting Review';
+    return 'Not Searched';
+  }
+
+  get hasGps(): boolean {
+    return this.locationLat !== null && this.locationLon !== null;
+  }
+
+  get canStartExistingFarmerCapture(): boolean {
+    if (this.isCattleSearchFlow) return this.hasGps;
+    return this.hasGps && Boolean(this.selectedFarmerKey) && Boolean(this.farmerId.trim() || this.farmerName.trim());
+  }
+
+  get registeredCattleCount(): number {
+    return this.cattleStats?.uniqueCattleCount || this.cattleStats?.cattleCount || this.uniqueCattleInventory.length || 0;
+  }
+
+  get isCattleSearchFlow(): boolean {
+    return this.captureWorkflow === 'cattle_search';
+  }
+
+  get locationPrimaryActionLabel(): string {
+    if (!this.hasGps) return 'Use GPS First';
+    if (this.isCattleSearchFlow) {
+      return this.selectedFarmerKey ? `Start Search With ${this.farmerName || this.farmerId}` : 'Start Search Using GPS';
+    }
+    if (!this.selectedFarmerKey) return 'Select Farmer First';
+    return 'Add New Cow Under Selected Farmer';
+  }
+
+  get farmerNavTarget(): AgentScreen {
+    if (this.agentScreen === 'home') return 'farmer';
+    if (this.isCattleSearchFlow || this.selectedFarmerKey || this.enrollment) return 'location';
+    return 'farmer';
+  }
+
+  get farmerNavLabel(): string {
+    return this.isCattleSearchFlow ? 'Find' : 'Farmer';
+  }
+
+  get completeButtonLabel(): string {
+    if (this.finalizingRecord || this.syncService.syncing) return 'Saving - Please Wait';
+    return this.isCattleSearchFlow ? 'Save Cattle Search Result' : 'Save Registered Cow';
+  }
+
+  get locationPrimaryHelp(): string {
+    return this.isCattleSearchFlow
+      ? (this.selectedFarmerKey
+        ? 'Selected farmer cattle are checked first. If none match, cattle near this GPS are checked.'
+        : 'No farmer selected. Cattle near this GPS are checked. Farmer details are optional for search.')
+      : 'This saves a new registered cattle identity under the selected farmer.';
+  }
+
+  get canComplete(): boolean {
+    return !this.finalizingRecord
+      && !this.syncService.syncing
+      && this.muzzlePreviews.length === this.muzzleImageCount
+      && this.requiredImages.every((item) => item.previewUrl);
+  }
+
+  get capturedOtherImages(): number {
+    return this.requiredImages.filter((item) => item.previewUrl).length;
+  }
+
+  get totalCapturedImages(): number {
+    return this.muzzlePreviews.length + this.capturedOtherImages;
+  }
+
+  get progressPercent(): number {
+    return Math.round((this.totalCapturedImages / this.totalImageCount) * 100);
+  }
+
+  get enrollmentStage(): string {
+    if (!this.enrollment) return 'Not Started';
+    if (this.canComplete) return 'Ready';
+    if (this.totalCapturedImages > 0) return 'Capturing';
+    return 'Draft';
+  }
+
+  get nextAction(): string {
+    if (!this.enrollment) return 'Find Existing Or Create';
+    if (this.muzzlePreviews.length < this.muzzleImageCount) return `Capture muzzle ${this.muzzlePreviews.length + 1}`;
+    if (this.capturedOtherImages < this.requiredImages.length) return 'Complete image checklist';
+    return 'Submit enrollment';
+  }
+
+  get isAdmin(): boolean {
+    return this.currentUser?.role === 'admin';
+  }
+
+  get isAgent(): boolean {
+    return this.currentUser?.role === 'agent';
+  }
+
+  get faceCount(): number {
+    return this.requiredImages.filter((item) => item.group === 'Face' && item.previewUrl).length;
+  }
+
+  get bodyCount(): number {
+    return this.requiredImages.filter((item) => item.group === 'Body' && item.previewUrl).length;
+  }
+
+  get udderCount(): number {
+    return this.requiredImages.filter((item) => item.group === 'Udder' && item.previewUrl).length;
+  }
+
+  get agentStepIndex(): number {
+    return this.agentScreens.findIndex((step) => step.key === this.agentScreen);
+  }
+
+  get agentScreenTitle(): string {
+    switch (this.agentScreen) {
+      case 'farmer': return 'Owner Details';
+      case 'location': return this.isCattleSearchFlow ? 'Cattle Search Setup' : 'Find Farmer';
+      case 'muzzle': return 'Muzzle Photos';
+      case 'evidence': return 'Other Photos';
+      case 'review': return 'Check & Save';
+      default: return 'Agent Home';
+    }
+  }
+  get agentScreenSubtitle(): string {
+    switch (this.agentScreen) {
+      case 'farmer': return 'Add a new farmer or search an existing farmer by GPS/name.';
+      case 'location': return this.isCattleSearchFlow
+        ? 'GPS is required. Selecting a downloaded farmer is optional and works without internet.'
+        : 'Select a downloaded farmer by name or nearby GPS before enrolling a new cow.';
+      case 'muzzle': return `Take ${this.muzzleImageCount} good muzzle photos. Phone muzzle gate rejects bad muzzles, crops the muzzle, applies contrast, then uploads only the crop.`;
+      case 'evidence': return 'Add face, side, back and udder photos for the same cattle.';
+      case 'review': return 'Check the record once, then save and return home.';
+      default: return 'Start capture, continue pending work, or check recent cattle.';
+    }
+  }
+  get activeScreenNumber(): string {
+    return String(Math.max(this.agentStepIndex + 1, 1)).padStart(2, '0');
+  }
+
+  get missingMuzzleSlots(): number[] {
+    return Array.from({ length: this.muzzleImageCount - this.muzzlePreviews.length }, (_, index) => this.muzzlePreviews.length + index + 1);
+  }
+
+  private cachedFarmerToMatch(farmer: CachedFarmer, distanceKm: number | null): FarmerMatch {
+    return {
+      key: farmer.key,
+      farmerId: farmer.farmerId,
+      farmerName: farmer.farmerName,
+      cattleCount: farmer.cattleCount,
+      visitCount: farmer.visitCount,
+      imageCount: farmer.imageCount,
+      distanceKm,
+      withinRadius: distanceKm !== null && distanceKm <= this.radiusKm,
+      lastCaptureDate: farmer.lastCaptureDate
+    };
+  }
+
+  private distanceKm(lat1: number, lon1: number, lat2: number | null, lon2: number | null): number | null {
+    if (lat2 === null || lon2 === null) return null;
+    const toRadians = (value: number) => value * Math.PI / 180;
+    const dLat = toRadians(lat2 - lat1);
+    const dLon = toRadians(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2
+      + Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+
+  private generateFarmerId(): string {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const values = new Uint32Array(8);
+
+    if (globalThis.crypto?.getRandomValues) {
+      globalThis.crypto.getRandomValues(values);
+      return `FARM-${Array.from(values, (value) => alphabet[value % alphabet.length]).join('')}`;
+    }
+
+    return `FARM-${Math.random().toString(36).slice(2, 10).toUpperCase().padEnd(8, 'X')}`;
+  }
+  private frameBlob(): Promise<Blob> {
+    const video = this.video!.nativeElement;
+    const canvas = this.canvas!.nativeElement;
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas is not available.');
+    context.drawImage(video, 0, 0, width, height);
+
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('Could not capture camera frame.'));
+      }, 'image/jpeg', 0.9);
+    });
+  }
+
+  private resetCaptureState(clearOwnerDetails: boolean): void {
+    this.stopCamera();
+    this.enrollment = undefined;
+    this.cattleId = '';
+    this.offlineCaptureId = undefined;
+    this.captureStartTime = 0;
+    this.selectedFarmerKey = '';
+    this.farmerMatches = [];
+    this.gpsFarmerMatches = [];
+    this.nameFarmerMatches = [];
+    this.searchingFarmers = false;
+    this.searchingGpsFarmers = false;
+    this.searchingNameFarmers = false;
+    this.cattleMatches = [];
+    this.muzzlePreviews = [];
+    this.matchResolution = undefined;
+    this.lastConfidence = undefined;
+    this.detectionBox = undefined;
+    this.requiredImages.forEach((item) => {
+      item.previewUrl = undefined;
+      item.uploading = false;
+    });
+
+    if (clearOwnerDetails) {
+      this.farmerId = '';
+      this.farmerName = '';
+      this.farmerSearchQuery = '';
+      this.locationLat = null;
+      this.locationLon = null;
+      this.locationAccuracyM = null;
+      this.locationCapturedAt = '';
+    }
+  }
+  private errorMessage(error: unknown): string {
+    if (error instanceof HttpErrorResponse && error.error?.error) {
+      if (Array.isArray(error.error.missing) && error.error.missing.length) {
+        return `${error.error.error} Missing on server: ${error.error.missing.join(', ')}. Retake only these photos.`;
+      }
+      return error.error.error;
+    }
+    if (error instanceof HttpErrorResponse && [0, 502, 503, 504].includes(error.status)) {
+      return 'Matching server is unavailable or restarting. Your uploaded photos are saved. Wait one minute and try Save again. If this repeats, the backend needs more memory.';
+    }
+    return 'Something went wrong.';
+  }
+
+  private loginErrorMessage(error: unknown): string {
+    if (error instanceof HttpErrorResponse && error.status === 401) {
+      return error.error?.error || 'Phone or ID or password is incorrect.';
+    }
+    if (error instanceof HttpErrorResponse && [0, 502, 503, 504].includes(error.status)) {
+      return 'Cannot reach the sign-in server. Check the connection and try again.';
+    }
+    if (error instanceof HttpErrorResponse && error.error?.error) {
+      return error.error.error;
+    }
+    return 'Sign in failed. Please try again.';
+  }
+
+  private prepareMissingImageRetakes(error: unknown): void {
+    if (!(error instanceof HttpErrorResponse) || !Array.isArray(error.error?.missing)) return;
+    const missing = error.error.missing.map((file: unknown) => String(file));
+    const missingTypes = new Set(missing.map((file: string) => file.replace(/\.jpg$/i, '')));
+    const hasMissingMuzzle = missing.some((file: string) => /^muzzle\d+\.jpg$/i.test(file));
+
+    this.requiredImages.forEach((item) => {
+      if (missingTypes.has(item.type)) item.previewUrl = undefined;
+    });
+
+    if (hasMissingMuzzle) {
+      this.muzzlePreviews.forEach((preview) => {
+        if (preview.url.startsWith('blob:')) URL.revokeObjectURL(preview.url);
+      });
+      this.muzzlePreviews = [];
+      this.agentScreen = 'muzzle';
+      return;
+    }
+
+    if (missing.length) {
+      this.agentScreen = 'evidence';
+      this.evidenceCameraActive = false;
+      this.evidenceCameraIndex = this.requiredImages.findIndex((item) => !item.previewUrl);
+    }
+  }
+
+  private toDetectionBox(bbox: number[] | undefined, imageSize: number[] | undefined, confidence: number): DetectionBox | undefined {
+    if (!bbox || !imageSize || bbox.length < 4 || imageSize.length < 2) return undefined;
+
+    const [x1, y1, x2, y2] = bbox;
+    const [imageWidth, imageHeight] = imageSize;
+    if (!imageWidth || !imageHeight) return undefined;
+
+    return {
+      left: (x1 / imageWidth) * 100,
+      top: (y1 / imageHeight) * 100,
+      width: ((x2 - x1) / imageWidth) * 100,
+      height: ((y2 - y1) / imageHeight) * 100,
+      confidence
+    };
+  }
+}

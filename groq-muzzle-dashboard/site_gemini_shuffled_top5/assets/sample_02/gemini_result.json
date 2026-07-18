@@ -1,0 +1,30 @@
+{
+  "selected_class": "class_000012",
+  "confidence": "high",
+  "reason": "The ridge pattern, specifically the prominent white-colored horizontal and curved ridges branching from the central groove, matches perfectly between the query and class_000012.",
+  "match_boxes": [
+    {
+      "label": "query matching pattern",
+      "box": [
+        160,
+        120,
+        180,
+        180
+      ]
+    },
+    {
+      "label": "candidate matching pattern",
+      "box": [
+        830,
+        110,
+        120,
+        130
+      ]
+    }
+  ],
+  "coordinate_status": {
+    "queryBoxInsideImage": true,
+    "candidateBoxInsideImage": true,
+    "valid": true
+  }
+}

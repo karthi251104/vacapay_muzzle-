@@ -1,0 +1,30 @@
+{
+  "selected_class": "class_000009",
+  "confidence": "high",
+  "reason": "The ridge patterns, sweat droplets on the upper muzzle, and the dark patch on the right side match perfectly between the query and class_000009.",
+  "match_boxes": [
+    {
+      "label": "query matching pattern",
+      "box": [
+        160,
+        220,
+        80,
+        80
+      ]
+    },
+    {
+      "label": "candidate matching pattern",
+      "box": [
+        835,
+        420,
+        60,
+        60
+      ]
+    }
+  ],
+  "coordinate_status": {
+    "queryBoxInsideImage": true,
+    "candidateBoxInsideImage": true,
+    "valid": true
+  }
+}

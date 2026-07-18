@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vacapay Field</string>
+    <string name="title_activity_main">Vacapay Field</string>
+    <string name="package_name">com.vacapay.muzzlefield</string>
+    <string name="custom_url_scheme">com.vacapay.muzzlefield</string>
+</resources>

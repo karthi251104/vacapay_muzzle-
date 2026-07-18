@@ -1,0 +1,30 @@
+{
+  "selected_class": "class_000028",
+  "confidence": "high",
+  "reason": "The query muzzle and class_000028 share identical central groove shape, thick rounded ridge texture, and a very similar dark/light skin pattern with lighter spots in the upper region. The overall 'fingerprint' pattern is a near-perfect match.",
+  "match_boxes": [
+    {
+      "label": "query matching pattern",
+      "box": [
+        180,
+        150,
+        140,
+        180
+      ]
+    },
+    {
+      "label": "candidate matching pattern",
+      "box": [
+        570,
+        380,
+        100,
+        120
+      ]
+    }
+  ],
+  "coordinate_status": {
+    "queryBoxInsideImage": true,
+    "candidateBoxInsideImage": true,
+    "valid": true
+  }
+}

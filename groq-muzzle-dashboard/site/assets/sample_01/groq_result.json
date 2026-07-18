@@ -1,0 +1,26 @@
+{
+  "selected_rank": 1,
+  "selected_label": "TOP 1 MUZZLE",
+  "confidence": "high",
+  "reason": "muzzle texture and pattern match",
+  "match_boxes": [
+    {
+      "label": "query matching pattern",
+      "box": [
+        0,
+        0,
+        400,
+        400
+      ]
+    },
+    {
+      "label": "candidate matching pattern",
+      "box": [
+        450,
+        50,
+        550,
+        350
+      ]
+    }
+  ]
+}

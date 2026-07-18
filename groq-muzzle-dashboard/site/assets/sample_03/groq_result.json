@@ -1,0 +1,26 @@
+{
+  "selected_rank": 1,
+  "selected_label": "TOP 1 MUZZLE",
+  "confidence": "high",
+  "reason": "muzzle texture and pattern match",
+  "match_boxes": [
+    {
+      "label": "query muzzle ridges",
+      "box": [
+        0,
+        0,
+        400,
+        300
+      ]
+    },
+    {
+      "label": "top 1 muzzle ridges",
+      "box": [
+        450,
+        50,
+        550,
+        350
+      ]
+    }
+  ]
+}

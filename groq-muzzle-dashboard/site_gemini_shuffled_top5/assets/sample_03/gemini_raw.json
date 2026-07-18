@@ -1,0 +1,35 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "{\n  \"selected_class\": \"class_000015\",\n  \"confidence\": \"high\",\n  \"reason\": \"The query muzzle and class_000015 share an identical central groove shape that branches upwards, along with very similar radiating, wavy texture ridges and overall skin pattern.\",\n  \"match_boxes\": [\n    {\n      \"label\": \"query matching pattern\",\n      \"box\": [\n        180,\n        150,\n        150,\n        200\n      ]\n    },\n    {\n      \"label\": \"candidate matching pattern\",\n      \"box\": [\n        570,\n        120,\n        100,\n        140\n      ]\n    }\n  ]\n}"
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 883,
+    "candidatesTokenCount": 177,
+    "totalTokenCount": 1860,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 625
+      },
+      {
+        "modality": "IMAGE",
+        "tokenCount": 258
+      }
+    ],
+    "thoughtsTokenCount": 800,
+    "serviceTier": "standard"
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "6RVFasqTHYjOjuMP55uV6Ac"
+}

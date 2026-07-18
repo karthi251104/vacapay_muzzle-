@@ -1,0 +1,15 @@
+.git
+.agents
+.codex
+.pnpm-store
+node_modules
+frontend/node_modules
+backend/node_modules
+frontend/dist
+frontend/.angular
+frontend/out-tsc
+data
+*.log
+.env
+tools
+Ultralytics

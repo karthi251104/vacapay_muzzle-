@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Groq Shuffled Top-10 Muzzle Dashboard</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin:0; background:#f4f1ea; color:#20221d; font-family:Inter,Segoe UI,Arial,sans-serif; }
+    main { width:min(1320px, calc(100vw - 32px)); margin:0 auto; padding:28px 0 42px; }
+    h1 { margin:0; font-size:clamp(26px,4vw,42px); letter-spacing:0; }
+    p { color:#6a6258; line-height:1.5; }
+    .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:22px 0; }
+    .metric,.panel,.card { background:#fffdf8; border:1px solid #d8cdbb; border-radius:8px; box-shadow:0 14px 36px rgba(54,45,28,.08); }
+    .metric { padding:16px; }
+    .metric small { display:block; color:#746b5f; font-weight:800; text-transform:uppercase; font-size:12px; }
+    .metric strong { display:block; color:#2f744b; font-size:32px; margin-top:8px; }
+    .panel { padding:16px; margin-bottom:16px; }
+    table { width:100%; border-collapse:collapse; }
+    th,td { text-align:left; border-bottom:1px solid #e5dccd; padding:11px; }
+    th { color:#6a6258; font-size:12px; text-transform:uppercase; }
+    .pill { display:inline-flex; border-radius:999px; padding:6px 10px; font-weight:900; font-size:12px; }
+    .pill.ok { background:#e8f2eb; color:#205437; }
+    .pill.bad { background:#fff0eb; color:#9a3926; }
+    .cards { display:grid; grid-template-columns:1fr; gap:16px; }
+    .card { padding:14px; }
+    .card-head { display:flex; justify-content:space-between; gap:12px; align-items:start; margin-bottom:10px; }
+    h2 { margin:0 0 4px; font-size:20px; }
+    .card img { width:100%; border-radius:8px; border:1px solid #d8cdbb; display:block; background:#fff; }
+    dl { display:grid; grid-template-columns:180px 160px 1fr; gap:10px; margin:12px 0 0; }
+    dt { color:#746b5f; font-size:12px; font-weight:900; text-transform:uppercase; }
+    dd { margin:4px 0 0; font-weight:800; }
+    dl div:nth-child(3), dl div:nth-child(4) { grid-column:1 / -1; }
+    @media (max-width:800px) { .metrics,dl { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Groq Shuffled Top-10 Muzzle Dashboard</h1>
+    <p>Candidate images are randomly shuffled and labelled only with cattle class names. There are no Top-1/Top-2 labels in the collage, so the vision model must choose by visual muzzle pattern.</p>
+    <section class="metrics">
+      <div class="metric"><small>Total Samples</small><strong>5</strong></div>
+      <div class="metric"><small>Candidates Per Sample</small><strong>10</strong></div>
+      <div class="metric"><small>Groq Correct</small><strong>3</strong></div>
+      <div class="metric"><small>LLM Accuracy</small><strong>60.0%</strong></div>
+    </section>
+    <section class="panel">
+      <table>
+        <thead><tr><th>Sample</th><th>Query Class</th><th>Selected Class</th><th>Confidence</th><th>Status</th></tr></thead>
+        <tbody><tr><td>sample_01</td><td>class_000009</td><td>class_000009</td><td>high</td><td><span class='pill ok'>Correct</span></td></tr><tr><td>sample_02</td><td>class_000012</td><td>class_000012</td><td>high</td><td><span class='pill ok'>Correct</span></td></tr><tr><td>sample_03</td><td>class_000015</td><td>class_000015</td><td>high</td><td><span class='pill ok'>Correct</span></td></tr><tr><td>sample_04</td><td>class_000025</td><td>class_000041</td><td>high</td><td><span class='pill bad'>Wrong</span></td></tr><tr><td>sample_05</td><td>class_000028</td><td>class_000041</td><td>high</td><td><span class='pill bad'>Wrong</span></td></tr></tbody>
+      </table>
+    </section>
+    <section class="cards">
+            <article class="card">
+              <div class="card-head">
+                <div><h2>sample_01</h2><p>Query class: class_000009</p></div>
+                <span class="pill ok">Correct</span>
+              </div>
+              <img src="assets/sample_01/collage_shuffled_top10_with_boxes.jpg" alt="sample_01 boxed shuffled collage">
+              <dl>
+                <div><dt>Groq selected</dt><dd>class_000009</dd></div>
+                <div><dt>Confidence</dt><dd>high</dd></div>
+                <div><dt>Candidate order</dt><dd>class_000066, class_000025, class_000041, class_000012, class_000064, class_000078, class_000076, class_000015, class_000009, class_000028</dd></div>
+                <div><dt>Reason</dt><dd>muzzle texture and pattern match</dd></div>
+              </dl>
+            </article>
+            
+            <article class="card">
+              <div class="card-head">
+                <div><h2>sample_02</h2><p>Query class: class_000012</p></div>
+                <span class="pill ok">Correct</span>
+              </div>
+              <img src="assets/sample_02/collage_shuffled_top10_with_boxes.jpg" alt="sample_02 boxed shuffled collage">
+              <dl>
+                <div><dt>Groq selected</dt><dd>class_000012</dd></div>
+                <div><dt>Confidence</dt><dd>high</dd></div>
+                <div><dt>Candidate order</dt><dd>class_000078, class_000012, class_000015, class_000066, class_000041, class_000009, class_000064, class_000025, class_000076, class_000028</dd></div>
+                <div><dt>Reason</dt><dd>muzzle texture and pattern match</dd></div>
+              </dl>
+            </article>
+            
+            <article class="card">
+              <div class="card-head">
+                <div><h2>sample_03</h2><p>Query class: class_000015</p></div>
+                <span class="pill ok">Correct</span>
+              </div>
+              <img src="assets/sample_03/collage_shuffled_top10_with_boxes.jpg" alt="sample_03 boxed shuffled collage">
+              <dl>
+                <div><dt>Groq selected</dt><dd>class_000015</dd></div>
+                <div><dt>Confidence</dt><dd>high</dd></div>
+                <div><dt>Candidate order</dt><dd>class_000012, class_000015, class_000028, class_000041, class_000009, class_000066, class_000076, class_000025, class_000064, class_000078</dd></div>
+                <div><dt>Reason</dt><dd>muzzle texture and skin pattern match</dd></div>
+              </dl>
+            </article>
+            
+            <article class="card">
+              <div class="card-head">
+                <div><h2>sample_04</h2><p>Query class: class_000025</p></div>
+                <span class="pill bad">Wrong</span>
+              </div>
+              <img src="assets/sample_04/collage_shuffled_top10_with_boxes.jpg" alt="sample_04 boxed shuffled collage">
+              <dl>
+                <div><dt>Groq selected</dt><dd>class_000041</dd></div>
+                <div><dt>Confidence</dt><dd>high</dd></div>
+                <div><dt>Candidate order</dt><dd>class_000015, class_000028, class_000041, class_000078, class_000012, class_000066, class_000009, class_000025, class_000076, class_000064</dd></div>
+                <div><dt>Reason</dt><dd>muzzle texture and pattern match</dd></div>
+              </dl>
+            </article>
+            
+            <article class="card">
+              <div class="card-head">
+                <div><h2>sample_05</h2><p>Query class: class_000028</p></div>
+                <span class="pill bad">Wrong</span>
+              </div>
+              <img src="assets/sample_05/collage_shuffled_top10_with_boxes.jpg" alt="sample_05 boxed shuffled collage">
+              <dl>
+                <div><dt>Groq selected</dt><dd>class_000041</dd></div>
+                <div><dt>Confidence</dt><dd>high</dd></div>
+                <div><dt>Candidate order</dt><dd>class_000041, class_000015, class_000064, class_000076, class_000066, class_000009, class_000025, class_000028, class_000078, class_000012</dd></div>
+                <div><dt>Reason</dt><dd>muzzle texture ridges and skin pattern match</dd></div>
+              </dl>
+            </article>
+            </section>
+  </main>
+</body>
+</html>

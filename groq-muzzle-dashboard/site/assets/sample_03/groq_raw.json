@@ -1,0 +1,33 @@
+{
+  "id": "chatcmpl-b42ce19b-3147-464e-9fb9-fae10ddfbff7",
+  "object": "chat.completion",
+  "created": 1782907963,
+  "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\n\"selected_rank\": 1,\n  \"selected_label\": \"TOP 1 MUZZLE\",\n  \"confidence\": \"high\",\n  \"reason\": \"muzzle texture and pattern match\",\n  \"match_boxes\": [\n    {\"label\": \"query muzzle ridges\", \"box\": [0, 0, 400, 300]},\n    {\"label\": \"top 1 muzzle ridges\", \"box\": [450, 50, 550, 350]}\n  ]\n}"
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "queue_time": 1.104455413,
+    "prompt_tokens": 2101,
+    "prompt_time": 0.098758574,
+    "completion_tokens": 103,
+    "completion_time": 0.232588809,
+    "total_tokens": 2204,
+    "total_time": 0.331347383
+  },
+  "usage_breakdown": null,
+  "system_fingerprint": "fp_ec4c899792",
+  "x_groq": {
+    "id": "req_01kwesh0m5f0rapgq73sbx73fw",
+    "seed": 1080688903
+  },
+  "service_tier": "on_demand"
+}

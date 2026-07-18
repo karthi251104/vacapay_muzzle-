@@ -1,0 +1,23 @@
+services:
+  muzzle-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vacapay-app
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+      PYTHON_BIN: "/app/.venv/bin/python"
+      DINOV2_MODEL_PATH: "/app/models/dinov2_triplet_v2_best.pt"
+      EMBEDDING_MATCH_THRESHOLD: "0.70"
+      CLOUDINARY_ROOT_FOLDER: "vacapay"
+      MONGODB_DB_NAME: "vacapay"
+      PINECONE_NAMESPACE: "vacapay"
+      MPLCONFIGDIR: "/app/data/matplotlib"
+    volumes:
+      - ./data:/app/data
+      - ./backend/dinov2_triplet_v2_best.pt:/app/models/dinov2_triplet_v2_best.pt:ro
+    restart: unless-stopped
