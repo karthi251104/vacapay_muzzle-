@@ -53,6 +53,10 @@ const DB_VERSION = 3;
 const STORE_NAME = 'pending_captures';
 const FARMER_STORE_NAME = 'farmers';
 const META_STORE_NAME = 'metadata';
+const MUZZLE_MAX_DIMENSION = 640;
+const MUZZLE_JPEG_QUALITY = 0.88;
+const EVIDENCE_MAX_DIMENSION = 1280;
+const EVIDENCE_JPEG_QUALITY = 0.72;
 
 @Injectable({ providedIn: 'root' })
 export class OfflineStorageService {
@@ -192,12 +196,33 @@ export class OfflineStorageService {
     return pending.length;
   }
 
+  async clearFailedAndDraftCaptures(): Promise<number> {
+    const captures = await this.getAllCaptures();
+    const removable = captures.filter((capture) => capture.syncStatus === 'failed' || capture.syncStatus === 'draft');
+    await Promise.all(removable.map((capture) => this.deleteCapture(capture.id)));
+    return removable.length;
+  }
+
+  async storageEstimate(): Promise<{ usage?: number; quota?: number; usagePercent?: number }> {
+    try {
+      if (!navigator.storage?.estimate) return {};
+      const estimate = await navigator.storage.estimate();
+      const usagePercent = estimate.usage && estimate.quota
+        ? Math.round((estimate.usage / estimate.quota) * 100)
+        : undefined;
+      return { usage: estimate.usage, quota: estimate.quota, usagePercent };
+    } catch {
+      return {};
+    }
+  }
+
   async addMuzzleToCapture(id: string, slot: number, blob: Blob, confidence?: number, sharpness?: number): Promise<void> {
     const capture = await this.getCapture(id);
     if (!capture) throw new Error('Capture not found in offline storage');
+    const savedBlob = await this.compressImageBlob(blob, MUZZLE_MAX_DIMENSION, MUZZLE_JPEG_QUALITY);
     capture.muzzleBlobs = [
       ...capture.muzzleBlobs.filter((item) => item.slot !== slot),
-      { slot, blob, confidence, sharpness }
+      { slot, blob: savedBlob, confidence, sharpness }
     ].sort((a, b) => a.slot - b.slot);
     await this.saveCapture(capture);
   }
@@ -205,9 +230,10 @@ export class OfflineStorageService {
   async addEvidenceToCapture(id: string, type: string, blob: Blob): Promise<void> {
     const capture = await this.getCapture(id);
     if (!capture) throw new Error('Capture not found in offline storage');
+    const savedBlob = await this.compressImageBlob(blob, EVIDENCE_MAX_DIMENSION, EVIDENCE_JPEG_QUALITY);
     capture.evidenceBlobs = [
       ...capture.evidenceBlobs.filter((item) => item.type !== type),
-      { type, blob }
+      { type, blob: savedBlob }
     ];
     await this.saveCapture(capture);
   }
@@ -274,6 +300,30 @@ export class OfflineStorageService {
       request.onsuccess = () => resolve(request.result as FarmerSyncInfo | undefined);
       request.onerror = () => reject(new Error('Failed to read farmer update status'));
     });
+  }
+
+  private async compressImageBlob(blob: Blob, maxDimension: number, quality: number): Promise<Blob> {
+    if (!blob.type.startsWith('image/')) return blob;
+
+    try {
+      const bitmap = await createImageBitmap(blob);
+      const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) return blob;
+      context.drawImage(bitmap, 0, 0, width, height);
+      bitmap.close?.();
+
+      return await new Promise<Blob>((resolve) => {
+        canvas.toBlob((compressed) => resolve(compressed || blob), 'image/jpeg', quality);
+      });
+    } catch {
+      return blob;
+    }
   }
 
   private normalizeOwnerKey(ownerKey: string): string {

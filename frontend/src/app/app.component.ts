@@ -100,6 +100,8 @@ export class AppComponent implements OnInit, OnDestroy {
   captureStartTime = 0;
   isOffline = !navigator.onLine;
   pendingSyncCount = 0;
+  phoneStorageText = '';
+  clearingPhoneData = false;
   lastCompletedWorkflow?: 'cattle_enrolment' | 'cattle_search';
   lastRecordUploaded = false;
   showAgentManagement = false;
@@ -151,6 +153,7 @@ export class AppComponent implements OnInit, OnDestroy {
       }
     });
     void this.loadFarmerCacheStatus();
+    void this.refreshPhoneStorageEstimate();
   }
 
   private setupConnectivityListeners(): void {
@@ -593,6 +596,7 @@ export class AppComponent implements OnInit, OnDestroy {
       }
     }
 
+    await this.refreshPhoneStorageEstimate();
     this.resetCaptureState(false);
     this.agentScreen = 'home';
     this.message = hasDraft
@@ -1606,6 +1610,7 @@ export class AppComponent implements OnInit, OnDestroy {
         await this.offlineStorage.setCaptureDuration(captureId, captureDurationSeconds);
         await this.offlineStorage.markReadyForSync(captureId);
         this.pendingSyncCount = await this.syncService.refreshPendingCount();
+        await this.refreshPhoneStorageEstimate();
         this.resetCaptureState(false);
         this.farmerId = savedFarmerId;
         this.farmerName = savedFarmerName;
@@ -1691,7 +1696,7 @@ export class AppComponent implements OnInit, OnDestroy {
     if (!item) return;
 
     try {
-      const blob = await this.frameBlob();
+      const blob = await this.frameBlob(1280, 0.72);
 
       if (this.offlineCaptureId) {
         item.uploading = true;
@@ -1847,7 +1852,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
     try {
       // Capture the current frame as-is without gate check
-      const blob = await this.frameBlob();
+      const blob = await this.frameBlob(1280, 0.88);
 
       if (this.offlineCaptureId) {
         await this.offlineStorage.addMuzzleToCapture(this.offlineCaptureId, slot, blob, 0, 0);
@@ -1923,6 +1928,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
     const result = await this.syncService.syncAll();
     this.pendingSyncCount = this.syncService.pendingCount;
+    await this.refreshPhoneStorageEstimate();
 
     if (result.synced > 0) {
       this.lastRecordUploaded = this.pendingSyncCount === 0;
@@ -2799,11 +2805,14 @@ export class AppComponent implements OnInit, OnDestroy {
 
     return `FARM-${Math.random().toString(36).slice(2, 10).toUpperCase().padEnd(8, 'X')}`;
   }
-  private frameBlob(): Promise<Blob> {
+  private frameBlob(maxDimension = 1280, quality = 0.82): Promise<Blob> {
     const video = this.video!.nativeElement;
     const canvas = this.canvas!.nativeElement;
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
+    const sourceWidth = video.videoWidth || 1280;
+    const sourceHeight = video.videoHeight || 720;
+    const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
+    const width = Math.max(1, Math.round(sourceWidth * scale));
+    const height = Math.max(1, Math.round(sourceHeight * scale));
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext('2d');
@@ -2814,8 +2823,43 @@ export class AppComponent implements OnInit, OnDestroy {
       canvas.toBlob((blob) => {
         if (blob) resolve(blob);
         else reject(new Error('Could not capture camera frame.'));
-      }, 'image/jpeg', 0.9);
+      }, 'image/jpeg', quality);
     });
+  }
+
+  async clearFailedPhoneRecords(): Promise<void> {
+    if (this.clearingPhoneData || this.syncService.syncing || this.finalizingRecord) return;
+    const ok = window.confirm('Delete failed or unfinished records saved on this phone? Do this only after confirming they are not needed. Successfully uploaded records are already removed automatically.');
+    if (!ok) return;
+
+    this.clearingPhoneData = true;
+    try {
+      const removed = await this.offlineStorage.clearFailedAndDraftCaptures();
+      this.pendingSyncCount = await this.syncService.refreshPendingCount();
+      await this.refreshPhoneStorageEstimate();
+      this.message = removed
+        ? removed + ' failed/unfinished local record(s) removed from this phone.'
+        : 'No failed local records to remove.';
+    } catch (error) {
+      this.message = 'Could not clear phone data: ' + (error instanceof Error ? error.message : 'Phone storage failed.');
+    } finally {
+      this.clearingPhoneData = false;
+    }
+  }
+
+  private async refreshPhoneStorageEstimate(): Promise<void> {
+    const estimate = await this.offlineStorage.storageEstimate();
+    if (!estimate.usage) {
+      this.phoneStorageText = '';
+      return;
+    }
+    this.phoneStorageText = this.formatBytes(estimate.usage) + ' used' + (estimate.usagePercent !== undefined ? ' (' + estimate.usagePercent + '%)' : '');
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return Math.round(bytes / (1024 * 1024)) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
   }
 
   private resetCaptureState(clearOwnerDetails: boolean): void {

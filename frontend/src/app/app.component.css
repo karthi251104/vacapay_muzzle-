@@ -3183,6 +3183,36 @@ button.coverage-row:hover {
   margin-top: 14px;
 }
 
+.fh-storage-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid #b8d8e1;
+  border-left: 5px solid #1d7890;
+  border-radius: 8px;
+  background: #eef9fb;
+}
+
+.fh-storage-banner div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fh-storage-banner small {
+  color: #526a76;
+  line-height: 1.35;
+}
+
+.ghost.danger {
+  color: #9a2f29;
+  border-color: #e3b6ad;
+  background: #fff3f1;
+}
+
 .optional-farmer-card {
   border-color: #abcad5;
   background: #eef8fb;
@@ -3213,12 +3243,14 @@ button.coverage-row:hover {
 }
 
 @media (max-width: 520px) {
-  .farmer-data-panel {
+  .farmer-data-panel,
+  .fh-storage-banner {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .farmer-data-panel .ghost {
+  .farmer-data-panel .ghost,
+  .fh-storage-banner .ghost {
     width: 100%;
   }
 }
