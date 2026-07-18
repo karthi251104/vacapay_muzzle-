@@ -48,7 +48,7 @@ export interface FarmerSyncInfo {
 
 // New field-test cycle: do not sync stale captures left by earlier test builds.
 // Bump the database name whenever the server field data is deliberately reset.
-const DB_NAME = 'vacapay_offline_v3';
+const DB_NAME = 'vacapay_offline_v4';
 const DB_VERSION = 3;
 const STORE_NAME = 'pending_captures';
 const FARMER_STORE_NAME = 'farmers';
