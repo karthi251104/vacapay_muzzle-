@@ -4,8 +4,8 @@ import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/co
 import { FormsModule } from '@angular/forms';
 import { App as CapacitorApp } from '@capacitor/app';
 import { firstValueFrom } from 'rxjs';
-import { ApiService, AppUser, AppVersionStatus, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, FarmerMatch, MatchReview, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
-import { TfliteMuzzleDetectorService } from './tflite-muzzle-detector.service';
+import { ApiService, AppUser, AppVersionStatus, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, FarmerMatch, MatchReview, MuzzleGateResponse, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
+import { LocalMuzzleDetection, TfliteMuzzleDetectorService } from './tflite-muzzle-detector.service';
 import { CachedFarmer, FarmerSyncInfo, OfflineStorageService, PendingCapture } from './offline-storage.service';
 import { SyncService } from './sync.service';
 
@@ -116,6 +116,7 @@ export class AppComponent implements OnInit, OnDestroy {
   evidenceCameraIndex = 0;
   private gpsCache?: { lat: number; lon: number; timestamp: number };
   private offlineCaptureId?: string;
+  private backendMuzzleFallbackUntil = 0;
   private batteryManager?: EventTarget;
   private nativeBackListener?: { remove: () => Promise<void> };
   private adminRefreshTimer?: number;
@@ -1427,17 +1428,17 @@ export class AppComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on phone...`;
+    this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount}...`;
 
-    let localResult;
+    let localResult: LocalMuzzleDetection;
     try {
-      localResult = await this.muzzleDetector.detectAndCrop(this.video.nativeElement);
+      localResult = await this.detectMuzzleForCapture(slot);
     } catch (error) {
       this.detectionBox = undefined;
       this.isDetecting = false;
       this.muzzleGateState = 'error';
       this.muzzleGateLabel = 'Model error';
-      this.message = `Phone muzzle check error: ${error instanceof Error ? error.message : 'TFLite failed.'}`;
+      this.message = `Muzzle check error: ${error instanceof Error ? error.message : 'Detection failed.'}`;
       return;
     }
 
@@ -1520,7 +1521,7 @@ export class AppComponent implements OnInit, OnDestroy {
           confidence: localResult.confidence,
           sharpness: localResult.sharpness
         });
-        this.message = `Good muzzle ${slot}/${this.muzzleImageCount} saved from phone crop.`;
+        this.message = `Good muzzle ${slot}/${this.muzzleImageCount} saved.`;
         this.isDetecting = false;
         this.muzzleGateState = 'good';
         this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
@@ -2755,7 +2756,7 @@ export class AppComponent implements OnInit, OnDestroy {
       case 'location': return this.isCattleSearchFlow
         ? 'GPS is required. Selecting a downloaded farmer is optional and works without internet.'
         : 'Select a downloaded farmer by name or nearby GPS before enrolling a new cow.';
-      case 'muzzle': return `Take ${this.muzzleImageCount} good muzzle photos. Phone muzzle gate rejects bad muzzles, crops the muzzle, applies contrast, then uploads only the crop.`;
+      case 'muzzle': return `Take ${this.muzzleImageCount} good muzzle photos. When online the server checks first; offline or server failure uses the phone model. Only accepted cropped muzzles are saved.`;
       case 'evidence': return 'Add face, side, back and udder photos for the same cattle.';
       case 'review': return 'Check the record once, then save and return home.';
       default: return 'Start capture, continue pending work, or check recent cattle.';
@@ -2805,6 +2806,64 @@ export class AppComponent implements OnInit, OnDestroy {
 
     return `FARM-${Math.random().toString(36).slice(2, 10).toUpperCase().padEnd(8, 'X')}`;
   }
+  private async detectMuzzleForCapture(slot: number): Promise<LocalMuzzleDetection> {
+    if (!this.offlineCaptureId && navigator.onLine && Date.now() > this.backendMuzzleFallbackUntil) {
+      try {
+        this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on server...`;
+        const frame = await this.frameBlob(1280, 0.82);
+        const response = await this.withTimeout(
+          firstValueFrom(this.api.checkMuzzleFrame(frame)),
+          2500,
+          'Server muzzle check timed out.'
+        );
+
+        if (response.backendUnavailable) {
+          throw new Error(response.error || 'Backend muzzle model is unavailable.');
+        }
+
+        return this.backendGateToLocalDetection(response);
+      } catch (error) {
+        this.backendMuzzleFallbackUntil = Date.now() + 30000;
+        this.message = 'Server muzzle check not available. Using phone model.';
+      }
+    }
+
+    this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on phone...`;
+    return this.muzzleDetector.detectAndCrop(this.video!.nativeElement);
+  }
+
+  private backendGateToLocalDetection(response: MuzzleGateResponse): LocalMuzzleDetection {
+    const cropBlob = response.cropBase64 ? this.base64JpegToBlob(response.cropBase64) : undefined;
+    return {
+      accepted: response.accepted,
+      reason: response.reason || response.error || 'Muzzle check failed.',
+      confidence: response.confidence || 0,
+      sharpness: response.sharpness,
+      className: response.className || 'none',
+      bbox: response.bbox || null,
+      imageSize: response.imageSize || [0, 0],
+      cropBlob,
+      cropUrl: cropBlob ? URL.createObjectURL(cropBlob) : undefined
+    };
+  }
+
+  private base64JpegToBlob(base64: string): Blob {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: 'image/jpeg' });
+  }
+
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+    let timeoutId: number | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    });
+    return Promise.race([promise, timeout]).finally(() => {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    });
+  }
+
   private frameBlob(maxDimension = 1280, quality = 0.82): Promise<Blob> {
     const video = this.video!.nativeElement;
     const canvas = this.canvas!.nativeElement;

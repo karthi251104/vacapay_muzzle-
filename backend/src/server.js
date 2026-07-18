@@ -29,6 +29,7 @@ const upload = multer({ dest: uploadDir });
 const PORT = Number(process.env.PORT || 3000);
 const PYTHON_BIN = resolvePythonBin();
 const DINOV2_MODEL_PATH = process.env.DINOV2_MODEL_PATH || path.join(__dirname, '..', 'dinov2_triplet_v2_best.pt');
+const TFLITE_MUZZLE_MODEL_PATH = process.env.TFLITE_MUZZLE_MODEL_PATH || path.join(rootDir, 'frontend', 'src', 'assets', 'models', 'best.tflite');
 const MUZZLE_CONF = Number(process.env.MUZZLE_CONF || 0.55);
 const MUZZLE_IMAGE_COUNT = Math.max(1, Number(process.env.MUZZLE_IMAGE_COUNT || 3));
 const EMBEDDING_MATCH_THRESHOLD = Number(process.env.EMBEDDING_MATCH_THRESHOLD || 0.70);
@@ -54,7 +55,7 @@ const PINECONE_ENROLMENT_NAMESPACE = process.env.PINECONE_ENROLMENT_NAMESPACE ||
 const PINECONE_SEARCH_NAMESPACE = process.env.PINECONE_SEARCH_NAMESPACE || `${PINECONE_NAMESPACE}-cattle-search`;
 const pineconeEnabled = Boolean(PINECONE_API_KEY && PINECONE_INDEX_HOST);
 const APP_VERSION = process.env.APP_VERSION || 'field-test-2026-07-14';
-const TFLITE_MUZZLE_MODEL_VERSION = process.env.TFLITE_MUZZLE_MODEL_VERSION || path.basename(process.env.TFLITE_MUZZLE_MODEL_PATH || 'best.tflite');
+const TFLITE_MUZZLE_MODEL_VERSION = process.env.TFLITE_MUZZLE_MODEL_VERSION || path.basename(TFLITE_MUZZLE_MODEL_PATH);
 const DINOV2_MODEL_VERSION = process.env.DINOV2_MODEL_VERSION || path.basename(DINOV2_MODEL_PATH);
 const MUZZLE_IMAGE_FILES = Array.from({ length: MUZZLE_IMAGE_COUNT }, (_, index) => `muzzle${index + 1}.jpg`);
 const SUPPORT_IMAGE_FILES = [
@@ -1042,6 +1043,44 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
 
     res.status(201).json({ enrollment: record });
   } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/muzzle/check', requireAuth, upload.single('image'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: 'image is required' });
+      return;
+    }
+
+    if (!existsSync(TFLITE_MUZZLE_MODEL_PATH)) {
+      await fs.unlink(req.file.path).catch(() => { });
+      res.status(503).json({
+        accepted: false,
+        backendUnavailable: true,
+        error: 'Backend muzzle model is not available on this server.'
+      });
+      return;
+    }
+
+    const result = await runPythonJson([
+      path.join(__dirname, '..', 'scripts', 'tflite_muzzle_check.py'),
+      '--model',
+      TFLITE_MUZZLE_MODEL_PATH,
+      '--input',
+      req.file.path
+    ]);
+    await fs.unlink(req.file.path).catch(() => { });
+
+    if (result?.backendUnavailable) {
+      res.status(503).json(result);
+      return;
+    }
+
+    res.json(result);
+  } catch (error) {
+    if (req.file?.path) await fs.unlink(req.file.path).catch(() => { });
     next(error);
   }
 });

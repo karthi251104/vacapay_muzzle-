@@ -50,6 +50,20 @@ export interface CaptureImageRef {
   cloudinaryError?: string;
 }
 
+export interface MuzzleGateResponse {
+  accepted: boolean;
+  reason?: string;
+  confidence: number;
+  sharpness?: number;
+  className: string;
+  bbox: [number, number, number, number] | null;
+  imageSize: [number, number];
+  cropBase64?: string;
+  source?: 'backend_tflite';
+  backendUnavailable?: boolean;
+  error?: string;
+}
+
 export interface MuzzleCaptureResponse {
   slot: number;
   savedAs: string;
@@ -452,6 +466,12 @@ export class ApiService {
     if (params.lon !== null && params.lon !== undefined) query.set('lon', String(params.lon));
     if (params.radiusKm) query.set('radiusKm', String(params.radiusKm));
     return this.http.get<{ cattle: CattleMatch[] }>(`${this.baseUrl}/cattle/search?${query.toString()}`, { headers: this.authHeaders() });
+  }
+
+  checkMuzzleFrame(file: Blob): Observable<MuzzleGateResponse> {
+    const formData = new FormData();
+    formData.append('image', file, 'muzzle-frame.jpg');
+    return this.http.post<MuzzleGateResponse>(`${this.baseUrl}/muzzle/check`, formData, { headers: this.authHeaders() });
   }
 
   captureMuzzle(cattleId: string, file: Blob, slot: number, clientProcessed = false): Observable<MuzzleCaptureResponse> {
