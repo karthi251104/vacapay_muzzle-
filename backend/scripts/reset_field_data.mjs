@@ -66,7 +66,11 @@ if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && proce
     api_secret: process.env.CLOUDINARY_API_SECRET,
     secure: true
   });
-  await deleteCloudinaryPrefix(`${cloudinaryRootFolder}/cattle/`);
+  try {
+    await deleteCloudinaryPrefix(`${cloudinaryRootFolder}/cattle/`);
+  } catch (error) {
+    console.warn(`cloudinary: cleanup skipped after network/API error: ${error?.message || error}`);
+  }
 } else {
   console.log('cloudinary: skipped because it is not configured');
 }
@@ -100,6 +104,10 @@ async function deletePineconeNamespace(namespace) {
 
   if (!response.ok) {
     const text = await response.text();
+    if (response.status === 404 && /Namespace not found/i.test(text)) {
+      console.log(`pinecone: namespace ${namespace} already empty`);
+      return;
+    }
     throw new Error(`pinecone ${namespace}: ${response.status} ${text}`);
   }
   console.log(`pinecone: cleared namespace ${namespace}`);
