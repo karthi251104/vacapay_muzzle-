@@ -2463,7 +2463,12 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   isCattleSearchCandidate(review: MatchReview): boolean {
-    return review.workflow === 'cattle_search' && (review.decision === 'matched_existing' || review.decision === 'new_cattle');
+    const isSearch = review.workflow === 'cattle_search';
+    const isReviewedEnrolmentDuplicate =
+      review.workflow === 'cattle_enrolment'
+      && review.decision === 'matched_existing'
+      && ['found_correct', 'found_incorrect', 'wrong_moved_to_registered', 'confirmed'].includes(review.reviewStatus);
+    return (isSearch || isReviewedEnrolmentDuplicate) && (review.decision === 'matched_existing' || review.decision === 'new_cattle');
   }
 
   isReviewedCattleSearch(review: MatchReview): boolean {

@@ -821,6 +821,7 @@ app.post('/api/cattle/:cattleId/approve-blocked', requireAuth, requireAdmin, asy
 
     const now = new Date().toISOString();
     const previousMatchedId = row.duplicateOfCattleId || null;
+    const correctedSessions = [];
 
     // Clear duplicate flags and promote to registered cattle
     delete row.duplicateOfCattleId;
@@ -837,9 +838,11 @@ app.post('/api/cattle/:cattleId/approve-blocked', requireAuth, requireAdmin, asy
 
     for (const session of row.sessions || []) {
       if (session.matchResult?.duplicateSavedSeparately) {
+        const previousMatchResult = session.matchResult || {};
+        const sessionPreviousMatchedId = previousMatchResult.matchedCattleId || previousMatchResult.duplicateOfCattleId || previousMatchedId;
         session.status = 'ready_for_embedding';
         session.matchResult = {
-          ...session.matchResult,
+          ...previousMatchResult,
           resolved: true,
           decision: 'new_cattle',
           duplicateSavedSeparately: false,
@@ -849,11 +852,74 @@ app.post('/api/cattle/:cattleId/approve-blocked', requireAuth, requireAdmin, asy
           adminCorrection: row.adminCorrection,
           correctedAt: now
         };
+        correctedSessions.push({
+          session,
+          previousMatchResult,
+          previousMatchedId: sessionPreviousMatchedId
+        });
       }
+    }
+
+    for (const { session } of correctedSessions) {
+      await upsertSessionVector(row, session, {
+        namespace: PINECONE_ENROLMENT_NAMESPACE,
+        workflow: 'cattle_enrolment'
+      }).catch(() => null);
     }
 
     rows[rowIndex] = row;
     await writeMetadata(rows);
+
+    if (correctedSessions.length) {
+      const audits = await readMatchAudits();
+      for (const { session, previousMatchResult, previousMatchedId: sessionPreviousMatchedId } of correctedSessions) {
+        const auditId = `${row.cattleId}__${session.sessionId}`;
+        const auditIndex = audits.findIndex((audit) => audit.auditId === auditId);
+        const review = {
+          auditId,
+          cattleId: row.cattleId,
+          finalCattleId: row.cattleId,
+          workflow: 'cattle_enrolment',
+          sessionId: session.sessionId,
+          decision: 'matched_existing',
+          confidence: Number(previousMatchResult.confidence || 0),
+          confidencePercent: Number(previousMatchResult.confidencePercent || Math.round(Number(previousMatchResult.confidence || 0) * 100)),
+          threshold: Number(previousMatchResult.threshold || EMBEDDING_MATCH_THRESHOLD),
+          thresholdPercent: Number(previousMatchResult.thresholdPercent || Math.round(EMBEDDING_MATCH_THRESHOLD * 100)),
+          appVersion: APP_VERSION,
+          captureWorkflowVersion: 'cattle-enrolment-search-v2',
+          tfliteMuzzleModelVersion: TFLITE_MUZZLE_MODEL_VERSION,
+          dinov2ModelVersion: DINOV2_MODEL_VERSION,
+          captureDurationSeconds: Number(session.captureDurationSeconds || 0) || null,
+          muzzleImageCount: MUZZLE_IMAGE_COUNT,
+          matchedCattleId: sessionPreviousMatchedId,
+          previousCattleId: previousMatchResult.previousCattleId || row.cattleId,
+          topMatches: previousMatchResult.topMatches || [],
+          rankedTopMatches: previousMatchResult.rankedTopMatches || previousMatchResult.topMatches || [],
+          farmerId: row.farmerId || '',
+          farmerName: row.farmerName || '',
+          fieldOfficerName: row.fieldOfficerName || session.fieldOfficerName || '',
+          locationLat: row.locationLat ?? null,
+          locationLon: row.locationLon ?? null,
+          locationAccuracyM: row.locationAccuracyM ?? null,
+          matchRadiusKm: Number(row.matchRadiusKm || 7),
+          searchStrategy: 'enrolment_duplicate_check',
+          folderLocation: session.folderLocation,
+          captureDate: session.captureDate,
+          resolvedAt: previousMatchResult.resolvedAt || now,
+          reviewStatus: 'wrong_moved_to_registered',
+          correctCattleId: row.cattleId,
+          reviewNotes,
+          reviewedBy: req.user,
+          reviewedAt: now,
+          correctionAction: 'approve_blocked_as_new',
+          previousMatchedCattleId: sessionPreviousMatchedId
+        };
+        if (auditIndex >= 0) audits[auditIndex] = { ...audits[auditIndex], ...review };
+        else audits.push(review);
+      }
+      await writeMatchAudits(audits);
+    }
 
     if (mongoDb) {
       await mongoDb.collection('cattle').updateOne(
