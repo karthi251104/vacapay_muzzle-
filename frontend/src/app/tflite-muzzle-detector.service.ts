@@ -42,7 +42,6 @@ export class TfliteMuzzleDetectorService {
   private readonly badDominanceMargin = 0.12;
   private readonly minSharpnessScore = 18;
   private readonly classNames = ['bad muzzle', 'goodmuzzle'] as const;
-  private readonly tfliteVersion = '0.0.1-alpha.10';
 
   private modelPromise?: Promise<TfliteModel>;
   private scriptsPromise?: Promise<void>;
@@ -151,7 +150,10 @@ export class TfliteMuzzleDetectorService {
         const model = await window.tflite.loadTFLiteModel(this.modelUrl);
         await this.warmupModel(model);
         return model;
-      })();
+      })().catch((error) => {
+        this.modelPromise = undefined;
+        throw error;
+      });
     }
     return this.modelPromise;
   }
@@ -182,31 +184,46 @@ export class TfliteMuzzleDetectorService {
   private async loadScripts(): Promise<void> {
     if (!this.scriptsPromise) {
       this.scriptsPromise = (async () => {
-        const tfliteBase = `https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-tflite@${this.tfliteVersion}/dist`;
-        await this.loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@3.21.0/dist/tf-core.min.js');
-        await this.loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu@3.21.0/dist/tf-backend-cpu.min.js');
-        await this.loadScript(`${tfliteBase}/tf-tflite.min.js`);
+        await this.loadScript('/assets/vendor/tf-core.min.js');
+        await this.loadScript('/assets/vendor/tf-backend-cpu.min.js');
+        await this.loadScript('/assets/vendor/tf-tflite.min.js');
         if (!window.tflite?.setWasmPath) {
           throw new Error('TFLite WASM loader is not available.');
         }
         window.tflite.setWasmPath('/assets/tflite-wasm/');
         await window.tf?.setBackend?.('cpu');
         await window.tf?.ready?.();
-      })();
+      })().catch((error) => {
+        this.scriptsPromise = undefined;
+        throw error;
+      });
     }
     return this.scriptsPromise;
   }
 
   private loadScript(src: string): Promise<void> {
-    const existing = document.querySelector(`script[src="${src}"]`);
-    if (existing) return Promise.resolve();
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${src}"]`);
+    if (existing?.dataset['loaded'] === 'true') return Promise.resolve();
+    if (existing?.dataset['failed'] === 'true') existing.remove();
+    else if (existing) {
+      return new Promise((resolve, reject) => {
+        existing.addEventListener('load', () => resolve(), { once: true });
+        existing.addEventListener('error', () => reject(new Error(`Could not load ${src}`)), { once: true });
+      });
+    }
 
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.src = src;
       script.async = true;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error(`Could not load ${src}`));
+      script.onload = () => {
+        script.dataset['loaded'] = 'true';
+        resolve();
+      };
+      script.onerror = () => {
+        script.dataset['failed'] = 'true';
+        reject(new Error(`Could not load ${src}`));
+      };
       document.head.appendChild(script);
     });
   }

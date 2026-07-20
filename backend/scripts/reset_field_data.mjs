@@ -83,7 +83,9 @@ async function clearLocalCaptureFolders() {
   let deletedFolders = 0;
   for (const entry of entries) {
     const fullPath = path.join(dataDir, entry.name);
-    if (entry.isDirectory() && (entry.name === '_uploads' || isUuid(entry.name))) {
+    // Keep the downloaded DINOv2 runtime cache. Every other directory under
+    // data is generated field capture/upload data and belongs to this reset.
+    if (entry.isDirectory() && entry.name !== 'embedding_runtime') {
       await fs.rm(fullPath, { recursive: true, force: true });
       deletedFolders += 1;
     }
@@ -132,8 +134,4 @@ async function deleteCloudinaryPrefix(prefix) {
 
 function normalizePineconeHost(value) {
   return value ? value.replace(/\/+$/, '') : '';
-}
-
-function isUuid(value) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }

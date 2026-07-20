@@ -162,6 +162,7 @@ udder.jpg
 ```
 
 Only muzzle crops are used for embeddings. Supporting images are for admin human verification.
+All seven supporting views are mandatory; the UI cannot skip a required view.
 
 ## 5. Muzzle Quality Gate
 
@@ -589,14 +590,23 @@ better: 4 GB or more for stable testing
 ### Backend PT Latency
 
 `backend/best.pt` is heavier than phone TFLite. A persistent Python service would be faster than spawning Python per request.
+The online path checks the backend first and falls back to the phone for 30 seconds after a timeout/failure, avoiding
+two serial model runs for every accepted image. Python subprocesses have a configurable hard timeout
+(`PYTHON_PROCESS_TIMEOUT_MS`, default 180 seconds) so an upload cannot remain stuck forever.
 
 ### Offline Runtime
 
-The phone TFLite model is required for real field offline capture. The browser/PWA version includes local assets, but a true production Android app should bundle the model and runtime inside the APK.
+The phone TFLite model is required for real field offline capture. The field build copies the pinned TensorFlow JS runtime, WASM assets and `best.tflite` into the Capacitor Android APK, so the quality gate can run without internet.
 
 ### Data Separation
 
 Do not merge Cattle Search records into registered cattle unless admin explicitly chooses that action. The clean enrolment namespace must stay clean.
+
+### Duplicate Enrollment Gate Metric
+
+Enrollment duplicate decisions are reported separately from Cattle Search Top-1/Top-5. If admin confirms the block,
+the duplicate gate records a correct decision. If admin registers it as a different cow, the gate records a false block.
+This correction does not alter the Cattle Search denominator.
 
 ## 17. One-Line Explanation For Demo
 

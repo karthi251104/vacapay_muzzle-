@@ -10,6 +10,17 @@ import { Buffer } from 'node:buffer';
 import { pbkdf2Sync, randomBytes, randomUUID, timingSafeEqual, createHmac } from 'node:crypto';
 import { v2 as cloudinary } from 'cloudinary';
 import multer from 'multer';
+import {
+  fieldOfficerFromUser,
+  filterAuditsForUser,
+  filterRowsForUser,
+  findOfflineCapture,
+  isAdminUser,
+  sameFarmerIdentity,
+  userOwnsAudit,
+  userOwnsRecord
+} from './ownership.js';
+import { removeUploadedFile } from './upload-cleanup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,16 +35,30 @@ const sessionsPath = path.join(dataDir, 'sessions.json');
 const frontendDistDir = path.join(rootDir, 'frontend', 'dist', 'vacapay', 'browser');
 
 const app = express();
-const upload = multer({ dest: uploadDir });
+const upload = multer({
+  dest: uploadDir,
+  limits: { fileSize: 12 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, callback) => {
+    if (!String(file.mimetype || '').toLowerCase().startsWith('image/')) {
+      callback(new Error('Only image uploads are accepted.'));
+      return;
+    }
+    callback(null, true);
+  }
+});
 
-const PORT = Number(process.env.PORT || 3000);
+const PORT = envNumber('PORT', 3000, 1, 65535, true);
 const PYTHON_BIN = resolvePythonBin();
+const PYTHON_PROCESS_TIMEOUT_MS = envNumber('PYTHON_PROCESS_TIMEOUT_MS', 180_000, 30_000, 900_000, true);
 const DINOV2_MODEL_PATH = process.env.DINOV2_MODEL_PATH || path.join(__dirname, '..', 'dinov2_triplet_v2_best.pt');
 const YOLO_MUZZLE_MODEL_PATH = process.env.YOLO_MUZZLE_MODEL_PATH || path.join(__dirname, '..', 'best.pt');
-const MUZZLE_CONF = Number(process.env.MUZZLE_CONF || 0.55);
-const MUZZLE_IMAGE_COUNT = Math.max(1, Number(process.env.MUZZLE_IMAGE_COUNT || 3));
-const EMBEDDING_MATCH_THRESHOLD = Number(process.env.EMBEDDING_MATCH_THRESHOLD || 0.70);
-const MIN_EMBEDDING_MEMORY_MB = Math.max(512, Number(process.env.MIN_EMBEDDING_MEMORY_MB || 1200));
+const MUZZLE_CONF = envNumber('MUZZLE_CONF', 0.55, 0, 1);
+const MUZZLE_BAD_CONF = envNumber('MUZZLE_BAD_CONF', 0.45, 0, 1);
+const MUZZLE_BAD_DOMINANCE_MARGIN = envNumber('MUZZLE_BAD_DOMINANCE_MARGIN', 0.12, 0, 1);
+const MUZZLE_MIN_SHARPNESS = envNumber('MUZZLE_MIN_SHARPNESS', 18, 0, 1000);
+const MUZZLE_IMAGE_COUNT = envNumber('MUZZLE_IMAGE_COUNT', 3, 1, 10, true);
+const EMBEDDING_MATCH_THRESHOLD = envNumber('EMBEDDING_MATCH_THRESHOLD', 0.70, 0, 1);
+const MIN_EMBEDDING_MEMORY_MB = envNumber('MIN_EMBEDDING_MEMORY_MB', 1200, 256, 65536, true);
 const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || '';
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY || '';
 const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET || '';
@@ -44,6 +69,10 @@ const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || 'vacapay';
 const DISABLE_MONGO = ['true', '1', 'yes'].includes(String(process.env.DISABLE_MONGO || '').toLowerCase());
 const mongoEnabled = Boolean(MONGODB_URI) && !DISABLE_MONGO;
 const REQUIRE_PRODUCTION_SERVICES = ['true', '1', 'yes'].includes(String(process.env.REQUIRE_PRODUCTION_SERVICES || '').toLowerCase());
+const INITIAL_ADMIN_PASSWORD = String(process.env.INITIAL_ADMIN_PASSWORD || '');
+const INITIAL_ADMIN_PHONE = String(process.env.INITIAL_ADMIN_PHONE || 'admin').trim();
+const INITIAL_ADMIN_AGENT_ID = String(process.env.INITIAL_ADMIN_AGENT_ID || 'admin').trim();
+const INITIAL_ADMIN_NAME = String(process.env.INITIAL_ADMIN_NAME || 'Vacapay Admin').trim();
 const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
   .split(',')
   .map((value) => value.trim().replace(/\/$/, ''))
@@ -56,6 +85,7 @@ const PINECONE_SEARCH_NAMESPACE = process.env.PINECONE_SEARCH_NAMESPACE || `${PI
 const pineconeEnabled = Boolean(PINECONE_API_KEY && PINECONE_INDEX_HOST);
 const APP_VERSION = process.env.APP_VERSION || 'field-test-2026-07-14';
 const YOLO_MUZZLE_MODEL_VERSION = process.env.YOLO_MUZZLE_MODEL_VERSION || path.basename(YOLO_MUZZLE_MODEL_PATH);
+const PHONE_TFLITE_MODEL_VERSION = process.env.PHONE_TFLITE_MODEL_VERSION || 'best.tflite';
 const DINOV2_MODEL_VERSION = process.env.DINOV2_MODEL_VERSION || path.basename(DINOV2_MODEL_PATH);
 const MUZZLE_IMAGE_FILES = Array.from({ length: MUZZLE_IMAGE_COUNT }, (_, index) => `muzzle${index + 1}.jpg`);
 const SUPPORT_IMAGE_FILES = [
@@ -70,6 +100,14 @@ const SUPPORT_IMAGE_FILES = [
 const REQUIRED_IMAGES = [...MUZZLE_IMAGE_FILES, ...SUPPORT_IMAGE_FILES];
 const JWT_SECRET = process.env.JWT_SECRET || randomUUID();
 let writeLock = Promise.resolve();
+let embeddingProcessLock = Promise.resolve();
+
+function envNumber(name, fallback, min, max, integer = false) {
+  const parsed = Number(process.env[name]);
+  if (!Number.isFinite(parsed)) return fallback;
+  const bounded = Math.min(max, Math.max(min, parsed));
+  return integer ? Math.round(bounded) : bounded;
+}
 
 function resolvePythonBin() {
   if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN;
@@ -109,7 +147,9 @@ function verifyJwt(token, secret) {
   const expectedSig = createHmac('sha256', secret).update(b64Header + '.' + b64Payload).digest('base64');
   const expectedSigB64 = base64url(Buffer.from(expectedSig, 'base64'));
 
-  if (signature === expectedSigB64) {
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expectedSigB64);
+  if (signatureBuffer.length === expectedBuffer.length && timingSafeEqual(signatureBuffer, expectedBuffer)) {
     try {
       const payload = JSON.parse(Buffer.from(b64Payload, 'base64').toString('utf8'));
       if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
@@ -203,6 +243,20 @@ function safeCattleId(cattleId) {
   return id;
 }
 
+function safeOfflineCaptureId(captureId) {
+  const id = String(captureId || '').trim();
+  if (!id) return '';
+  if (id.length > 160 || !/^[A-Za-z0-9_-]+$/.test(id)) {
+    throw new Error('Invalid offline capture ID.');
+  }
+  return id;
+}
+
+function validGpsCoordinate(lat, lon) {
+  return Number.isFinite(lat) && Number.isFinite(lon)
+    && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180;
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
@@ -225,7 +279,8 @@ app.get('/api/version', (_req, res) => {
   res.json({
     appVersion: APP_VERSION,
     captureWorkflowVersion: 'cattle-enrolment-search-v2',
-    tfliteMuzzleModelVersion: YOLO_MUZZLE_MODEL_VERSION,
+    tfliteMuzzleModelVersion: PHONE_TFLITE_MODEL_VERSION,
+    backendYoloModelVersion: YOLO_MUZZLE_MODEL_VERSION,
     dinov2ModelVersion: DINOV2_MODEL_VERSION,
     muzzleImageCount: MUZZLE_IMAGE_COUNT,
     thresholds: {
@@ -421,7 +476,36 @@ app.post('/api/reviews/matches/:auditId', requireAuth, requireAdmin, async (req,
 
     const action = String(req.body.action || '').trim();
     const reviewNotes = String(req.body.reviewNotes || '').trim();
+    const allowedReviewStatuses = new Set([
+      'confirmed', 'found_correct', 'found_incorrect', 'no_cattle_correct',
+      'no_cattle_incorrect', 'wrong_moved_to_registered'
+    ]);
+    const requestedReviewStatus = String(req.body.reviewStatus || '').trim();
+    if (action !== 'move_out_as_registered' && !allowedReviewStatuses.has(requestedReviewStatus)) {
+      res.status(400).json({ error: 'Invalid match review status.' });
+      return;
+    }
+    if (audits[index].decision === 'matched_existing' && requestedReviewStatus.startsWith('no_cattle_')) {
+      res.status(400).json({ error: 'A cattle-found result must be reviewed with a cattle-found action.' });
+      return;
+    }
+    if (audits[index].decision === 'new_cattle' && requestedReviewStatus.startsWith('found_')) {
+      res.status(400).json({ error: 'A no-cattle-found result must be reviewed with a no-cattle-found action.' });
+      return;
+    }
     const correctCattleId = String(req.body.correctCattleId || '').trim() || null;
+    if (requestedReviewStatus === 'no_cattle_incorrect' && !correctCattleId) {
+      res.status(400).json({ error: 'Select the registered cattle that should have been found.' });
+      return;
+    }
+    if (correctCattleId) {
+      safeCattleId(correctCattleId);
+      const correctRecord = normalizeRecord((await readMetadata()).find((row) => row?.cattleId === correctCattleId));
+      if (!correctRecord || !isRegisteredInventoryRecord(correctRecord)) {
+        res.status(400).json({ error: 'The selected correct cattle ID is not a registered cattle record.' });
+        return;
+      }
+    }
     let correctedRecord = null;
 
     if (action === 'move_out_as_registered') {
@@ -431,17 +515,24 @@ app.post('/api/reviews/matches/:auditId', requireAuth, requireAdmin, async (req,
       });
     }
 
+    const reviewedCorrectCattleId = requestedReviewStatus === 'no_cattle_correct'
+      ? null
+      : ((requestedReviewStatus === 'found_correct' || requestedReviewStatus === 'confirmed')
+        && audits[index].decision === 'matched_existing'
+        ? audits[index].matchedCattleId
+        : (correctCattleId || (action === 'move_out_as_registered' ? audits[index].finalCattleId : null)));
+
     audits[index] = {
       ...audits[index],
-      reviewStatus: action === 'move_out_as_registered' ? 'wrong_moved_to_registered' : String(req.body.reviewStatus || 'reviewed'),
-      correctCattleId: correctCattleId || (action === 'move_out_as_registered' ? audits[index].finalCattleId : null),
+      reviewStatus: action === 'move_out_as_registered' ? 'wrong_moved_to_registered' : requestedReviewStatus,
+      correctCattleId: reviewedCorrectCattleId,
       reviewNotes,
       reviewedBy: req.user,
       reviewedAt: new Date().toISOString(),
       correctionAction: action || null
     };
 
-    await writeMatchAudits(audits);
+    await persistMatchAudit(audits[index]);
     res.json({ review: audits[index], correctedRecord: correctedRecord ? toCattleSummary(correctedRecord) : null });
   } catch (error) {
     next(error);
@@ -455,8 +546,8 @@ app.post('/api/agents', requireAuth, requireAdmin, async (req, res, next) => {
     const agentId = String(req.body.agentId || '').trim();
     const password = String(req.body.password || '');
 
-    if (!agentName || !phone || !agentId || password.length < 4) {
-      res.status(400).json({ error: 'Agent name, phone, agent ID, and password are required.' });
+    if (!agentName || !phone || !agentId || password.length < 8) {
+      res.status(400).json({ error: 'Agent name, phone, agent ID, and a password of at least 8 characters are required.' });
       return;
     }
 
@@ -481,8 +572,7 @@ app.post('/api/agents', requireAuth, requireAdmin, async (req, res, next) => {
       passwordHash: hashPassword(password)
     };
 
-    users.push(user);
-    await writeUsers(users);
+    await persistUser(user);
     res.status(201).json({ agent: toPublicUser(user) });
   } catch (error) {
     next(error);
@@ -781,11 +871,8 @@ app.post('/api/cattle/merge', requireAuth, requireAdmin, async (req, res, next) 
     targetRow.folderLocation = targetRow.sessions.at(-1)?.folderLocation || targetRow.folderLocation;
     targetRow.captureDateTime = targetRow.sessions.at(-1)?.captureDateTime || targetRow.captureDateTime;
 
-    if (mongoDb) {
-      await mongoDb.collection('cattle').deleteMany({ cattleId: { $in: mergedIds } });
-    }
-
-    await writeMetadata(rows.filter(Boolean));
+    await persistMetadataRecord(targetRow);
+    await deleteMetadataRecords(mergedIds);
     res.json({ target: toCattleSummary(targetRow), mergedCattleIds: mergedIds });
   } catch (error) {
     next(error);
@@ -860,7 +947,7 @@ app.post('/api/cattle/:cattleId/approve-blocked', requireAuth, requireAdmin, asy
     }
 
     rows[rowIndex] = row;
-    await writeMetadata(rows);
+    await persistMetadataRecord(row);
 
     if (correctedSessions.length) {
       const audits = await readMatchAudits();
@@ -880,7 +967,8 @@ app.post('/api/cattle/:cattleId/approve-blocked', requireAuth, requireAdmin, asy
           thresholdPercent: Number(previousMatchResult.thresholdPercent || Math.round(EMBEDDING_MATCH_THRESHOLD * 100)),
           appVersion: APP_VERSION,
           captureWorkflowVersion: 'cattle-enrolment-search-v2',
-          tfliteMuzzleModelVersion: YOLO_MUZZLE_MODEL_VERSION,
+          tfliteMuzzleModelVersion: PHONE_TFLITE_MODEL_VERSION,
+          backendYoloModelVersion: YOLO_MUZZLE_MODEL_VERSION,
           dinov2ModelVersion: DINOV2_MODEL_VERSION,
           captureDurationSeconds: Number(session.captureDurationSeconds || 0) || null,
           muzzleImageCount: MUZZLE_IMAGE_COUNT,
@@ -890,6 +978,7 @@ app.post('/api/cattle/:cattleId/approve-blocked', requireAuth, requireAdmin, asy
           rankedTopMatches: previousMatchResult.rankedTopMatches || previousMatchResult.topMatches || [],
           farmerId: row.farmerId || '',
           farmerName: row.farmerName || '',
+          fieldOfficerId: row.fieldOfficerId || session.fieldOfficerId || '',
           fieldOfficerName: row.fieldOfficerName || session.fieldOfficerName || '',
           locationLat: row.locationLat ?? null,
           locationLon: row.locationLon ?? null,
@@ -910,14 +999,7 @@ app.post('/api/cattle/:cattleId/approve-blocked', requireAuth, requireAdmin, asy
         if (auditIndex >= 0) audits[auditIndex] = { ...audits[auditIndex], ...review };
         else audits.push(review);
       }
-      await writeMatchAudits(audits);
-    }
-
-    if (mongoDb) {
-      await mongoDb.collection('cattle').updateOne(
-        { cattleId },
-        { $set: { status: row.status, adminCorrection: row.adminCorrection, uploadDateTime: now, duplicateOfCattleId: null, duplicateOfFarmerName: null } }
-      );
+      await Promise.all(audits.map((audit) => persistMatchAudit(audit)));
     }
 
     res.json({ cattle: toCattleSummary(row), message: 'Cattle approved as new registered record.' });
@@ -932,30 +1014,33 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
     const requestLon = Number(req.body.locationLon);
     const requestAccuracy = Number(req.body.locationAccuracyM);
 
-    if (!Number.isFinite(requestLat) || !Number.isFinite(requestLon)) {
+    if (!validGpsCoordinate(requestLat, requestLon)) {
       res.status(400).json({ error: 'Use GPS first before starting cow capture.' });
       return;
     }
 
     const requestedCattleId = String(req.body.cattleId || '').trim();
-    const offlineCaptureId = String(req.body.offlineCaptureId || '').trim();
+    const offlineCaptureId = safeOfflineCaptureId(req.body.offlineCaptureId);
     const rows = await readMetadata();
-    const existingOfflineRowIndex = offlineCaptureId
-      ? rows.findIndex((row) => (row.sessions || []).some((session) => session.offlineCaptureId === offlineCaptureId))
-      : -1;
+    const existingOfflineCapture = findOfflineCapture(rows, offlineCaptureId);
+    const existingOfflineRowIndex = existingOfflineCapture?.rowIndex ?? -1;
 
     if (existingOfflineRowIndex >= 0) {
       const existingOfflineRow = normalizeRecord(rows[existingOfflineRowIndex]);
+      if (!userOwnsRecord(req.user, existingOfflineRow)) {
+        res.status(409).json({ error: 'This offline capture ID is already assigned to another field officer.' });
+        return;
+      }
       const existingOfflineSession = existingOfflineRow.sessions.find((session) => session.offlineCaptureId === offlineCaptureId);
       existingOfflineRow.activeSessionId = existingOfflineSession.sessionId;
       existingOfflineRow.uploadDateTime = now;
       rows[existingOfflineRowIndex] = existingOfflineRow;
-      await writeMetadata(rows);
+      await persistMetadataRecord(existingOfflineRow);
       res.status(200).json({ enrollment: existingOfflineRow, reusedOfflineCapture: true });
       return;
     }
 
-    const cattleId = requestedCattleId || randomUUID();
+    const cattleId = requestedCattleId ? safeCattleId(requestedCattleId) : randomUUID();
     const existingIndex = rows.findIndex((row) => row.cattleId === cattleId);
     const existing = existingIndex >= 0 ? normalizeRecord(rows[existingIndex]) : null;
     const workflow = normalizeWorkflow(req.body.workflow, existing ? 'cattle_search' : 'cattle_enrolment');
@@ -985,23 +1070,32 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
         record.activeSessionId = existingSession.sessionId;
         record.uploadDateTime = now;
         rows[existingIndex] = record;
-        await writeMetadata(rows);
+        await persistMetadataRecord(record);
         res.status(200).json({ enrollment: record });
         return;
       }
     }
 
+    if (existing && workflow === 'cattle_enrolment') {
+      res.status(409).json({
+        error: 'This cow is already enrolled. Use Cattle Search when photographing it again.'
+      });
+      return;
+    }
+
     const session = await createCaptureSession({ cattleId, captureDateTime: req.body.captureDateTime || now });
     if (offlineCaptureId) session.offlineCaptureId = offlineCaptureId;
 
+    const officer = fieldOfficerFromUser(req.user, req.body);
+    const officerRows = filterRowsForUser(rows, req.user);
     const isNewFarmer = req.body.newFarmer === true || req.body.newFarmer === 'true';
     const requestedFarmerId = String(req.body.farmerId || record.farmerId || '').trim();
     const requestedFarmerName = String(req.body.farmerName || record.farmerName || '').trim();
     const likelyExistingFarmer = !existing
-      ? findLikelyExistingFarmer(rows, requestedFarmerName, requestLat, requestLon)
+      ? findLikelyExistingFarmer(officerRows, requestedFarmerName, requestLat, requestLon)
       : null;
     const requestedIdOwner = requestedFarmerId
-      ? rows.find((row) => normalizeSearchText(row?.farmerId) === normalizeSearchText(requestedFarmerId))
+      ? officerRows.find((row) => normalizeSearchText(row?.farmerId) === normalizeSearchText(requestedFarmerId))
       : null;
     const safeRequestedFarmerId = requestedIdOwner
       && normalizeSearchText(requestedIdOwner.farmerName) !== normalizeSearchText(requestedFarmerName)
@@ -1015,14 +1109,16 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
           ? (likelyExistingFarmer?.farmerId || safeRequestedFarmerId || generateUniqueFarmerId(rows))
           : (safeRequestedFarmerId || likelyExistingFarmer?.farmerId || generateUniqueFarmerId(rows))));
     record.farmerName = requestedFarmerName;
-    const officer = fieldOfficerFromUser(req.user, req.body);
     record.fieldOfficerName = officer.fieldOfficerName || record.fieldOfficerName || '';
     record.fieldOfficerId = officer.fieldOfficerId || record.fieldOfficerId || '';
     record.locationLat = requestLat;
     record.locationLon = requestLon;
-    record.locationAccuracyM = Number.isFinite(requestAccuracy) ? requestAccuracy : null;
+    record.locationAccuracyM = Number.isFinite(requestAccuracy) && requestAccuracy >= 0 ? requestAccuracy : null;
     record.locationCapturedAt = String(req.body.locationCapturedAt || now);
-    record.matchRadiusKm = Number(req.body.matchRadiusKm || record.matchRadiusKm || 7);
+    const requestedRadiusKm = Number(req.body.matchRadiusKm || record.matchRadiusKm || 7);
+    record.matchRadiusKm = Number.isFinite(requestedRadiusKm)
+      ? Math.min(50, Math.max(0.1, requestedRadiusKm))
+      : 7;
     record.rootFolderLocation = rootFolder;
     record.folderLocation = session.folderLocation;
     record.captureDateTime = session.captureDateTime;
@@ -1039,7 +1135,7 @@ app.post('/api/enrollments', requireAuth, async (req, res, next) => {
     if (existingIndex >= 0) rows[existingIndex] = record;
     else rows.push(record);
 
-    await writeMetadata(rows);
+    await persistMetadataRecord(record);
 
     res.status(201).json({ enrollment: record });
   } catch (error) {
@@ -1069,7 +1165,15 @@ app.post('/api/muzzle/check', requireAuth, upload.single('image'), async (req, r
       '--model',
       YOLO_MUZZLE_MODEL_PATH,
       '--input',
-      req.file.path
+      req.file.path,
+      '--good-conf',
+      String(MUZZLE_CONF),
+      '--bad-conf',
+      String(MUZZLE_BAD_CONF),
+      '--bad-margin',
+      String(MUZZLE_BAD_DOMINANCE_MARGIN),
+      '--min-sharpness',
+      String(MUZZLE_MIN_SHARPNESS)
     ]);
     await fs.unlink(req.file.path).catch(() => { });
 
@@ -1096,7 +1200,11 @@ app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'
     await assertUserCanAccessCattle(req.user, cattleId);
     const { folder, mediaPrefix } = await getActiveCaptureFolder(cattleId);
     const requestedSlot = Number(req.body.slot || 0);
-    const slot = requestedSlot > 0 ? requestedSlot : (await nextSlot(folder, 'muzzle', MUZZLE_IMAGE_COUNT));
+    if (requestedSlot && (!Number.isInteger(requestedSlot) || requestedSlot < 1 || requestedSlot > MUZZLE_IMAGE_COUNT)) {
+      res.status(400).json({ error: `Muzzle slot must be a whole number from 1 to ${MUZZLE_IMAGE_COUNT}.` });
+      return;
+    }
+    const slot = requestedSlot || (await nextSlot(folder, 'muzzle', MUZZLE_IMAGE_COUNT));
     const fileName = `muzzle${slot}.jpg`;
 
     if (slot > MUZZLE_IMAGE_COUNT) {
@@ -1149,6 +1257,8 @@ app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'
     });
   } catch (error) {
     next(error);
+  } finally {
+    await removeUploadedFile(req.file?.path, fs);
   }
 });
 
@@ -1198,6 +1308,8 @@ app.post('/api/enrollments/:cattleId/images', requireAuth, upload.single('image'
     });
   } catch (error) {
     next(error);
+  } finally {
+    await removeUploadedFile(req.file?.path, fs);
   }
 });
 
@@ -1265,13 +1377,13 @@ app.post('/api/enrollments/:cattleId/complete', requireAuth, async (req, res, ne
 
     if (req.body.captureDurationSeconds !== undefined) {
       const durationSeconds = Number(req.body.captureDurationSeconds);
-      if (Number.isFinite(durationSeconds)) {
-        session.captureDurationSeconds = durationSeconds;
+      if (Number.isFinite(durationSeconds) && durationSeconds >= 0) {
+        session.captureDurationSeconds = Math.min(durationSeconds, 24 * 60 * 60);
       }
     }
 
     row.uploadDateTime = new Date().toISOString();
-    await writeMetadata(rows);
+    await persistMetadataRecord(row);
     res.json({ enrollment: row });
   } catch (error) {
     next(error);
@@ -1308,7 +1420,11 @@ app.get('*', async (_req, res, next) => {
 
 app.use((error, _req, res, _next) => {
   console.error(error);
-  const status = Number(error?.statusCode || error?.status || 500);
+  const message = String(error?.message || '');
+  const inferredStatus = error?.code === 'LIMIT_FILE_SIZE'
+    ? 413
+    : (/^Invalid |Only image uploads/.test(message) ? 400 : (message.includes('CORS policy') ? 403 : 500));
+  const status = Number(error?.statusCode || error?.status || inferredStatus);
   res.status(status >= 400 && status <= 599 ? status : 500).json({
     error: publicErrorMessage(error),
     code: error?.code || undefined,
@@ -1342,7 +1458,7 @@ async function ensureStorage() {
 
     await importLocalJsonIfMongoEmpty();
 
-    const admin = await mongoDb.collection('users').findOne({ role: 'admin', agentId: 'admin' });
+    const admin = await mongoDb.collection('users').findOne({ role: 'admin' });
     if (!admin) {
       await mongoDb.collection('users').insertOne(createDefaultAdmin());
     }
@@ -1361,6 +1477,11 @@ async function ensureStorage() {
   } catch {
     const defaultAdmin = createDefaultAdmin();
     await fs.writeFile(usersPath, `${JSON.stringify([defaultAdmin], null, 2)}\n`, 'utf8');
+  }
+
+  const fileUsers = await readUsers();
+  if (!fileUsers.some((user) => user.role === 'admin')) {
+    await persistUser(createDefaultAdmin());
   }
 
   try {
@@ -1402,7 +1523,8 @@ async function readCleanMetadata() {
   const cleanRows = removeStaleMergedRows(rows);
 
   if (cleanRows.length !== rows.length) {
-    await writeMetadata(cleanRows);
+    const liveIds = new Set(cleanRows.map((row) => row.cattleId));
+    await deleteMetadataRecords(rows.filter((row) => !liveIds.has(row.cattleId)).map((row) => row.cattleId));
   }
 
   return cleanRows;
@@ -1429,35 +1551,43 @@ function isStaleMergedRecord(row, liveIds) {
   });
 }
 
-async function writeMetadata(rows) {
-  return withWriteLock(async () => {
-    if (mongoDb) {
-      const collection = mongoDb.collection('cattle');
-      const cleanRows = rows.map(normalizeRecord).filter(Boolean);
-      const cattleIds = cleanRows.map((row) => row.cattleId).filter(Boolean);
+async function persistMetadataRecord(value) {
+  const record = normalizeRecord(value);
+  if (!record?.cattleId) throw new Error('Cannot save a cattle record without a cattle ID.');
 
-      if (!cleanRows.length) {
-        await collection.deleteMany({});
-        return;
-      }
+  if (mongoDb) {
+    await mongoDb.collection('cattle').replaceOne(
+      { cattleId: record.cattleId },
+      addMongoGeoPoint(stripMongoId(record)),
+      { upsert: true }
+    );
+    return record;
+  }
 
-      const existingCount = await collection.countDocuments();
-      if (existingCount > 0 && cleanRows.length < existingCount * 0.5) {
-        console.warn(`Safety: refusing to delete ${existingCount - cleanRows.length} records (${cleanRows.length} remaining vs ${existingCount} existing).`);
-      } else {
-        await collection.deleteMany({ cattleId: { $nin: cattleIds } });
-      }
-      await collection.bulkWrite(cleanRows.map((row) => ({
-        replaceOne: {
-          filter: { cattleId: row.cattleId },
-          replacement: addMongoGeoPoint(stripMongoId(row)),
-          upsert: true
-        }
-      })));
-      return;
-    }
-
+  await withWriteLock(async () => {
+    const rows = JSON.parse(await fs.readFile(metadataPath, 'utf8'));
+    const index = rows.findIndex((row) => row?.cattleId === record.cattleId);
+    if (index >= 0) rows[index] = record;
+    else rows.push(record);
     await fs.writeFile(metadataPath, `${JSON.stringify(rows, null, 2)}\n`, 'utf8');
+  });
+  return record;
+}
+
+async function deleteMetadataRecords(cattleIds) {
+  const ids = [...new Set((cattleIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return;
+
+  if (mongoDb) {
+    await mongoDb.collection('cattle').deleteMany({ cattleId: { $in: ids } });
+    return;
+  }
+
+  await withWriteLock(async () => {
+    const rows = JSON.parse(await fs.readFile(metadataPath, 'utf8'));
+    const idSet = new Set(ids);
+    const remaining = rows.filter((row) => !idSet.has(row?.cattleId));
+    await fs.writeFile(metadataPath, `${JSON.stringify(remaining, null, 2)}\n`, 'utf8');
   });
 }
 
@@ -1470,22 +1600,36 @@ async function readUsers() {
   return JSON.parse(raw);
 }
 
-async function writeUsers(users) {
-  if (mongoDb) {
-    const collection = mongoDb.collection('users');
-    if (!users.length) return;
+async function persistUser(value) {
+  const user = stripMongoId(value);
+  if (!user?.userId) throw new Error('Cannot save a user without a user ID.');
 
-    await collection.bulkWrite(users.map((user) => ({
-      replaceOne: {
-        filter: { userId: user.userId },
-        replacement: stripMongoId(user),
-        upsert: true
-      }
-    })));
-    return;
+  if (mongoDb) {
+    await mongoDb.collection('users').replaceOne(
+      { userId: user.userId },
+      user,
+      { upsert: true }
+    );
+    return user;
   }
 
-  await fs.writeFile(usersPath, `${JSON.stringify(users, null, 2)}\n`, 'utf8');
+  await withWriteLock(async () => {
+    const users = JSON.parse(await fs.readFile(usersPath, 'utf8'));
+    const duplicate = users.find((item) => item.userId !== user.userId && (
+      normalizeSearchText(item.agentId) === normalizeSearchText(user.agentId)
+      || normalizeSearchText(item.phone) === normalizeSearchText(user.phone)
+    ));
+    if (duplicate) {
+      const error = new Error('Agent ID or phone already exists.');
+      error.statusCode = 409;
+      throw error;
+    }
+    const index = users.findIndex((item) => item.userId === user.userId);
+    if (index >= 0) users[index] = user;
+    else users.push(user);
+    await fs.writeFile(usersPath, `${JSON.stringify(users, null, 2)}\n`, 'utf8');
+  });
+  return user;
 }
 
 async function readMatchAudits() {
@@ -1497,41 +1641,43 @@ async function readMatchAudits() {
   return JSON.parse(raw);
 }
 
-async function writeMatchAudits(audits) {
+async function persistMatchAudit(value) {
+  const audit = stripMongoId(value);
+  if (!audit?.auditId) throw new Error('Cannot save a match review without an audit ID.');
+
   if (mongoDb) {
-    const collection = mongoDb.collection('match_audits');
-    const cleanAudits = audits.filter(Boolean);
-    const auditIds = cleanAudits.map((audit) => audit.auditId).filter(Boolean);
-
-    if (!cleanAudits.length) {
-      await collection.deleteMany({});
-      return;
-    }
-
-    await collection.deleteMany({ auditId: { $nin: auditIds } });
-    await collection.bulkWrite(cleanAudits.map((audit) => ({
-      replaceOne: {
-        filter: { auditId: audit.auditId },
-        replacement: stripMongoId(audit),
-        upsert: true
-      }
-    })));
-    return;
+    await mongoDb.collection('match_audits').replaceOne(
+      { auditId: audit.auditId },
+      audit,
+      { upsert: true }
+    );
+    return audit;
   }
 
-  await fs.writeFile(matchAuditsPath, `${JSON.stringify(audits, null, 2)}\n`, 'utf8');
+  await withWriteLock(async () => {
+    const audits = JSON.parse(await fs.readFile(matchAuditsPath, 'utf8'));
+    const index = audits.findIndex((item) => item?.auditId === audit.auditId);
+    if (index >= 0) audits[index] = { ...audits[index], ...audit };
+    else audits.push(audit);
+    await fs.writeFile(matchAuditsPath, `${JSON.stringify(audits, null, 2)}\n`, 'utf8');
+  });
+  return audit;
 }
 
 function createDefaultAdmin() {
+  const password = INITIAL_ADMIN_PASSWORD || (REQUIRE_PRODUCTION_SERVICES ? '' : 'admin123');
+  if (password.length < 12 && REQUIRE_PRODUCTION_SERVICES) {
+    throw new Error('No administrator exists. Set INITIAL_ADMIN_PASSWORD to at least 12 characters, then restart once to create the first admin.');
+  }
   return {
     userId: randomUUID(),
     role: 'admin',
-    name: 'Demo Admin',
-    phone: 'admin',
-    agentId: 'admin',
+    name: INITIAL_ADMIN_NAME,
+    phone: INITIAL_ADMIN_PHONE,
+    agentId: INITIAL_ADMIN_AGENT_ID,
     active: true,
     createdAt: new Date().toISOString(),
-    passwordHash: hashPassword('admin123')
+    passwordHash: hashPassword(password)
   };
 }
 
@@ -1579,74 +1725,6 @@ function requireAdmin(req, res, next) {
   }
 
   next();
-}
-
-function isAdminUser(user) {
-  return user?.role === 'admin';
-}
-
-function fieldOfficerFromUser(user, body = {}) {
-  if (isAdminUser(user)) {
-    return {
-      fieldOfficerId: String(body.fieldOfficerId || user?.agentId || user?.userId || user?.phone || '').trim(),
-      fieldOfficerName: String(body.fieldOfficerName || user?.name || '').trim()
-    };
-  }
-
-  return {
-    fieldOfficerId: String(user?.agentId || user?.userId || user?.phone || '').trim(),
-    fieldOfficerName: String(user?.name || '').trim()
-  };
-}
-
-function userOwnsRecord(user, row) {
-  if (isAdminUser(user)) return true;
-  if (!user || !row) return false;
-
-  const userIds = [
-    user.agentId,
-    user.userId,
-    user.phone
-  ].map(normalizeSearchText).filter(Boolean);
-  const userName = normalizeSearchText(user.name);
-  const recordIds = [
-    row.fieldOfficerId,
-    row.officerId,
-    row.agentId
-  ].map(normalizeSearchText).filter(Boolean);
-  const recordName = normalizeSearchText(row.fieldOfficerName || row.officerName || row.agentName);
-
-  return recordIds.some((id) => userIds.includes(id)) || Boolean(userName && recordName && userName === recordName);
-}
-
-function userOwnsAudit(user, audit) {
-  if (isAdminUser(user)) return true;
-  if (!user || !audit) return false;
-
-  const userIds = [
-    user.agentId,
-    user.userId,
-    user.phone
-  ].map(normalizeSearchText).filter(Boolean);
-  const userName = normalizeSearchText(user.name);
-  const auditIds = [
-    audit.fieldOfficerId,
-    audit.officerId,
-    audit.agentId
-  ].map(normalizeSearchText).filter(Boolean);
-  const auditName = normalizeSearchText(audit.fieldOfficerName || audit.officerName || audit.agentName);
-
-  return auditIds.some((id) => userIds.includes(id)) || Boolean(userName && auditName && userName === auditName);
-}
-
-function filterRowsForUser(rows, user) {
-  if (isAdminUser(user)) return rows;
-  return rows.filter((row) => userOwnsRecord(user, row));
-}
-
-function filterAuditsForUser(audits, user) {
-  if (isAdminUser(user)) return audits;
-  return audits.filter((audit) => userOwnsAudit(user, audit));
 }
 
 async function assertUserCanAccessCattle(user, cattleId) {
@@ -1943,7 +2021,7 @@ async function resolveMuzzleMatch(cattleId) {
   const bestMatch = queryWorkflow === 'cattle_search'
     ? bestFarmerMatch || bestNearbyMatch || orderedMatches[0] || null
     : bestFarmerMatch || bestGlobalMatch;
-  const rankedTopMatches = orderedMatches.slice(0, 20).map(toPublicMatchResult);
+  const rankedTopMatches = candidates.slice(0, 20).map(toPublicMatchResult);
   const topMatches = orderedMatches.slice(0, 5).map(toPublicMatchResult);
   const isMatched = queryWorkflow === 'cattle_search'
     ? Boolean(bestFarmerMatch || bestNearbyMatch)
@@ -1982,7 +2060,7 @@ async function resolveMuzzleMatch(cattleId) {
     if (queryWorkflow === 'cattle_search') {
       await upsertSessionVector(queryRow, querySession, { namespace: PINECONE_SEARCH_NAMESPACE, workflow: 'cattle_search' }).catch(() => null);
     }
-    await writeMetadata(rows.filter(Boolean));
+    await persistMetadataRecord(queryRow);
     if (queryWorkflow === 'cattle_search') {
       await storeMatchAudit({
         cattleId: queryRow.cattleId,
@@ -1991,6 +2069,7 @@ async function resolveMuzzleMatch(cattleId) {
         matchResult,
         farmerId: queryRow.farmerId,
         farmerName: queryRow.farmerName,
+        fieldOfficerId: queryRow.fieldOfficerId,
         fieldOfficerName: queryRow.fieldOfficerName,
         locationLat: queryRow.locationLat,
         locationLon: queryRow.locationLon,
@@ -2027,7 +2106,7 @@ async function resolveMuzzleMatch(cattleId) {
     namespace: queryWorkflow === 'cattle_search' ? PINECONE_SEARCH_NAMESPACE : PINECONE_ENROLMENT_NAMESPACE,
     workflow: queryWorkflow
   }).catch(() => null);
-  await writeMetadata(rows.filter(Boolean));
+  await persistMetadataRecord(queryRow);
   if (queryWorkflow === 'cattle_search') {
     await storeMatchAudit({
       cattleId: queryRow.cattleId,
@@ -2036,6 +2115,7 @@ async function resolveMuzzleMatch(cattleId) {
       matchResult,
       farmerId: queryRow.farmerId,
       farmerName: queryRow.farmerName,
+      fieldOfficerId: queryRow.fieldOfficerId,
       fieldOfficerName: queryRow.fieldOfficerName,
       locationLat: queryRow.locationLat,
       locationLon: queryRow.locationLon,
@@ -2515,25 +2595,20 @@ async function muzzleImagePaths(session) {
 
 function runAverageEmbedding(imagePaths) {
   const scriptPath = path.join(__dirname, '..', 'scripts', 'embedding_average.py');
-  return runPythonJson([
-    scriptPath,
-    '--weights',
-    DINOV2_MODEL_PATH,
-    '--images',
-    ...imagePaths
-  ]);
+  const run = () => runPythonJson([
+      scriptPath,
+      '--weights',
+      DINOV2_MODEL_PATH,
+      '--images',
+      ...imagePaths
+    ]);
+  const next = embeddingProcessLock.then(run, run);
+  embeddingProcessLock = next.catch(() => undefined);
+  return next;
 }
 
 function isSameFarmerCandidate(queryRow, candidateRow) {
-  const queryFarmerId = normalizeSearchText(queryRow.farmerId);
-  const candidateFarmerId = normalizeSearchText(candidateRow.farmerId);
-  if (queryFarmerId || candidateFarmerId) {
-    return Boolean(queryFarmerId && candidateFarmerId && queryFarmerId === candidateFarmerId);
-  }
-
-  const queryFarmer = normalizeSearchText(queryRow.farmerName);
-  const candidateFarmer = normalizeSearchText(candidateRow.farmerName);
-  return Boolean(queryFarmer && candidateFarmer && queryFarmer === candidateFarmer);
+  return sameFarmerIdentity(queryRow, candidateRow);
 }
 
 function distanceBetweenRowsKm(a, b) {
@@ -2721,10 +2796,10 @@ async function moveMatchedVisitOutAsRegistered(audit, { reviewedBy, reviewNotes 
     await upsertSessionVector(row, session).catch(() => null);
   }
 
-  await writeMetadata(rows);
+  await persistMetadataRecord(row);
   return row;
 }
-async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, farmerId, farmerName, fieldOfficerName, locationLat, locationLon, locationAccuracyM, matchRadiusKm }) {
+async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, farmerId, farmerName, fieldOfficerId, fieldOfficerName, locationLat, locationLon, locationAccuracyM, matchRadiusKm }) {
   const audits = await readMatchAudits();
   const auditId = `${finalCattleId || cattleId}__${session.sessionId}`;
   const existingIndex = audits.findIndex((audit) => audit.auditId === auditId);
@@ -2744,7 +2819,8 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
     thresholdPercent: matchResult.thresholdPercent,
     appVersion: APP_VERSION,
     captureWorkflowVersion: 'cattle-enrolment-search-v2',
-    tfliteMuzzleModelVersion: YOLO_MUZZLE_MODEL_VERSION,
+    tfliteMuzzleModelVersion: PHONE_TFLITE_MODEL_VERSION,
+    backendYoloModelVersion: YOLO_MUZZLE_MODEL_VERSION,
     dinov2ModelVersion: DINOV2_MODEL_VERSION,
     captureDurationSeconds: Number(session.captureDurationSeconds || 0) || null,
     muzzleImageCount: MUZZLE_IMAGE_COUNT,
@@ -2754,6 +2830,7 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
     rankedTopMatches: matchResult.rankedTopMatches || matchResult.topMatches || [],
     farmerId: farmerId || '',
     farmerName: farmerName || '',
+    fieldOfficerId: fieldOfficerId || session.fieldOfficerId || '',
     fieldOfficerName: fieldOfficerName || '',
     locationLat: locationLat ?? null,
     locationLon: locationLon ?? null,
@@ -2771,7 +2848,7 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
   if (existingIndex >= 0) audits[existingIndex] = { ...audits[existingIndex], ...audit };
   else audits.push(audit);
 
-  await writeMatchAudits(audits);
+  await persistMatchAudit(audit);
   return audit;
 }
 
@@ -2810,6 +2887,7 @@ async function upsertSessionVector(row, session, { namespace = PINECONE_ENROLMEN
           farmerIdNorm: normalizeSearchText(row.farmerId),
           farmerName: row.farmerName || '',
           farmerNameNorm: normalizeSearchText(row.farmerName),
+          fieldOfficerId: row.fieldOfficerId || session.fieldOfficerId || '',
           fieldOfficerName: row.fieldOfficerName || session.fieldOfficerName || '',
           locationLat: Number(row.locationLat) || 0,
           locationLon: Number(row.locationLon) || 0,
@@ -2877,10 +2955,7 @@ async function queryPineconeMatches({ queryRow, queryEmbedding, ownerNumberMap }
   return uniqueMatches
     .map((match) => {
       const meta = match.metadata || {};
-      const sameFarmer = (
-        (normalizeSearchText(queryRow.farmerId) && normalizeSearchText(queryRow.farmerId) === normalizeSearchText(meta.farmerId || meta.farmerIdNorm)) ||
-        (normalizeSearchText(queryRow.farmerName) && normalizeSearchText(queryRow.farmerName) === normalizeSearchText(meta.farmerName || meta.farmerNameNorm))
-      );
+      const sameFarmer = sameFarmerIdentity(queryRow, meta);
       const distanceKm = haversineKm(queryRow.locationLat, queryRow.locationLon, meta.locationLat, meta.locationLon);
       const radiusKm = Math.max(0.1, Number(queryRow.matchRadiusKm || 7));
       const searchScope = sameFarmer
@@ -3073,6 +3148,23 @@ function runPythonJson(args) {
     const child = spawn(PYTHON_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
+    let settled = false;
+
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      callback(value);
+    };
+
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      const error = new Error(`Python processing exceeded ${PYTHON_PROCESS_TIMEOUT_MS} ms.`);
+      error.code = 'PYTHON_TIMEOUT';
+      error.statusCode = 503;
+      error.retryable = true;
+      finish(reject, error);
+    }, PYTHON_PROCESS_TIMEOUT_MS);
 
     child.stdout.on('data', (chunk) => {
       stdout += chunk.toString();
@@ -3083,15 +3175,16 @@ function runPythonJson(args) {
     });
 
     child.on('error', (error) => {
-      reject(new Error(`Could not start Python runtime "${PYTHON_BIN}": ${error.message}`));
+      finish(reject, new Error(`Could not start Python runtime "${PYTHON_BIN}": ${error.message}`));
     });
     child.on('close', (code) => {
+      if (settled) return;
       if (code !== 0) {
         const detail = cleanPythonError(stderr || `Python process exited with code ${code}`);
         const dependencyHint = /ModuleNotFoundError|No module named/i.test(detail)
           ? ` Python runtime: ${PYTHON_BIN}. Install backend/requirements.txt in this environment.`
           : '';
-        reject(new Error(`${detail}${dependencyHint}`));
+        finish(reject, new Error(`${detail}${dependencyHint}`));
         return;
       }
 
@@ -3101,9 +3194,9 @@ function runPythonJson(args) {
           .map((line) => line.trim())
           .filter((line) => line.startsWith('{') && line.endsWith('}'))
           .at(-1);
-        resolve(JSON.parse(jsonLine || stdout));
+        finish(resolve, JSON.parse(jsonLine || stdout));
       } catch (error) {
-        reject(new Error(`Invalid Python JSON output: ${stdout || error.message}`));
+        finish(reject, new Error(`Invalid Python JSON output: ${stdout || error.message}`));
       }
     });
   });
@@ -3121,5 +3214,10 @@ function cleanPythonError(message = '') {
 }
 
 function publicErrorMessage(error) {
-  return cleanPythonError(error?.message || 'Unexpected server error.');
+  if (error?.code === 'LIMIT_FILE_SIZE') return 'Image is too large. Maximum upload size is 12 MB.';
+  const message = cleanPythonError(error?.message || 'Unexpected server error.');
+  if (/[A-Za-z]:\\|\/app\/|\/mnt\//.test(message)) {
+    return 'Server storage or model processing failed. The full diagnostic was recorded in the backend log.';
+  }
+  return message;
 }

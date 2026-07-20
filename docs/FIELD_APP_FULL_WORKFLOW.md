@@ -154,6 +154,7 @@ udder
 The 3 muzzle images are used for embeddings and matching.
 
 The 7 supporting images are for admin human verification when checking whether the app result was correct.
+Every supporting view is required. There is no skip path because missing evidence makes the saved record incomplete and weakens admin review.
 
 ## 6. Phone Muzzle Gate And Quality Check
 
@@ -239,13 +240,13 @@ Recommended Android model location:
 android/app/src/main/assets/models/best.tflite
 ```
 
-Current browser PWA limitation:
+Current offline runtime:
 
 ```text
 best.tflite and the TFLite WASM files are stored locally in frontend assets.
-The browser PWA still loads TensorFlow JS/TFLite loader scripts from CDN.
-So first-use fully offline model loading is not guaranteed in the browser PWA.
-For production Android, bundle the runtime and best.tflite inside the APK assets.
+TensorFlow JS core, CPU backend and TFLite loader scripts are copied from pinned local packages.
+The field build includes those scripts, the WASM runtime and best.tflite in the APK.
+No CDN is required for offline muzzle checking.
 ```
 
 ## 8. Backend Image Save
@@ -275,6 +276,10 @@ Cattle Search start action stays visible above the mobile bottom nav.
 Use GPS auto-runs GPS farmer search on the find-farmer screen.
 Offline sync stores the server cattle ID and resumes the same capture on retry.
 Offline sync sends the same offline capture ID to the backend so retries do not create new sessions.
+
+Pending captures are partitioned by the logged-in user's immutable account ID. A different officer cannot see,
+retry, recover or delete another officer's local queue on the same phone. Legacy queue rows without an owner ID
+are quarantined instead of being guessed from a display name.
 Offline sync preserves the selected search radius instead of forcing 7 km.
 Records left in syncing state are recovered to pending on app start.
 Offline 3-muzzle capture advances to supporting image capture.

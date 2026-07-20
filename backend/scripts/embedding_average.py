@@ -78,7 +78,10 @@ def load_model(weights_path: Path, device: torch.device) -> tuple[nn.Module, dic
     else:
         state_dict = checkpoint
 
-    model.load_state_dict(state_dict, strict=False)
+    try:
+        model.load_state_dict(state_dict, strict=True)
+    except RuntimeError as exc:
+        raise RuntimeError(f"DINOv2 checkpoint does not match the production model architecture: {exc}") from exc
     return model.to(device).eval(), config
 
 

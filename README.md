@@ -56,7 +56,7 @@ The current build includes these verified hardening changes:
 JWT login for admin and field agents
 protected farmer, cattle, enrolment, capture, review and download APIs
 offline browser capture storage using IndexedDB
-completed records remain on the phone until the officer explicitly uploads them
+completed records remain on the phone until a successful upload; online completion starts upload automatically and failed uploads remain retryable
 incomplete drafts are excluded from upload
 PWA manifest and service worker asset caching
 fresh GPS capture is mandatory for every Cattle Search
@@ -94,7 +94,7 @@ It preserves admin and field-officer accounts while clearing cattle enrolments, 
 Production note:
 
 ```text
-The app now has a hybrid muzzle gate. When online, it tries the backend YOLO PyTorch model at `backend/best.pt`. If the backend is unavailable or the phone is offline, it falls back to the phone-side TFLite model at `frontend/src/assets/models/best.tflite`. The final native Android app should keep the same offline-capable flow and bundle the phone model/runtime inside the APK.
+The app has a hybrid muzzle gate. When online, it tries the backend YOLO PyTorch model at `backend/best.pt`. If the backend is unavailable or the phone is offline, it falls back to the phone-side TFLite model at `frontend/src/assets/models/best.tflite`. The field build bundles the pinned TensorFlow JS/TFLite runtime, WASM files and phone model inside the APK; it does not require a CDN for offline checking.
 ```
 
 ## Agent Flow
@@ -169,6 +169,7 @@ udder
 ```
 
 The muzzle images are used for embeddings. Supporting images are used by admin to verify whether the app result is correct.
+All seven supporting views are required. The capture screen does not allow a view to be skipped because an incomplete record cannot be evaluated reliably.
 
 ## Phone Muzzle Gate And Blur Check
 
@@ -196,6 +197,8 @@ minimum blur/sharpness score: 18
 ```
 
 Only good, sharp muzzle crops are uploaded. Blurry images are rejected before they can affect the DINOv2 embedding average.
+
+The phone fallback currently accepts `goodmuzzle` at 0.50. The backend PT gate uses `MUZZLE_CONF` (0.55 in `.env.example`). Admin audit rows store the phone TFLite and backend YOLO model versions separately.
 
 The accepted crop also receives local contrast enhancement before upload.
 

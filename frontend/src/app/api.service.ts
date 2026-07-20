@@ -295,6 +295,7 @@ export interface AppVersionStatus {
   appVersion: string;
   captureWorkflowVersion: string;
   tfliteMuzzleModelVersion: string;
+  backendYoloModelVersion: string;
   dinov2ModelVersion: string;
   muzzleImageCount: number;
   thresholds: {
@@ -327,6 +328,7 @@ export interface MatchReview {
   appVersion?: string;
   captureWorkflowVersion?: string;
   tfliteMuzzleModelVersion?: string;
+  backendYoloModelVersion?: string;
   dinov2ModelVersion?: string;
   captureDurationSeconds?: number | null;
   muzzleImageCount?: number;
@@ -336,6 +338,7 @@ export interface MatchReview {
   rankedTopMatches?: MuzzleMatchResult[];
   farmerId?: string;
   farmerName: string;
+  fieldOfficerId?: string;
   fieldOfficerName: string;
   locationLat?: number | null;
   locationLon?: number | null;

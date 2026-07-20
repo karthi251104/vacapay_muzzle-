@@ -44,6 +44,7 @@ interface FieldTestMetrics {
 }
 
 interface OfficerFieldSummary {
+  officerKey: string;
   officer: string;
   cattleSearches: number;
   reviewedSearches: number;
@@ -62,12 +63,15 @@ interface CattleSearchCoverageRow {
   cattleLabel: string;
   farmerId: string;
   farmerName: string;
+  fieldOfficerId: string;
   fieldOfficerName: string;
+  officerKey: string;
   searchCount: number;
   lastSearchDate: string | null;
 }
 
 interface OfficerEnrollmentCoverage {
+  officerKey: string;
   officer: string;
   enrolled: number;
   searched: number;
@@ -109,6 +113,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   // 3-level drill-down state for Cattle Records tab
   recordsLevel: 'officers' | 'farmers' | 'cattle' = 'officers';
+  selectedOfficerKey = '';
   selectedOfficerName = '';
   selectedFarmerKey2 = '';  // key for level-3 farmer selection
   finalizingRecord = false;
@@ -117,6 +122,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private gpsCache?: { lat: number; lon: number; timestamp: number };
   private offlineCaptureId?: string;
   private backendMuzzleFallbackUntil = 0;
+  private lastMuzzleSavedAt = 0;
   private batteryManager?: EventTarget;
   private nativeBackListener?: { remove: () => Promise<void> };
   private adminRefreshTimer?: number;
@@ -311,7 +317,7 @@ export class AppComponent implements OnInit, OnDestroy {
   reviewFilterOfficer = 'all';
   coverageFilterOfficer = 'all';
   coverageFilterStatus: 'all' | 'searched' | 'not_searched' = 'all';
-  officerNamesForFilter: string[] = [];
+  officerOptionsForFilter: Array<{ key: string; label: string }> = [];
   loadedMatchedImages: Record<string, CattleImageSummary[]> = {};
   expandedReviewId = '';
   readonly isNativeFieldApp = true;
@@ -419,6 +425,7 @@ export class AppComponent implements OnInit, OnDestroy {
       }
       if (this.currentUser.role === 'agent') {
         this.fieldOfficerName = this.currentUser.name;
+        this.syncService.setActiveOwner(this.currentUser.agentId || this.currentUser.userId || this.currentUser.phone);
       }
       if (this.currentUser.role === 'admin') {
         this.loadAgents();
@@ -450,6 +457,7 @@ export class AppComponent implements OnInit, OnDestroy {
         this.message = user.role === 'admin' ? 'Admin signed in.' : 'Agent signed in.';
 
         if (user.role === 'agent') {
+          this.syncService.setActiveOwner(user.agentId || user.userId || user.phone);
           this.agentScreen = 'home';
           this.fieldOfficerName = user.name;
           void this.loadFarmerCacheStatus();
@@ -541,6 +549,7 @@ export class AppComponent implements OnInit, OnDestroy {
       this.adminRefreshTimer = undefined;
     }
     this.api.clearToken();
+    this.syncService.setActiveOwner('');
     localStorage.removeItem('vacapay_user');
     this.currentUser = undefined;
     this.enrollment = undefined;
@@ -810,7 +819,7 @@ export class AppComponent implements OnInit, OnDestroy {
     }
 
     if (this.reviewFilterOfficer !== 'all') {
-      filtered = filtered.filter((review) => review.fieldOfficerName === this.reviewFilterOfficer);
+      filtered = filtered.filter((review) => this.officerKey(review) === this.reviewFilterOfficer);
     }
 
     this.matchReviews = filtered;
@@ -852,7 +861,6 @@ export class AppComponent implements OnInit, OnDestroy {
     this.api
       .updateMatchReview(review.auditId, {
         reviewStatus: 'found_incorrect',
-        correctCattleId: review.finalCattleId,
         reviewNotes: 'Admin confirmed the cattle-found result is incorrect.'
       })
       .subscribe({
@@ -871,7 +879,6 @@ export class AppComponent implements OnInit, OnDestroy {
     this.api
       .updateMatchReview(review.auditId, {
         reviewStatus: 'no_cattle_correct',
-        correctCattleId: review.finalCattleId,
         reviewNotes: 'Admin confirmed the no-cattle-found result is correct.'
       })
       .subscribe({
@@ -1417,6 +1424,7 @@ export class AppComponent implements OnInit, OnDestroy {
       if (this.muzzlePreviews.length >= this.muzzleImageCount) this.toggleAutoCapture();
       return;
     }
+    if (this.lastMuzzleSavedAt && Date.now() - this.lastMuzzleSavedAt < 1500) return;
 
     this.isDetecting = true;
     this.muzzleGateState = 'scanning';
@@ -1488,6 +1496,7 @@ export class AppComponent implements OnInit, OnDestroy {
           confidence: localResult.confidence,
           sharpness: localResult.sharpness
         });
+        this.lastMuzzleSavedAt = Date.now();
         this.message = `Good muzzle ${slot}/${this.muzzleImageCount} saved on phone.`;
         this.muzzleGateState = 'good';
         this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
@@ -1755,21 +1764,9 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   }
 
-  skipEvidencePhoto(): void {
-    const nextIndex = this.requiredImages.findIndex((img, idx) => idx > this.evidenceCameraIndex && !img.previewUrl);
-    if (nextIndex >= 0) {
-      this.evidenceCameraIndex = nextIndex;
-      this.message = `Skipped. Now point camera at: ${this.requiredImages[nextIndex].label}`;
-    } else {
-      this.evidenceCameraActive = false;
-      this.stopCamera();
-      this.message = 'Evidence capture finished.';
-    }
-  }
-
   approveBlockedAsNewCattle(cattle: CattleSummary): void {
     const confirmed = window.confirm(
-      `Register "${cattle.farmerName || 'this cattle'}" as a NEW registered cow?\n\nThis means the AI match was wrong. The cattle will be moved to registered cattle and the AI accuracy score will decrease.`
+      `Register "${cattle.farmerName || 'this cattle'}" as a NEW registered cow?\n\nThis records the duplicate warning as incorrect. Cattle Search Top-1/Top-5 metrics remain separate.`
     );
     if (!confirmed) return;
 
@@ -1840,62 +1837,6 @@ export class AppComponent implements OnInit, OnDestroy {
     this.evidenceCameraActive = false;
     this.stopCamera();
     this.message = 'Evidence camera stopped. You can still use file picker for remaining photos.';
-  }
-
-  async manualCaptureMuzzle(): Promise<void> {
-    if (!this.enrollment || !this.video || !this.canvas) return;
-    if (this.muzzlePreviews.length >= this.muzzleImageCount) return;
-
-    const slot = this.muzzlePreviews.length + 1;
-    this.muzzleGateState = 'uploading';
-    this.muzzleGateLabel = `Saving ${slot}/${this.muzzleImageCount}`;
-    this.message = `Manually capturing muzzle ${slot}/${this.muzzleImageCount}...`;
-
-    try {
-      // Capture the current frame as-is without gate check
-      const blob = await this.frameBlob(1280, 0.88);
-
-      if (this.offlineCaptureId) {
-        await this.offlineStorage.addMuzzleToCapture(this.offlineCaptureId, slot, blob, 0, 0);
-        this.muzzlePreviews.push({ url: URL.createObjectURL(blob) });
-        this.muzzleGateState = 'good';
-        this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
-        this.muzzleScanSeconds = 0;
-        this.muzzleRejectionReason = '';
-        this.message = `Photo ${slot}/${this.muzzleImageCount} saved manually.`;
-        if (navigator.vibrate) navigator.vibrate(200);
-        if (this.muzzlePreviews.length >= this.muzzleImageCount) {
-          if (this.autoCaptureOn) this.toggleAutoCapture();
-          this.agentScreen = 'evidence';
-          this.message = `All ${this.muzzleImageCount} muzzle photos saved. Add cattle photos next.`;
-        }
-        return;
-      }
-
-      this.api.captureMuzzle(this.enrollment.cattleId, blob, slot, true).subscribe({
-        next: () => {
-          this.muzzlePreviews.push({ url: URL.createObjectURL(blob) });
-          this.muzzleGateState = 'good';
-          this.muzzleGateLabel = `Saved ${slot}/${this.muzzleImageCount}`;
-          this.muzzleScanSeconds = 0;
-          this.muzzleRejectionReason = '';
-          this.message = `Photo ${slot}/${this.muzzleImageCount} saved manually.`;
-          if (navigator.vibrate) navigator.vibrate(200);
-          if (this.muzzlePreviews.length >= this.muzzleImageCount) {
-            if (this.autoCaptureOn) this.toggleAutoCapture();
-            this.agentScreen = 'evidence';
-          }
-        },
-        error: (error) => {
-          this.muzzleGateState = 'error';
-          this.muzzleGateLabel = 'Save failed';
-          this.message = this.errorMessage(error);
-        }
-      });
-    } catch {
-      this.muzzleGateState = 'error';
-      this.message = 'Could not capture photo. Try again.';
-    }
   }
 
   async manualSync(): Promise<void> {
@@ -2067,11 +2008,12 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private updateOfficerNamesForFilter(): void {
-    const officers = new Set<string>();
+    const officers = new Map<string, string>();
     for (const r of this.allMatchReviews) {
-      if (r.fieldOfficerName) officers.add(r.fieldOfficerName);
+      officers.set(this.officerKey(r), this.officerLabel(r));
     }
-    this.officerNamesForFilter = Array.from(officers).sort();
+    this.officerOptionsForFilter = Array.from(officers, ([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }
 
   loadMatchedCattleImages(cattleId: string, silent = false): void {
@@ -2132,7 +2074,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   exportReviewsCsv(): void {
     if (!this.matchReviews.length) return;
-    const headers = ['Cattle ID', 'Date', 'Officer', 'Farmer', 'App Decision', 'Review Status', 'Top Match ID', 'Confidence', 'Capture Seconds', 'App Version', 'DINOv2 Model', 'TFLite Model', 'Correct?'];
+    const headers = ['Cattle ID', 'Date', 'Officer', 'Farmer', 'App Decision', 'Review Status', 'Top Match ID', 'Confidence', 'Capture Seconds', 'App Version', 'DINOv2 Model', 'Phone TFLite Model', 'Backend YOLO Model', 'Correct?'];
     const rows = this.matchReviews.map(r => {
       return [
         r.finalCattleId,
@@ -2147,6 +2089,7 @@ export class AppComponent implements OnInit, OnDestroy {
         r.appVersion || '',
         r.dinov2ModelVersion || '',
         r.tfliteMuzzleModelVersion || '',
+        r.backendYoloModelVersion || '',
         this.reviewResultLabel(r)
       ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(',');
     });
@@ -2210,22 +2153,24 @@ export class AppComponent implements OnInit, OnDestroy {
     for (const dup of this.duplicateCattleInventory) {
       // Only enrolment duplicates (not cattle searches)
       if (dup.workflow !== 'cattle_enrolment' && dup.status !== 'enrolment_duplicate_blocked') continue;
-      const officer = dup.fieldOfficerName || 'Unknown Officer';
-      const list = result.get(officer) || [];
+      const officerKey = this.officerKey(dup);
+      const list = result.get(officerKey) || [];
       list.push({
         attemptRecord: dup,
         originalCattleId: dup.duplicateOfCattleId || '',
         originalFarmerName: dup.duplicateOfFarmerName || dup.farmerName || '',
         originalCattle: dup.duplicateOfCattleId ? uniqueById.get(dup.duplicateOfCattleId) : undefined
       });
-      result.set(officer, list);
+      result.set(officerKey, list);
     }
     return result;
   }
 
   // ── Level-1: group all enrolled cattle by officer ──
   get officerGroups(): Array<{
+    officerKey: string;
     officerName: string;
+    officerLabel: string;
     totalCattle: number;
     searchedCount: number;
     notSearchedCount: number;
@@ -2233,21 +2178,28 @@ export class AppComponent implements OnInit, OnDestroy {
     coveragePercent: number;
     blockedDuplicates: number;
   }> {
-    const map = new Map<string, { cattle: CattleSummary[]; farmers: Set<string> }>();
+    const map = new Map<string, { officerName: string; officerLabel: string; cattle: CattleSummary[]; farmers: Set<string> }>();
     for (const c of this.uniqueCattleInventory) {
-      const officer = c.fieldOfficerName || 'Unknown Officer';
-      const entry = map.get(officer) || { cattle: [], farmers: new Set() };
+      const officerKey = this.officerKey(c);
+      const entry = map.get(officerKey) || {
+        officerName: c.fieldOfficerName || 'Unknown Officer',
+        officerLabel: this.officerLabel(c),
+        cattle: [],
+        farmers: new Set<string>()
+      };
       entry.cattle.push(c);
       if (c.farmerId) entry.farmers.add(c.farmerId);
       else if (c.farmerName) entry.farmers.add(c.farmerName);
-      map.set(officer, entry);
+      map.set(officerKey, entry);
     }
     return Array.from(map.entries())
-      .map(([officerName, { cattle, farmers }]) => {
+      .map(([officerKey, { officerName, officerLabel, cattle, farmers }]) => {
         const searched = cattle.filter(c => (c.searchCount || 0) > 0).length;
-        const blockedCount = (this.duplicateEnrolmentsByOfficer.get(officerName) || []).length;
+        const blockedCount = (this.duplicateEnrolmentsByOfficer.get(officerKey) || []).length;
         return {
+          officerKey,
           officerName,
+          officerLabel,
           totalCattle: cattle.length,
           searchedCount: searched,
           notSearchedCount: cattle.length - searched,
@@ -2268,9 +2220,9 @@ export class AppComponent implements OnInit, OnDestroy {
     searchedCount: number;
     notSearchedCount: number;
   }> {
-    if (!this.selectedOfficerName) return [];
+    if (!this.selectedOfficerKey) return [];
     const cattle = this.uniqueCattleInventory.filter(
-      c => (c.fieldOfficerName || 'Unknown Officer') === this.selectedOfficerName
+      c => this.officerKey(c) === this.selectedOfficerKey
     );
     const map = new Map<string, { farmerId: string; farmerName: string; cattle: CattleSummary[] }>();
     for (const c of cattle) {
@@ -2294,7 +2246,8 @@ export class AppComponent implements OnInit, OnDestroy {
     return group ? group.cattle.sort((a, b) => Number(a.cattleNumber || 0) - Number(b.cattleNumber || 0)) : [];
   }
 
-  drillToOfficer(officerName: string): void {
+  drillToOfficer(officerKey: string, officerName: string): void {
+    this.selectedOfficerKey = officerKey;
     this.selectedOfficerName = officerName;
     this.selectedFarmerKey2 = '';
     this.selectedAdminCattle = undefined;
@@ -2314,6 +2267,7 @@ export class AppComponent implements OnInit, OnDestroy {
       this.selectedAdminCattle = undefined;
     } else if (this.recordsLevel === 'farmers') {
       this.recordsLevel = 'officers';
+      this.selectedOfficerKey = '';
       this.selectedOfficerName = '';
       this.selectedFarmerKey2 = '';
       this.selectedAdminCattle = undefined;
@@ -2354,7 +2308,9 @@ export class AppComponent implements OnInit, OnDestroy {
           cattleLabel: cattle.cattleLabel || `Cattle ${cattle.cattleNumber || ''}`.trim(),
           farmerId: cattle.farmerId,
           farmerName: cattle.farmerName,
+          fieldOfficerId: cattle.fieldOfficerId || '',
           fieldOfficerName: cattle.fieldOfficerName || 'Unknown officer',
+          officerKey: this.officerKey(cattle),
           searchCount: searches.length,
           lastSearchDate: latestSearch?.captureDate || null
         };
@@ -2364,7 +2320,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   get filteredCattleSearchCoverageRows(): CattleSearchCoverageRow[] {
     return this.cattleSearchCoverageRows.filter((row) => {
-      const officerMatches = this.coverageFilterOfficer === 'all' || row.fieldOfficerName === this.coverageFilterOfficer;
+      const officerMatches = this.coverageFilterOfficer === 'all' || row.officerKey === this.coverageFilterOfficer;
       const statusMatches = this.coverageFilterStatus === 'all'
         || (this.coverageFilterStatus === 'searched' && row.searchCount > 0)
         || (this.coverageFilterStatus === 'not_searched' && row.searchCount === 0);
@@ -2372,12 +2328,14 @@ export class AppComponent implements OnInit, OnDestroy {
     });
   }
 
-  get coverageOfficerNames(): string[] {
-    return Array.from(new Set(this.uniqueCattleInventory.map((cattle) => cattle.fieldOfficerName || 'Unknown officer'))).sort();
+  get coverageOfficerOptions(): Array<{ key: string; label: string }> {
+    const officers = new Map<string, string>();
+    for (const cattle of this.uniqueCattleInventory) officers.set(this.officerKey(cattle), this.officerLabel(cattle));
+    return Array.from(officers, ([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label));
   }
 
   get selectedCoverageMetrics(): { enrolled: number; searched: number; notSearched: number; coveragePercent: number } {
-    const rows = this.cattleSearchCoverageRows.filter((row) => this.coverageFilterOfficer === 'all' || row.fieldOfficerName === this.coverageFilterOfficer);
+    const rows = this.cattleSearchCoverageRows.filter((row) => this.coverageFilterOfficer === 'all' || row.officerKey === this.coverageFilterOfficer);
     const searched = rows.filter((row) => row.searchCount > 0).length;
     return {
       enrolled: rows.length,
@@ -2388,11 +2346,12 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   get officerEnrollmentCoverage(): OfficerEnrollmentCoverage[] {
-    return this.coverageOfficerNames.map((officer) => {
-      const rows = this.cattleSearchCoverageRows.filter((row) => row.fieldOfficerName === officer);
+    return this.coverageOfficerOptions.map(({ key, label }) => {
+      const rows = this.cattleSearchCoverageRows.filter((row) => row.officerKey === key);
       const searched = rows.filter((row) => row.searchCount > 0).length;
       return {
-        officer,
+        officerKey: key,
+        officer: label,
         enrolled: rows.length,
         searched,
         notSearched: rows.length - searched,
@@ -2439,15 +2398,28 @@ export class AppComponent implements OnInit, OnDestroy {
     };
   }
 
+  get duplicateGateMetrics(): { reviewed: number; correct: number; incorrect: number; accuracy: number } {
+    const reviews = this.allMatchReviews.filter((review) =>
+      review.workflow === 'cattle_enrolment' && review.decision === 'matched_existing'
+    );
+    const correct = reviews.filter((review) => ['confirmed', 'found_correct'].includes(review.reviewStatus)).length;
+    const incorrect = reviews.filter((review) => ['found_incorrect', 'wrong_moved_to_registered'].includes(review.reviewStatus)).length;
+    const reviewed = correct + incorrect;
+    return { reviewed, correct, incorrect, accuracy: this.percent(correct, reviewed) };
+  }
+
   get officerFieldSummaries(): OfficerFieldSummary[] {
-    const groups = new Map<string, MatchReview[]>();
+    const groups = new Map<string, { label: string; reviews: MatchReview[] }>();
     for (const review of this.allMatchReviews) {
-      const officer = review.fieldOfficerName || 'Unknown officer';
-      groups.set(officer, [...(groups.get(officer) || []), review]);
+      const key = this.officerKey(review);
+      const group = groups.get(key) || { label: this.officerLabel(review), reviews: [] };
+      group.reviews.push(review);
+      groups.set(key, group);
     }
 
     return Array.from(groups.entries())
-      .map(([officer, reviews]) => {
+      .map(([officerKey, group]) => {
+        const reviews = group.reviews;
         const searchReviews = reviews.filter((review) => this.isCattleSearchCandidate(review));
         const reviewed = searchReviews.filter((review) => this.isReviewedCattleSearch(review));
         const cattleFoundCorrect = reviewed.filter((review) => this.isCattleFoundCorrect(review)).length;
@@ -2460,7 +2432,8 @@ export class AppComponent implements OnInit, OnDestroy {
         const avgScore = this.percent(searchReviews.reduce((total, review) => total + Number(review.confidence || 0), 0), searchReviews.length);
 
         return {
-          officer,
+          officerKey,
+          officer: group.label,
           cattleSearches: searchReviews.length,
           reviewedSearches: reviewed.length,
           cattleFoundCorrect,
@@ -2476,13 +2449,20 @@ export class AppComponent implements OnInit, OnDestroy {
       .sort((a, b) => b.reviewedSearches - a.reviewedSearches || b.cattleSearches - a.cattleSearches || a.officer.localeCompare(b.officer));
   }
 
+  private officerKey(value: { fieldOfficerId?: string; fieldOfficerName?: string }): string {
+    const id = String(value.fieldOfficerId || '').trim().toLowerCase();
+    return id ? `id:${id}` : `legacy-name:${String(value.fieldOfficerName || 'unknown').trim().toLowerCase()}`;
+  }
+
+  private officerLabel(value: { fieldOfficerId?: string; fieldOfficerName?: string }): string {
+    const name = String(value.fieldOfficerName || 'Unknown officer').trim() || 'Unknown officer';
+    const id = String(value.fieldOfficerId || '').trim();
+    return id ? `${name} (${id})` : name;
+  }
+
   isCattleSearchCandidate(review: MatchReview): boolean {
-    const isSearch = review.workflow === 'cattle_search';
-    const isReviewedEnrolmentDuplicate =
-      review.workflow === 'cattle_enrolment'
-      && review.decision === 'matched_existing'
-      && ['found_correct', 'found_incorrect', 'wrong_moved_to_registered', 'confirmed'].includes(review.reviewStatus);
-    return (isSearch || isReviewedEnrolmentDuplicate) && (review.decision === 'matched_existing' || review.decision === 'new_cattle');
+    return review.workflow === 'cattle_search'
+      && (review.decision === 'matched_existing' || review.decision === 'new_cattle');
   }
 
   isReviewedCattleSearch(review: MatchReview): boolean {
@@ -2496,7 +2476,14 @@ export class AppComponent implements OnInit, OnDestroy {
     ].includes(review.reviewStatus);
   }
   expectedCattleId(review: MatchReview): string | null {
-    return review.correctCattleId || null;
+    if (review.correctCattleId) return review.correctCattleId;
+    if (
+      review.decision === 'matched_existing'
+      && (review.reviewStatus === 'found_correct' || review.reviewStatus === 'confirmed')
+    ) {
+      return review.matchedCattleId || null;
+    }
+    return null;
   }
 
   isCorrectMatchedReview(review: MatchReview): boolean {
@@ -2807,28 +2794,27 @@ export class AppComponent implements OnInit, OnDestroy {
     return `FARM-${Math.random().toString(36).slice(2, 10).toUpperCase().padEnd(8, 'X')}`;
   }
   private async detectMuzzleForCapture(slot: number): Promise<LocalMuzzleDetection> {
-    if (!this.offlineCaptureId && navigator.onLine && Date.now() > this.backendMuzzleFallbackUntil) {
+    if (navigator.onLine && Date.now() > this.backendMuzzleFallbackUntil) {
       try {
         this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on server...`;
-        const frame = await this.frameBlob(1280, 0.82);
-        const response = await this.withTimeout(
-          firstValueFrom(this.api.checkMuzzleFrame(frame)),
-          2500,
-          'Server muzzle check timed out.'
-        );
+      const frame = await this.frameBlob(1280, 0.82);
+      const response = await this.withTimeout(
+        firstValueFrom(this.api.checkMuzzleFrame(frame)),
+        4000,
+        'Server muzzle check timed out.'
+      );
 
-        if (response.backendUnavailable) {
-          throw new Error(response.error || 'Backend muzzle model is unavailable.');
-        }
+      if (response.backendUnavailable) {
+        throw new Error(response.error || 'Backend muzzle model is unavailable.');
+      }
 
-        return this.backendGateToLocalDetection(response);
-      } catch (error) {
+      return this.backendGateToLocalDetection(response);
+      } catch {
         this.backendMuzzleFallbackUntil = Date.now() + 30000;
-        this.message = 'Server muzzle check not available. Using phone model.';
+        this.message = 'Server check unavailable. Checking this photo on the phone...';
       }
     }
 
-    this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on phone...`;
     return this.muzzleDetector.detectAndCrop(this.video!.nativeElement);
   }
 
@@ -2893,7 +2879,8 @@ export class AppComponent implements OnInit, OnDestroy {
 
     this.clearingPhoneData = true;
     try {
-      const removed = await this.offlineStorage.clearFailedAndDraftCaptures();
+      const ownerKey = this.currentUser?.agentId || this.currentUser?.userId || this.currentUser?.phone || '';
+      const removed = await this.offlineStorage.clearFailedAndDraftCaptures(ownerKey);
       this.pendingSyncCount = await this.syncService.refreshPendingCount();
       await this.refreshPhoneStorageEstimate();
       this.message = removed
@@ -2926,6 +2913,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.enrollment = undefined;
     this.cattleId = '';
     this.offlineCaptureId = undefined;
+    this.lastMuzzleSavedAt = 0;
     this.captureStartTime = 0;
     this.selectedFarmerKey = '';
     this.farmerMatches = [];
@@ -2955,6 +2943,10 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   }
   private errorMessage(error: unknown): string {
+    if (error instanceof HttpErrorResponse && error.status === 401) {
+      this.logout();
+      return 'Your session expired. Sign in again.';
+    }
     if (error instanceof HttpErrorResponse && error.error?.error) {
       if (Array.isArray(error.error.missing) && error.error.missing.length) {
         return `${error.error.error} Missing on server: ${error.error.missing.join(', ')}. Retake only these photos.`;

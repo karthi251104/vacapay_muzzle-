@@ -8,7 +8,7 @@
     "build": "node scripts/write-runtime-config.mjs && ng build --configuration production",
     "build:netlify": "node scripts/write-runtime-config.mjs --require-url && ng build --configuration production",
     "build:field": "node scripts/write-runtime-config.mjs --require-url && ng build --configuration field",
-    "android:sync": "pnpm run build:field && cap sync android",
+    "android:sync": "npm run build:field && cap sync android",
     "android:open": "cap open android"
   },
   "dependencies": {
@@ -28,6 +28,9 @@
     "@capacitor/geolocation": "^8.2.0",
     "@capacitor/network": "^8.0.1",
     "@capacitor/preferences": "^8.0.1",
+    "@tensorflow/tfjs-backend-cpu": "4.9.0",
+    "@tensorflow/tfjs-core": "4.9.0",
+    "@tensorflow/tfjs-tflite": "0.0.1-alpha.10",
     "rxjs": "^7.8.1",
     "tslib": "^2.8.1",
     "zone.js": "^0.14.10"

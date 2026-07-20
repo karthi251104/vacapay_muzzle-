@@ -8,12 +8,6 @@ import cv2
 import numpy as np
 
 MODEL_INPUT_SIZE = 640
-MIN_GOOD_CONFIDENCE = 0.50
-MIN_BAD_CONFIDENCE = 0.45
-BAD_DOMINANCE_MARGIN = 0.12
-MIN_SHARPNESS_SCORE = 18
-
-
 def normalize_name(name):
     return str(name or '').strip().lower().replace('_', ' ').replace('-', ' ')
 
@@ -93,18 +87,18 @@ def detect_candidates(model, image_path):
     return candidates
 
 
-def select_best(candidates):
+def select_best(candidates, min_good_confidence, min_bad_confidence, bad_dominance_margin):
     good = None
     bad = None
     for candidate in candidates:
-        if candidate['kind'] == 'good' and candidate['confidence'] >= MIN_GOOD_CONFIDENCE:
+        if candidate['kind'] == 'good' and candidate['confidence'] >= min_good_confidence:
             if good is None or candidate['confidence'] > good['confidence']:
                 good = candidate
-        elif candidate['kind'] == 'bad' and candidate['confidence'] >= MIN_BAD_CONFIDENCE:
+        elif candidate['kind'] == 'bad' and candidate['confidence'] >= min_bad_confidence:
             if bad is None or candidate['confidence'] > bad['confidence']:
                 bad = candidate
     if good:
-        if bad and bad['confidence'] >= good['confidence'] + BAD_DOMINANCE_MARGIN:
+        if bad and bad['confidence'] >= good['confidence'] + bad_dominance_margin:
             return bad
         return good
     return bad or good
@@ -120,6 +114,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', required=True)
     parser.add_argument('--input', required=True)
+    parser.add_argument('--good-conf', type=float, default=0.55)
+    parser.add_argument('--bad-conf', type=float, default=0.45)
+    parser.add_argument('--bad-margin', type=float, default=0.12)
+    parser.add_argument('--min-sharpness', type=float, default=18)
     args = parser.parse_args()
 
     model_path = Path(args.model)
@@ -133,7 +131,7 @@ def main():
 
     model = load_model(model_path)
     candidates = detect_candidates(model, input_path)
-    best = select_best(candidates)
+    best = select_best(candidates, args.good_conf, args.bad_conf, args.bad_margin)
     if not best:
         print(json.dumps({
             'accepted': False,
@@ -158,7 +156,7 @@ def main():
         return
 
     crop_quality = sharpness(image, best['bbox'])
-    if crop_quality < MIN_SHARPNESS_SCORE:
+    if crop_quality < args.min_sharpness:
         print(json.dumps({
             'accepted': False,
             'reason': f'Image is blurry ({round(crop_quality)} sharpness).',

@@ -36,15 +36,30 @@
                   "input": "generated",
                   "output": "assets"
                 },
+                {
+                  "glob": "tf-core.min.js",
+                  "input": "node_modules/@tensorflow/tfjs-core/dist",
+                  "output": "assets/vendor"
+                },
+                {
+                  "glob": "tf-backend-cpu.min.js",
+                  "input": "node_modules/@tensorflow/tfjs-backend-cpu/dist",
+                  "output": "assets/vendor"
+                },
+                {
+                  "glob": "tf-tflite.min.js",
+                  "input": "node_modules/@tensorflow/tfjs-tflite/dist",
+                  "output": "assets/vendor"
+                },
                 "src/manifest.json",
                 "src/sw.js"
               ],
               "budgets": [
-                {
-                  "type": "initial",
-                  "maximumWarning": "500kB",
-                  "maximumError": "1MB"
-                }
+                  {
+                    "type": "initial",
+                    "maximumWarning": "600kB",
+                    "maximumError": "1MB"
+                  }
               ],
               "outputHashing": "all"
             },
@@ -60,6 +75,21 @@
                   "glob": "runtime-config.js",
                   "input": "generated",
                   "output": "assets"
+                },
+                {
+                  "glob": "tf-core.min.js",
+                  "input": "node_modules/@tensorflow/tfjs-core/dist",
+                  "output": "assets/vendor"
+                },
+                {
+                  "glob": "tf-backend-cpu.min.js",
+                  "input": "node_modules/@tensorflow/tfjs-backend-cpu/dist",
+                  "output": "assets/vendor"
+                },
+                {
+                  "glob": "tf-tflite.min.js",
+                  "input": "node_modules/@tensorflow/tfjs-tflite/dist",
+                  "output": "assets/vendor"
                 },
                 "src/manifest.json",
                 "src/sw.js"

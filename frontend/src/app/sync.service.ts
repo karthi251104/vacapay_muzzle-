@@ -15,19 +15,29 @@ export class SyncService {
   totalCaptures = 0;
 
   private syncInProgress = false;
-  private readonly recoveryReady: Promise<void>;
+  private activeOwnerKey = '';
+  private recoveryReady: Promise<void> = Promise.resolve();
   constructor(
     private readonly api: ApiService,
     private readonly offlineStorage: OfflineStorageService
   ) {
-    this.recoveryReady = this.offlineStorage.resetStuckSyncingToPending().catch(() => undefined);
+  }
+
+  setActiveOwner(ownerKey: string): void {
+    const normalized = String(ownerKey || '').trim().toLowerCase();
+    if (normalized === this.activeOwnerKey) return;
+    this.activeOwnerKey = normalized;
+    this.pendingCount = 0;
+    this.recoveryReady = normalized
+      ? this.offlineStorage.resetStuckSyncingToPending(normalized).catch(() => undefined)
+      : Promise.resolve();
     void this.recoveryReady.then(() => this.refreshPendingCount());
   }
 
   async refreshPendingCount(): Promise<number> {
     try {
       await this.recoveryReady;
-      this.pendingCount = await this.offlineStorage.getPendingCount();
+      this.pendingCount = await this.offlineStorage.getPendingCount(this.activeOwnerKey);
     } catch {
       this.pendingCount = 0;
     }
@@ -35,7 +45,7 @@ export class SyncService {
   }
 
   async syncAll(): Promise<{ synced: number; failed: number }> {
-    if (this.syncInProgress || !navigator.onLine) {
+    if (this.syncInProgress || !navigator.onLine || !this.activeOwnerKey) {
       return { synced: 0, failed: 0 };
     }
 
@@ -49,7 +59,7 @@ export class SyncService {
 
     try {
       await this.recoveryReady;
-      const pending = await this.offlineStorage.getAllPending();
+      const pending = await this.offlineStorage.getAllPending(this.activeOwnerKey);
       this.totalCaptures = pending.length;
 
       for (let captureIndex = 0; captureIndex < pending.length; captureIndex += 1) {

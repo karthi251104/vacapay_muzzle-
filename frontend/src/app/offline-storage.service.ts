@@ -49,7 +49,7 @@ export interface FarmerSyncInfo {
 // New field-test cycle: do not sync stale captures left by earlier test builds.
 // Bump the database name whenever the server field data is deliberately reset.
 const DB_NAME = 'vacapay_offline_v4';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORE_NAME = 'pending_captures';
 const FARMER_STORE_NAME = 'farmers';
 const META_STORE_NAME = 'metadata';
@@ -82,6 +82,13 @@ export class OfflineStorageService {
           const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
           store.createIndex('syncStatus', 'syncStatus', { unique: false });
           store.createIndex('createdAt', 'createdAt', { unique: false });
+          store.createIndex('fieldOfficerId', 'fieldOfficerId', { unique: false });
+        } else {
+          const tx = (event.target as IDBOpenDBRequest).transaction;
+          const store = tx?.objectStore(STORE_NAME);
+          if (store && !store.indexNames.contains('fieldOfficerId')) {
+            store.createIndex('fieldOfficerId', 'fieldOfficerId', { unique: false });
+          }
         }
         if (!db.objectStoreNames.contains(FARMER_STORE_NAME)) {
           const farmerStore = db.createObjectStore(FARMER_STORE_NAME, { keyPath: 'key' });
@@ -116,9 +123,10 @@ export class OfflineStorageService {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
-      const request = store.put(capture);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(new Error('Failed to save capture to IndexedDB'));
+      store.put(capture);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(new Error('Failed to save capture to IndexedDB'));
+      tx.onabort = () => reject(new Error('Saving the capture was cancelled'));
     });
   }
 
@@ -133,9 +141,12 @@ export class OfflineStorageService {
     });
   }
 
-  async getAllPending(): Promise<PendingCapture[]> {
+  async getAllPending(ownerKey: string): Promise<PendingCapture[]> {
+    const safeOwnerKey = this.normalizeOwnerKey(ownerKey);
+    if (!safeOwnerKey) return [];
     const captures = await this.getAllCaptures();
     return captures
+      .filter((capture) => this.captureOwnerKey(capture) === safeOwnerKey)
       .filter((capture) => ['pending', 'failed', 'syncing'].includes(capture.syncStatus))
       .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
   }
@@ -156,9 +167,10 @@ export class OfflineStorageService {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
       const store = tx.objectStore(STORE_NAME);
-      const request = store.delete(id);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(new Error('Failed to delete capture'));
+      store.delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(new Error('Failed to delete capture'));
+      tx.onabort = () => reject(new Error('Deleting the capture was cancelled'));
     });
   }
 
@@ -181,24 +193,29 @@ export class OfflineStorageService {
     await this.saveCapture(capture);
   }
 
-  async resetStuckSyncingToPending(): Promise<void> {
+  async resetStuckSyncingToPending(ownerKey: string): Promise<void> {
+    const safeOwnerKey = this.normalizeOwnerKey(ownerKey);
+    if (!safeOwnerKey) return;
     const captures = await this.getAllCaptures();
     await Promise.all(captures
-      .filter((capture) => capture.syncStatus === 'syncing')
+      .filter((capture) => this.captureOwnerKey(capture) === safeOwnerKey && capture.syncStatus === 'syncing')
       .map((capture) => {
         capture.syncStatus = 'pending';
         return this.saveCapture(capture);
       }));
   }
 
-  async getPendingCount(): Promise<number> {
-    const pending = await this.getAllPending();
+  async getPendingCount(ownerKey: string): Promise<number> {
+    const pending = await this.getAllPending(ownerKey);
     return pending.length;
   }
 
-  async clearFailedAndDraftCaptures(): Promise<number> {
+  async clearFailedAndDraftCaptures(ownerKey: string): Promise<number> {
+    const safeOwnerKey = this.normalizeOwnerKey(ownerKey);
+    if (!safeOwnerKey) return 0;
     const captures = await this.getAllCaptures();
-    const removable = captures.filter((capture) => capture.syncStatus === 'failed' || capture.syncStatus === 'draft');
+    const removable = captures.filter((capture) => this.captureOwnerKey(capture) === safeOwnerKey
+      && (capture.syncStatus === 'failed' || capture.syncStatus === 'draft'));
     await Promise.all(removable.map((capture) => this.deleteCapture(capture.id)));
     return removable.length;
   }
@@ -327,7 +344,11 @@ export class OfflineStorageService {
   }
 
   private normalizeOwnerKey(ownerKey: string): string {
-    return String(ownerKey || 'unknown').trim().toLowerCase() || 'unknown';
+    return String(ownerKey || '').trim().toLowerCase();
+  }
+
+  private captureOwnerKey(capture: PendingCapture): string {
+    return this.normalizeOwnerKey(capture.fieldOfficerId || '');
   }
 
   private farmerSyncKey(ownerKey: string): string {

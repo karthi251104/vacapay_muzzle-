@@ -255,6 +255,14 @@
                     </table>
                 </div>
             </div>
+            <div class="ad-duplicate-summary" *ngIf="duplicateGateMetrics.reviewed > 0">
+                <div>
+                    <span>Enrollment duplicate gate</span>
+                    <strong>{{ duplicateGateMetrics.accuracy }}%</strong>
+                </div>
+                <p>{{ duplicateGateMetrics.correct }} correct blocks &middot; {{ duplicateGateMetrics.incorrect }} false
+                    blocks corrected by admin. This metric is separate from Cattle Search Top-1/Top-5.</p>
+            </div>
         </div>
 
         <!-- Coverage by officer -->
@@ -267,7 +275,7 @@
                 <div class="ad-filter-row">
                     <select [(ngModel)]="coverageFilterOfficer" class="ad-select">
                         <option value="all">All Officers</option>
-                        <option *ngFor="let o of coverageOfficerNames" [value]="o">{{ o }}</option>
+                        <option *ngFor="let o of coverageOfficerOptions" [value]="o.key">{{ o.label }}</option>
                     </select>
                 </div>
             </div>
@@ -288,7 +296,7 @@
                     <span>Officer</span><span>Enrolled</span><span>Searched</span><span>Coverage</span>
                 </div>
                 <button type="button" class="ad-officer-row" *ngFor="let o of officerEnrollmentCoverage"
-                    (click)="coverageFilterOfficer = o.officer">
+                    (click)="coverageFilterOfficer = o.officerKey">
                     <span class="ad-officer-name">
                         <div class="ad-mini-avatar">{{ o.officer.charAt(0) }}</div>
                         {{ o.officer }}
@@ -317,7 +325,7 @@
         <!-- Breadcrumb navigation -->
         <div class="dr-breadcrumb" *ngIf="recordsLevel !== 'officers'">
             <button type="button" class="dr-bc-item"
-                (click)="recordsLevel = 'officers'; selectedOfficerName = ''; selectedFarmerKey2 = ''; selectedAdminCattle = undefined">
+                (click)="recordsLevel = 'officers'; selectedOfficerKey = ''; selectedOfficerName = ''; selectedFarmerKey2 = ''; selectedAdminCattle = undefined">
                 All Officers
             </button>
             <span class="dr-bc-sep">›</span>
@@ -347,10 +355,10 @@
 
             <div class="dr-officer-grid">
                 <button type="button" class="dr-officer-card" *ngFor="let o of officerGroups"
-                    (click)="drillToOfficer(o.officerName)">
+                    (click)="drillToOfficer(o.officerKey, o.officerLabel)">
                     <div class="dr-officer-avatar">{{ o.officerName.charAt(0).toUpperCase() }}</div>
                     <div class="dr-officer-body">
-                        <strong>{{ o.officerName }}</strong>
+                        <strong>{{ o.officerLabel }}</strong>
                         <p>{{ o.farmerCount }} farmers · {{ o.totalCattle }} cattle</p>
                         <div class="dr-progress-row">
                             <div class="dr-progress-track">
@@ -421,7 +429,7 @@
 
             <!-- Blocked duplicate enrolments for this officer -->
             <div class="dr-blocked-section"
-                *ngIf="(duplicateEnrolmentsByOfficer.get(selectedOfficerName) || []).length > 0">
+                *ngIf="(duplicateEnrolmentsByOfficer.get(selectedOfficerKey) || []).length > 0">
                 <!-- Header -->
                 <div class="drb-header">
                     <div class="drb-header-left">
@@ -438,14 +446,14 @@
                             <p>These need your review before they can be finalised</p>
                         </div>
                     </div>
-                    <span class="drb-count">{{ (duplicateEnrolmentsByOfficer.get(selectedOfficerName) || []).length }}
+                    <span class="drb-count">{{ (duplicateEnrolmentsByOfficer.get(selectedOfficerKey) || []).length }}
                         pending</span>
                 </div>
 
                 <!-- Cards -->
                 <div class="drb-list">
                     <div class="drb-card"
-                        *ngFor="let d of (duplicateEnrolmentsByOfficer.get(selectedOfficerName) || [])">
+                        *ngFor="let d of (duplicateEnrolmentsByOfficer.get(selectedOfficerKey) || [])">
 
                         <!-- Card header -->
                         <div class="drb-card-header">
@@ -666,7 +674,7 @@
                     </select>
                     <select [(ngModel)]="reviewFilterOfficer" (change)="applyReviewFilter()" class="ad-select">
                         <option value="all">All Officers</option>
-                        <option *ngFor="let o of officerNamesForFilter" [value]="o">{{ o }}</option>
+                        <option *ngFor="let o of officerOptionsForFilter" [value]="o.key">{{ o.label }}</option>
                     </select>
                     <button type="button" class="ad-btn-ghost" (click)="toggleReviewMode()">{{ showAllReviews ? 'Open
                         Only' : 'Show All' }}</button>
@@ -1328,7 +1336,6 @@
             <div class="action-row camera-actions" *ngIf="evidenceCameraActive">
                 <button type="button" class="ghost" (click)="cameraOn ? stopEvidenceCamera() : startCamera()">{{
                     cameraOn ? 'Stop Camera' : 'Start Camera' }}</button>
-                <button type="button" class="ghost" *ngIf="cameraOn" (click)="skipEvidencePhoto()">Skip</button>
                 <button type="button" class="primary-action" *ngIf="cameraOn" (click)="captureEvidencePhoto()">Capture
                     Photo</button>
             </div>
