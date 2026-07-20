@@ -373,11 +373,11 @@ export class ApiService {
   }
 
   embeddingStatus(): Observable<EmbeddingStatus> {
-    return this.http.get<EmbeddingStatus>(`${this.baseUrl}/embedding/status`);
+    return this.http.get<EmbeddingStatus>(`${this.baseUrl}/embedding/status`, { headers: this.authHeaders() });
   }
 
   pineconeStatus(): Observable<PineconeStatus> {
-    return this.http.get<PineconeStatus>(`${this.baseUrl}/pinecone/status`);
+    return this.http.get<PineconeStatus>(`${this.baseUrl}/pinecone/status`, { headers: this.authHeaders() });
   }
 
   appVersion(): Observable<AppVersionStatus> {
