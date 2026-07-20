@@ -426,6 +426,7 @@ export class AppComponent implements OnInit, OnDestroy {
       if (this.currentUser.role === 'agent') {
         this.fieldOfficerName = this.currentUser.name;
         this.syncService.setActiveOwner(this.currentUser.agentId || this.currentUser.userId || this.currentUser.phone);
+        this.loadCattleInventory();
       }
       if (this.currentUser.role === 'admin') {
         this.loadAgents();
@@ -2632,6 +2633,10 @@ export class AppComponent implements OnInit, OnDestroy {
 
   get registeredCattleCount(): number {
     return this.cattleStats?.uniqueCattleCount || this.cattleStats?.cattleCount || this.uniqueCattleInventory.length || 0;
+  }
+
+  get searchedCattleCount(): number {
+    return this.uniqueCattleInventory.filter((cattle) => (cattle.searchCount || 0) > 0).length;
   }
 
   get isCattleSearchFlow(): boolean {
