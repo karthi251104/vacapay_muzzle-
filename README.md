@@ -9,6 +9,7 @@ handoff guide first:
 
 - [Complete Windows setup, local run, Cloudflare, APK and Git push](docs/COLLEAGUE_SETUP.md)
 - [Full field workflow](docs/FIELD_APP_FULL_WORKFLOW.md)
+- [App architecture, diagrams, model scores and metrics](docs/APP_ARCHITECTURE_AND_METRICS.md)
 - [Production deployment](docs/PRODUCTION_DEPLOYMENT.md)
 
 The setup guide includes Git LFS model download, Node/pnpm/Python installation,
@@ -19,7 +20,7 @@ Cloudflare phone testing, verification, troubleshooting and safe Git commands.
 
 - **Admin website:** administrator accounts only. It provides enrolment inventory, cattle-search metrics, query evidence, Top-5 visual cattle comparisons, the full Top-20 ranking, and review decisions.
 - **Android field app:** field officer capture and offline upload. Browser sessions reject field officer accounts; the field workflow is enabled only inside the Capacitor Android application.
-- **Backend:** Express, MongoDB Atlas, Cloudinary, DINOv2 and Pinecone run locally, through Docker, or on a Linux host with sufficient memory. A local PC can be exposed temporarily with Cloudflare Tunnel for controlled field testing. See [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md).
+- **Backend:** Express, MongoDB Atlas, Cloudinary, backend YOLO `best.pt`, DINOv2 and Pinecone run locally, through Docker, or on a Linux host with sufficient memory. A local PC can be exposed temporarily with Cloudflare Tunnel for controlled field testing. See [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md).
 - **Netlify admin hosting:** `netlify.toml` builds only the lightweight admin target and injects the backend API URL from `VACAPAY_API_BASE_URL`.
 
 The admin review expands each cattle search into query muzzle and side images, Top-5 candidate cattle with enrolled muzzle and body evidence, and Top-20 ranked identities. Selecting a candidate records the expected cattle identity for field accuracy metrics.
@@ -37,9 +38,11 @@ Use cattle enrolment to create clean registered cattle identities. Use cattle se
 
 - Complete developer setup: [docs/COLLEAGUE_SETUP.md](docs/COLLEAGUE_SETUP.md)
 - Full workflow: [docs/FIELD_APP_FULL_WORKFLOW.md](docs/FIELD_APP_FULL_WORKFLOW.md)
+- Architecture and metrics: [docs/APP_ARCHITECTURE_AND_METRICS.md](docs/APP_ARCHITECTURE_AND_METRICS.md)
 - Backend: [backend/src/server.js](backend/src/server.js)
 - Agent/Admin UI: [frontend/src/app/app.component.html](frontend/src/app/app.component.html)
-- Phone TFLite muzzle check: [frontend/src/app/tflite-muzzle-detector.service.ts](frontend/src/app/tflite-muzzle-detector.service.ts)
+- Backend YOLO PT muzzle check: [backend/scripts/yolo_pt_muzzle_check.py](backend/scripts/yolo_pt_muzzle_check.py)
+- Phone TFLite offline fallback: [frontend/src/app/tflite-muzzle-detector.service.ts](frontend/src/app/tflite-muzzle-detector.service.ts)
 - Offline storage: [frontend/src/app/offline-storage.service.ts](frontend/src/app/offline-storage.service.ts)
 - Offline sync: [frontend/src/app/sync.service.ts](frontend/src/app/sync.service.ts)
 
@@ -89,9 +92,7 @@ It preserves admin and field-officer accounts while clearing cattle enrolments, 
 Production note:
 
 ```text
-The browser app now has a phone-side TFLite muzzle gate.
-The final native Android app should keep the same flow but run the model from Android assets.
-The current browser PWA still loads TensorFlow JS/TFLite loader scripts from CDN before it can run the local best.tflite model, so true first-use offline Android production still requires bundling that runtime in the native app.
+The app now has a hybrid muzzle gate. When online, it tries the backend YOLO PyTorch model at `backend/best.pt`. If the backend is unavailable or the phone is offline, it falls back to the phone-side TFLite model at `frontend/src/assets/models/best.tflite`. The final native Android app should keep the same offline-capable flow and bundle the phone model/runtime inside the APK.
 ```
 
 ## Agent Flow
@@ -169,10 +170,11 @@ The muzzle images are used for embeddings. Supporting images are used by admin t
 
 ## Phone Muzzle Gate And Blur Check
 
-The browser field app uses:
+The field app uses a hybrid muzzle gate:
 
 ```text
-frontend/src/assets/models/best.tflite
+online backend path: backend/best.pt
+offline phone fallback: frontend/src/assets/models/best.tflite
 ```
 
 Classes:
@@ -309,7 +311,7 @@ Production Android should run capture processing offline on the phone:
 
 ```text
 camera frame
--> YOLO TFLite muzzle detection
+-> YOLO/TFLite muzzle detection on phone when offline
 -> good/bad muzzle quality check
 -> crop
 -> CLAHE/local enhancement

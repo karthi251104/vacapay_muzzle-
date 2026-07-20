@@ -157,10 +157,11 @@ The 7 supporting images are for admin human verification when checking whether t
 
 ## 6. Phone Muzzle Gate And Quality Check
 
-The current browser field app loads the TFLite model from:
+The current field app uses a hybrid muzzle gate:
 
 ```text
-frontend/src/assets/models/best.tflite
+online backend path: backend/best.pt
+offline phone fallback: frontend/src/assets/models/best.tflite
 ```
 
 The model predicts two detection classes:
@@ -183,7 +184,7 @@ Capture logic:
 
 ```text
 camera frame
--> TFLite muzzle detector finds muzzle box
+-> backend YOLO PT or phone TFLite detector finds muzzle box
 -> if best class is bad muzzle, reject
 -> if good confidence is too low, reject
 -> crop the detected muzzle
@@ -259,7 +260,7 @@ That tells the backend:
 
 ```text
 image is already cropped by phone
-do not run backend YOLO crop again
+do not re-crop an already phone-processed muzzle
 save the crop as muzzle1/muzzle2/muzzle3
 ```
 
@@ -503,7 +504,7 @@ Top-20 candidate cattle list
 captured muzzle and supporting images
 capture duration in seconds
 app build version
-TFLite muzzle model version
+YOLO/TFLite muzzle model version
 DINOv2 model version
 embedding threshold used for that result
 ```

@@ -96,6 +96,7 @@ Verify both models:
 
 ```powershell
 Get-Item backend\dinov2_triplet_v2_best.pt
+Get-Item backend\best.pt
 Get-Item frontend\src\assets\models\best.tflite
 ```
 
@@ -104,6 +105,7 @@ Expected approximate sizes:
 ```text
 backend/dinov2_triplet_v2_best.pt       353 MB
 frontend/src/assets/models/best.tflite   80 MB
+backend/best.pt                          backend YOLO PT model
 ```
 
 If the `.pt` file is only a few bytes or contains text beginning with
@@ -216,6 +218,7 @@ Optional explicit Windows paths:
 ```dotenv
 PYTHON_BIN=E:\vacapay\.venv\Scripts\python.exe
 DINOV2_MODEL_PATH=E:\vacapay\backend\dinov2_triplet_v2_best.pt
+YOLO_MUZZLE_MODEL_PATH=E:\vacapay\backend\best.pt
 ```
 
 Rules:

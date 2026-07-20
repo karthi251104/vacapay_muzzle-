@@ -29,9 +29,10 @@ host. The image contains:
 - CPU-only PyTorch and torchvision.
 - Pillow and NumPy for DINOv2 image preparation.
 - `dinov2_triplet_v2_best.pt`.
+- `best.pt` backend YOLO good/bad muzzle detector.
 - A preloaded DINOv2 backbone cache.
 
-The backend intentionally contains no YOLO model. Android `best.tflite` performs the good/bad decision, crop and CLAHE before upload. The API rejects muzzle files that are not marked as phone processed.
+The backend now contains `backend/best.pt` for online YOLO good/bad muzzle checking and cropping through `/api/muzzle/check`. The Android/field app still keeps `best.tflite` as the offline fallback so capture can continue without internet. Uploaded muzzle files marked `clientProcessed=true` are treated as already cropped by the phone.
 
 Create a service from the GitHub repository and set these variables:
 
@@ -49,13 +50,14 @@ PINECONE_INDEX_HOST=<index-host>
 PINECONE_NAMESPACE=vacapay
 PINECONE_ENROLMENT_NAMESPACE=vacapay-cattle-enrolment
 PINECONE_SEARCH_NAMESPACE=vacapay-cattle-search
+YOLO_MUZZLE_MODEL_PATH=/app/models/best.pt
 EMBEDDING_MATCH_THRESHOLD=0.70
 CORS_ORIGINS=https://<admin-domain>,https://localhost,capacitor://localhost,http://localhost
 ```
 
 The deployment must pass `/api/health`. Production startup intentionally fails when a required service, secret or model file is missing.
 
-Use a service with at least 4 GB RAM and 2 vCPU for CPU PyTorch, DINOv2 and concurrent image processing. A 512 MB free instance is not sufficient and may be terminated while loading the model.
+Use a service with at least 4 GB RAM and 2 vCPU for CPU PyTorch, backend YOLO, DINOv2 and concurrent image processing. A 512 MB free instance is not sufficient and may be terminated while loading the model.
 
 MongoDB is the permanent metadata store, Cloudinary is the permanent image store and Pinecone is the vector store. Container local disk is temporary processing space only.
 
