@@ -2241,7 +2241,9 @@ const CRC32_TABLE = Array.from({ length: 256 }, (_, index) => {
 });
 function buildOwnerCattleNumberMap(rows) {
   const groups = new Map();
-  for (const row of rows.map(normalizeRecord).filter(Boolean)) {
+  // Display numbers belong only to canonical enrolled cattle. Search and
+  // duplicate-evidence records must never create gaps such as Cattle 1, 4.
+  for (const row of rows.map(normalizeRecord).filter(isRegisteredInventoryRecord)) {
     const key = ownerGroupKey(row);
     const group = groups.get(key) || [];
     group.push(row);
