@@ -29,7 +29,7 @@ const upload = multer({ dest: uploadDir });
 const PORT = Number(process.env.PORT || 3000);
 const PYTHON_BIN = resolvePythonBin();
 const DINOV2_MODEL_PATH = process.env.DINOV2_MODEL_PATH || path.join(__dirname, '..', 'dinov2_triplet_v2_best.pt');
-const TFLITE_MUZZLE_MODEL_PATH = process.env.TFLITE_MUZZLE_MODEL_PATH || path.join(rootDir, 'frontend', 'src', 'assets', 'models', 'best.tflite');
+const YOLO_MUZZLE_MODEL_PATH = process.env.YOLO_MUZZLE_MODEL_PATH || path.join(__dirname, '..', 'best.pt');
 const MUZZLE_CONF = Number(process.env.MUZZLE_CONF || 0.55);
 const MUZZLE_IMAGE_COUNT = Math.max(1, Number(process.env.MUZZLE_IMAGE_COUNT || 3));
 const EMBEDDING_MATCH_THRESHOLD = Number(process.env.EMBEDDING_MATCH_THRESHOLD || 0.70);
@@ -55,7 +55,7 @@ const PINECONE_ENROLMENT_NAMESPACE = process.env.PINECONE_ENROLMENT_NAMESPACE ||
 const PINECONE_SEARCH_NAMESPACE = process.env.PINECONE_SEARCH_NAMESPACE || `${PINECONE_NAMESPACE}-cattle-search`;
 const pineconeEnabled = Boolean(PINECONE_API_KEY && PINECONE_INDEX_HOST);
 const APP_VERSION = process.env.APP_VERSION || 'field-test-2026-07-14';
-const TFLITE_MUZZLE_MODEL_VERSION = process.env.TFLITE_MUZZLE_MODEL_VERSION || path.basename(TFLITE_MUZZLE_MODEL_PATH);
+const YOLO_MUZZLE_MODEL_VERSION = process.env.YOLO_MUZZLE_MODEL_VERSION || path.basename(YOLO_MUZZLE_MODEL_PATH);
 const DINOV2_MODEL_VERSION = process.env.DINOV2_MODEL_VERSION || path.basename(DINOV2_MODEL_PATH);
 const MUZZLE_IMAGE_FILES = Array.from({ length: MUZZLE_IMAGE_COUNT }, (_, index) => `muzzle${index + 1}.jpg`);
 const SUPPORT_IMAGE_FILES = [
@@ -225,7 +225,7 @@ app.get('/api/version', (_req, res) => {
   res.json({
     appVersion: APP_VERSION,
     captureWorkflowVersion: 'cattle-enrolment-search-v2',
-    tfliteMuzzleModelVersion: TFLITE_MUZZLE_MODEL_VERSION,
+    tfliteMuzzleModelVersion: YOLO_MUZZLE_MODEL_VERSION,
     dinov2ModelVersion: DINOV2_MODEL_VERSION,
     muzzleImageCount: MUZZLE_IMAGE_COUNT,
     thresholds: {
@@ -880,7 +880,7 @@ app.post('/api/cattle/:cattleId/approve-blocked', requireAuth, requireAdmin, asy
           thresholdPercent: Number(previousMatchResult.thresholdPercent || Math.round(EMBEDDING_MATCH_THRESHOLD * 100)),
           appVersion: APP_VERSION,
           captureWorkflowVersion: 'cattle-enrolment-search-v2',
-          tfliteMuzzleModelVersion: TFLITE_MUZZLE_MODEL_VERSION,
+          tfliteMuzzleModelVersion: YOLO_MUZZLE_MODEL_VERSION,
           dinov2ModelVersion: DINOV2_MODEL_VERSION,
           captureDurationSeconds: Number(session.captureDurationSeconds || 0) || null,
           muzzleImageCount: MUZZLE_IMAGE_COUNT,
@@ -1054,7 +1054,7 @@ app.post('/api/muzzle/check', requireAuth, upload.single('image'), async (req, r
       return;
     }
 
-    if (!existsSync(TFLITE_MUZZLE_MODEL_PATH)) {
+    if (!existsSync(YOLO_MUZZLE_MODEL_PATH)) {
       await fs.unlink(req.file.path).catch(() => { });
       res.status(503).json({
         accepted: false,
@@ -1065,9 +1065,9 @@ app.post('/api/muzzle/check', requireAuth, upload.single('image'), async (req, r
     }
 
     const result = await runPythonJson([
-      path.join(__dirname, '..', 'scripts', 'tflite_muzzle_check.py'),
+      path.join(__dirname, '..', 'scripts', 'yolo_pt_muzzle_check.py'),
       '--model',
-      TFLITE_MUZZLE_MODEL_PATH,
+      YOLO_MUZZLE_MODEL_PATH,
       '--input',
       req.file.path
     ]);
@@ -2744,7 +2744,7 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
     thresholdPercent: matchResult.thresholdPercent,
     appVersion: APP_VERSION,
     captureWorkflowVersion: 'cattle-enrolment-search-v2',
-    tfliteMuzzleModelVersion: TFLITE_MUZZLE_MODEL_VERSION,
+    tfliteMuzzleModelVersion: YOLO_MUZZLE_MODEL_VERSION,
     dinov2ModelVersion: DINOV2_MODEL_VERSION,
     captureDurationSeconds: Number(session.captureDurationSeconds || 0) || null,
     muzzleImageCount: MUZZLE_IMAGE_COUNT,

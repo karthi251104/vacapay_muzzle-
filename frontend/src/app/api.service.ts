@@ -59,7 +59,7 @@ export interface MuzzleGateResponse {
   bbox: [number, number, number, number] | null;
   imageSize: [number, number];
   cropBase64?: string;
-  source?: 'backend_tflite';
+  source?: 'backend_yolo_pt' | 'backend_tflite';
   backendUnavailable?: boolean;
   error?: string;
 }

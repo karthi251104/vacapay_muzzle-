@@ -3,4 +3,4 @@ opencv-python-headless
 pillow
 torch
 torchvision
-ai-edge-litert
+ultralytics
