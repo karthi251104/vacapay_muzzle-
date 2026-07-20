@@ -14,3 +14,12 @@ __pycache__/
 .venv-*/
 .active-tunnel-url
 builds/
+
+# Trained model binaries are private deployment artifacts. Existing tracked
+# models must also be removed from Git history before this fully protects them.
+*.pt
+*.pth
+*.tflite
+*.onnx
+*.engine
+*.ckpt

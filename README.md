@@ -10,6 +10,7 @@ handoff guide first:
 - [Complete Windows setup, local run, Cloudflare, APK and Git push](docs/COLLEAGUE_SETUP.md)
 - [Full field workflow](docs/FIELD_APP_FULL_WORKFLOW.md)
 - [App architecture, diagrams, model scores and metrics](docs/APP_ARCHITECTURE_AND_METRICS.md)
+- [Codex account handoff and model-security status](docs/CODEX_HANDOFF.md)
 - [Production deployment](docs/PRODUCTION_DEPLOYMENT.md)
 
 The setup guide includes Git LFS model download, Node/pnpm/Python installation,
@@ -39,6 +40,7 @@ Use cattle enrolment to create clean registered cattle identities. Use cattle se
 - Complete developer setup: [docs/COLLEAGUE_SETUP.md](docs/COLLEAGUE_SETUP.md)
 - Full workflow: [docs/FIELD_APP_FULL_WORKFLOW.md](docs/FIELD_APP_FULL_WORKFLOW.md)
 - Architecture and metrics: [docs/APP_ARCHITECTURE_AND_METRICS.md](docs/APP_ARCHITECTURE_AND_METRICS.md)
+- Codex continuation handoff: [docs/CODEX_HANDOFF.md](docs/CODEX_HANDOFF.md)
 - Backend: [backend/src/server.js](backend/src/server.js)
 - Agent/Admin UI: [frontend/src/app/app.component.html](frontend/src/app/app.component.html)
 - Backend YOLO PT muzzle check: [backend/scripts/yolo_pt_muzzle_check.py](backend/scripts/yolo_pt_muzzle_check.py)
