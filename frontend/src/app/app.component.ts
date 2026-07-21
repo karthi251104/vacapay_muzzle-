@@ -3,6 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 import { firstValueFrom } from 'rxjs';
 import { ApiService, AppUser, AppVersionStatus, CattleImageSummary, CattleMatch, CattleStats, CattleSummary, EmbeddingStatus, Enrollment, FarmerMatch, MatchReview, MuzzleGateResponse, MuzzleMatchResolution, PineconeStatus, YoloStatus } from './api.service';
 import { LocalMuzzleDetection, TfliteMuzzleDetectorService } from './tflite-muzzle-detector.service';
@@ -320,7 +321,7 @@ export class AppComponent implements OnInit, OnDestroy {
   officerOptionsForFilter: Array<{ key: string; label: string }> = [];
   loadedMatchedImages: Record<string, CattleImageSummary[]> = {};
   expandedReviewId = '';
-  readonly isNativeFieldApp = true;
+  readonly isNativeFieldApp = Capacitor.isNativePlatform();
 
   agentName = '';
   agentPhone = '';
@@ -424,6 +425,13 @@ export class AppComponent implements OnInit, OnDestroy {
         return;
       }
       if (this.currentUser.role === 'agent') {
+        if (!this.isNativeFieldApp) {
+          this.api.clearToken();
+          localStorage.removeItem('vacapay_user');
+          this.currentUser = undefined;
+          this.message = 'Field officer access is available in the Android app.';
+          return;
+        }
         this.fieldOfficerName = this.currentUser.name;
         this.syncService.setActiveOwner(this.currentUser.agentId || this.currentUser.userId || this.currentUser.phone);
         this.loadCattleInventory();
@@ -451,6 +459,12 @@ export class AppComponent implements OnInit, OnDestroy {
     this.message = 'Signing in...';
     this.api.login(this.loginIdentifier, this.loginPassword).subscribe({
       next: ({ token, user }) => {
+        if (!this.isNativeFieldApp && user.role !== 'admin') {
+          this.api.clearToken();
+          this.currentUser = undefined;
+          this.message = 'Use the Android app for field officer access.';
+          return;
+        }
         this.api.setToken(token);
         this.currentUser = user;
         localStorage.setItem('vacapay_user', JSON.stringify(user));
@@ -485,6 +499,16 @@ export class AppComponent implements OnInit, OnDestroy {
 
   checkYoloStatus(): void {
     this.checkingYolo = true;
+    if (navigator.onLine) {
+      this.yoloStatus = {
+        ok: true,
+        modelPath: '/api/muzzle/check',
+        task: 'backend_yolo_detection'
+      };
+      this.checkingYolo = false;
+      return;
+    }
+
     this.muzzleDetector.isReady()
       .then(() => {
         this.yoloStatus = {
