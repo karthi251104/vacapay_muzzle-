@@ -323,6 +323,7 @@ export class AppComponent implements OnInit, OnDestroy {
   officerOptionsForFilter: Array<{ key: string; label: string }> = [];
   loadedMatchedImages: Record<string, CattleImageSummary[]> = {};
   expandedReviewId = '';
+  reviewCandidateScope: 'overall' | 'farmer' = 'overall';
   readonly isNativeFieldApp = Capacitor.isNativePlatform();
 
   agentName = '';
@@ -2120,7 +2121,9 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   toggleReviewDetails(review: MatchReview): void {
-    this.expandedReviewId = this.expandedReviewId === review.auditId ? '' : review.auditId;
+    const opening = this.expandedReviewId !== review.auditId;
+    this.expandedReviewId = opening ? review.auditId : '';
+    if (opening) this.reviewCandidateScope = 'overall';
     if (this.expandedReviewId) this.preloadReviewCandidateImages(review);
   }
 
@@ -2710,6 +2713,17 @@ export class AppComponent implements OnInit, OnDestroy {
 
   farmerReviewCandidates(review: MatchReview, limit = 20): MatchReview['topMatches'] {
     return (review.farmerComparison?.topMatches || []).slice(0, limit);
+  }
+
+  setReviewCandidateScope(scope: 'overall' | 'farmer', review: MatchReview): void {
+    if (scope === 'farmer' && !this.farmerReviewCandidates(review, 1).length) return;
+    this.reviewCandidateScope = scope;
+  }
+
+  reviewCandidatesForScope(review: MatchReview, limit = 5): MatchReview['topMatches'] {
+    return this.reviewCandidateScope === 'farmer'
+      ? this.farmerReviewCandidates(review, limit)
+      : this.topReviewCandidates(review, limit);
   }
 
   farmerComparisonResultLabel(review: MatchReview): string {

@@ -208,20 +208,6 @@
                     <strong>{{ cattleStats?.blockedDuplicateEnrollmentCount || 0 }}</strong>
                 </div>
             </div>
-            <div class="ad-stat">
-                <div class="ad-stat-icon ad-icon-amber">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
-                        <circle cx="12" cy="12" r="10" />
-                        <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4" />
-                        <line x1="12" y1="17" x2="12.01" y2="17" />
-                    </svg>
-                </div>
-                <div>
-                    <span>Enrollment Reviews</span>
-                    <strong [class.ad-stat-warn]="pendingEnrollmentReviewCount > 0">{{ pendingEnrollmentReviewCount }}</strong>
-                </div>
-            </div>
         </div>
 
         <!-- Accuracy summary -->
@@ -275,14 +261,6 @@
                         </tbody>
                     </table>
                 </div>
-            </div>
-            <div class="ad-duplicate-summary" *ngIf="duplicateGateMetrics.reviewed > 0">
-                <div>
-                    <span>Enrollment duplicate gate</span>
-                    <strong>{{ duplicateGateMetrics.accuracy }}%</strong>
-                </div>
-                <p>{{ duplicateGateMetrics.correct }} correct decisions &middot; {{ duplicateGateMetrics.incorrect }} incorrect
-                    decisions corrected by admin. This metric is separate from Cattle Search Top-1/Top-5.</p>
             </div>
         </div>
 
@@ -634,78 +612,6 @@
                 </div>
             </div>
 
-            <div class="dr-blocked-section"
-                *ngIf="(enrollmentCandidatesByOfficer.get(selectedOfficerKey) || []).length > 0">
-                <div class="drb-header">
-                    <div class="drb-header-left">
-                        <div class="drb-header-icon">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                                stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
-                                <circle cx="12" cy="12" r="10" />
-                                <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4" />
-                                <line x1="12" y1="17" x2="12.01" y2="17" />
-                            </svg>
-                        </div>
-                        <div>
-                            <strong>New Enrollment Duplicate Check</strong>
-                            <p>The model allowed these as new cattle. Compare each one with its closest registered cow.</p>
-                        </div>
-                    </div>
-                    <span class="drb-count">{{ (enrollmentCandidatesByOfficer.get(selectedOfficerKey) || []).length }} pending</span>
-                </div>
-
-                <div class="drb-list">
-                    <div class="drb-card" *ngFor="let item of (enrollmentCandidatesByOfficer.get(selectedOfficerKey) || [])">
-                        <div class="drb-card-header">
-                            <div class="drb-card-info">
-                                <h3>{{ item.attemptRecord.cattleLabel }} - {{ item.attemptRecord.farmerName }}</h3>
-                                <p>Closest candidate: <strong>{{ item.candidate.cattleLabel }} - {{ item.candidate.farmerName }}</strong></p>
-                                <p>Similarity {{ item.confidencePercent }}% &middot; automatic duplicate threshold {{ item.audit.thresholdPercent }}%</p>
-                            </div>
-                            <span class="drb-status-pill">Verify</span>
-                        </div>
-
-                        <div class="drb-photos-row">
-                            <div class="drb-photo-col drb-col-blocked">
-                                <div class="drb-col-label drb-label-blocked">New Enrollment</div>
-                                <div class="drb-photo-grid">
-                                    <ng-container *ngFor="let session of item.attemptRecord.sessions">
-                                        <button type="button" class="drb-photo-btn" *ngFor="let img of session.images"
-                                            (click)="openImage(img.imageType, imageUrl(img))">
-                                            <img [src]="imageUrl(img)" [alt]="img.imageType"><span>{{ img.imageType }}</span>
-                                        </button>
-                                    </ng-container>
-                                </div>
-                            </div>
-                            <div class="drb-vs-col"><div class="drb-vs-dot">vs</div></div>
-                            <div class="drb-photo-col drb-col-registered">
-                                <div class="drb-col-label drb-label-registered">Closest Registered Cow</div>
-                                <div class="drb-photo-grid">
-                                    <ng-container *ngFor="let session of item.candidate.sessions">
-                                        <button type="button" class="drb-photo-btn" *ngFor="let img of session.images"
-                                            (click)="openImage(img.imageType, imageUrl(img))">
-                                            <img [src]="imageUrl(img)" [alt]="img.imageType"><span>{{ img.imageType }}</span>
-                                        </button>
-                                    </ng-container>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="drb-decision">
-                            <p class="drb-decision-title">Are these the same cow?</p>
-                            <div class="drb-decision-btns">
-                                <button type="button" class="drb-btn-approve" (click)="confirmEnrollmentAsDifferent(item.audit)">
-                                    <span><strong>Different Cow</strong><small>Keep both registered cattle</small></span>
-                                </button>
-                                <button type="button" class="drb-btn-block"
-                                    (click)="confirmEnrollmentAsSameCow(item.audit, item.candidate.cattleId)">
-                                    <span><strong>Same Cow</strong><small>Merge and record missed duplicate</small></span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
 
         <!-- ════ LEVEL 3 — CATTLE FOR FARMER ════ -->
@@ -892,16 +798,27 @@
 
                     <!-- Top 5 candidates -->
                     <div class="ad-review-section" *ngIf="topReviewCandidates(review, 5).length">
-                        <p class="ad-review-section-label">Overall search: Top 5 candidates</p>
+                        <div class="ad-candidate-scope">
+                            <button type="button" class="ad-scope-btn"
+                                [class.ad-scope-btn-active]="reviewCandidateScope === 'overall'"
+                                (click)="setReviewCandidateScope('overall', review)">Overall Search</button>
+                            <button type="button" class="ad-scope-btn"
+                                *ngIf="farmerReviewCandidates(review, 1).length"
+                                [class.ad-scope-btn-active]="reviewCandidateScope === 'farmer'"
+                                (click)="setReviewCandidateScope('farmer', review)">Selected Farmer</button>
+                        </div>
+                        <p class="ad-review-section-label">
+                            {{ reviewCandidateScope === 'farmer' ? 'Selected farmer' : 'Overall search' }}: Top 5 candidates
+                        </p>
                         <div class="ad-candidates">
-                            <div class="ad-candidate" *ngFor="let c of topReviewCandidates(review, 5); let rank = index"
+                            <div class="ad-candidate" *ngFor="let c of reviewCandidatesForScope(review, 5); let rank = index"
                                 [class.ad-candidate-top]="rank === 0"
                                 [class.ad-candidate-expected]="expectedCattleId(review) === c.cattleId">
                                 <div class="ad-candidate-head">
                                     <span class="ad-rank">#{{ rank + 1 }}</span>
                                     <div>
                                         <strong>{{ c.farmerName || 'Unknown' }} — {{ c.cattleLabel }}</strong>
-                                        <small>{{ matchSourceLabel(c.searchScope) }}</small>
+                                        <small>{{ reviewCandidateScope === 'farmer' ? 'Selected farmer cattle' : matchSourceLabel(c.searchScope) }}</small>
                                     </div>
                                     <span class="ad-confidence">{{ c.confidencePercent }}%</span>
                                 </div>
@@ -917,41 +834,6 @@
                                         (click)="openImage(img.imageType, img.cloudinaryUrl || img.previewUrl)">
                                         <img [src]="img.cloudinaryUrl || img.previewUrl" [alt]="img.imageType"><span>{{
                                             img.imageType }}</span>
-                                    </button>
-                                </div>
-                                <button type="button" class="ad-confirm-btn"
-                                    (click)="confirmMatchReview(review, c.cattleId)">Confirm this cow</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="ad-review-section" *ngIf="farmerReviewCandidates(review, 5).length">
-                        <p class="ad-review-section-label">Selected farmer only: Top 5 candidates</p>
-                        <div class="ad-candidates">
-                            <div class="ad-candidate"
-                                *ngFor="let c of farmerReviewCandidates(review, 5); let rank = index"
-                                [class.ad-candidate-top]="rank === 0"
-                                [class.ad-candidate-expected]="expectedCattleId(review) === c.cattleId">
-                                <div class="ad-candidate-head">
-                                    <span class="ad-rank">#{{ rank + 1 }}</span>
-                                    <div>
-                                        <strong>{{ c.farmerName || 'Unknown' }} - {{ c.cattleLabel }}</strong>
-                                        <small>Selected farmer cattle</small>
-                                    </div>
-                                    <span class="ad-confidence">{{ c.confidencePercent }}%</span>
-                                </div>
-                                <div class="ad-candidate-images">
-                                    <button type="button" class="ad-thumb"
-                                        *ngFor="let img of candidateMuzzleImages(c.cattleId)"
-                                        (click)="openImage(img.imageType, img.cloudinaryUrl || img.previewUrl)">
-                                        <img [src]="img.cloudinaryUrl || img.previewUrl" [alt]="img.imageType">
-                                        <span>{{ img.imageType }}</span>
-                                    </button>
-                                    <button type="button" class="ad-thumb"
-                                        *ngFor="let img of candidateEvidenceImages(c.cattleId)"
-                                        (click)="openImage(img.imageType, img.cloudinaryUrl || img.previewUrl)">
-                                        <img [src]="img.cloudinaryUrl || img.previewUrl" [alt]="img.imageType">
-                                        <span>{{ img.imageType }}</span>
                                     </button>
                                 </div>
                                 <button type="button" class="ad-confirm-btn"

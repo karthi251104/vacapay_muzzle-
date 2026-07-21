@@ -7469,6 +7469,36 @@ button.coverage-row:hover {
   text-transform: uppercase;
 }
 
+.ad-candidate-scope {
+  background: #edf3f6;
+  border: 1px solid #d5e2e8;
+  border-radius: 8px;
+  display: inline-grid;
+  gap: 4px;
+  grid-auto-flow: column;
+  margin-bottom: 12px;
+  padding: 4px;
+}
+
+.ad-scope-btn {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--quiet);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+  min-height: 38px;
+  padding: 8px 14px;
+}
+
+.ad-scope-btn-active {
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(10, 49, 63, 0.14);
+  color: var(--primary);
+}
+
 .ad-gallery {
   display: flex;
   flex-wrap: wrap;
