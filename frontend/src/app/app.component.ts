@@ -122,7 +122,6 @@ export class AppComponent implements OnInit, OnDestroy {
   evidenceCameraIndex = 0;
   private gpsCache?: { lat: number; lon: number; timestamp: number };
   private offlineCaptureId?: string;
-  private backendMuzzleFallbackUntil = 0;
   private lastMuzzleSavedAt = 0;
   private batteryManager?: EventTarget;
   private nativeBackListener?: { remove: () => Promise<void> };
@@ -152,6 +151,9 @@ export class AppComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     void this.setupNativeBackButton();
     this.loadAppVersion();
+    if (this.isNativeFieldApp && this.currentUser?.role === 'agent') {
+      this.checkYoloStatus();
+    }
     this.checkBattery();
     this.setupConnectivityListeners();
     this.syncService.refreshPendingCount().then(count => {
@@ -499,16 +501,6 @@ export class AppComponent implements OnInit, OnDestroy {
 
   checkYoloStatus(): void {
     this.checkingYolo = true;
-    if (navigator.onLine) {
-      this.yoloStatus = {
-        ok: true,
-        modelPath: '/api/muzzle/check',
-        task: 'backend_yolo_detection'
-      };
-      this.checkingYolo = false;
-      return;
-    }
-
     this.muzzleDetector.isReady()
       .then(() => {
         this.yoloStatus = {
@@ -2772,7 +2764,7 @@ export class AppComponent implements OnInit, OnDestroy {
       case 'location': return this.isCattleSearchFlow
         ? 'GPS is required. Selecting a downloaded farmer is optional and works without internet.'
         : 'Select a downloaded farmer by name or nearby GPS before enrolling a new cow.';
-      case 'muzzle': return `Take ${this.muzzleImageCount} good muzzle photos. When online the server checks first; offline or server failure uses the phone model. Only accepted cropped muzzles are saved.`;
+      case 'muzzle': return `Take ${this.muzzleImageCount} good muzzle photos. The phone checks and crops each image immediately, even offline. The server is used only if the phone model cannot start.`;
       case 'evidence': return 'Add face, side, back and udder photos for the same cattle.';
       case 'review': return 'Check the record once, then save and return home.';
       default: return 'Start capture, continue pending work, or check recent cattle.';
@@ -2823,28 +2815,30 @@ export class AppComponent implements OnInit, OnDestroy {
     return `FARM-${Math.random().toString(36).slice(2, 10).toUpperCase().padEnd(8, 'X')}`;
   }
   private async detectMuzzleForCapture(slot: number): Promise<LocalMuzzleDetection> {
-    if (navigator.onLine && Date.now() > this.backendMuzzleFallbackUntil) {
+    try {
+      this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on phone...`;
+      return await this.muzzleDetector.detectAndCrop(this.video!.nativeElement);
+    } catch (phoneError) {
+      if (!navigator.onLine) throw phoneError;
+
       try {
-        this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on server...`;
-      const frame = await this.frameBlob(1280, 0.82);
-      const response = await this.withTimeout(
-        firstValueFrom(this.api.checkMuzzleFrame(frame)),
-        4000,
-        'Server muzzle check timed out.'
-      );
+        this.message = `Phone check unavailable. Checking photo ${slot}/${this.muzzleImageCount} on server...`;
+        const frame = await this.frameBlob(1280, 0.82);
+        const response = await this.withTimeout(
+          firstValueFrom(this.api.checkMuzzleFrame(frame)),
+          4000,
+          'Server muzzle check timed out.'
+        );
 
-      if (response.backendUnavailable) {
-        throw new Error(response.error || 'Backend muzzle model is unavailable.');
-      }
+        if (response.backendUnavailable) {
+          throw new Error(response.error || 'Backend muzzle model is unavailable.');
+        }
 
-      return this.backendGateToLocalDetection(response);
-      } catch {
-        this.backendMuzzleFallbackUntil = Date.now() + 30000;
-        this.message = 'Server check unavailable. Checking this photo on the phone...';
+        return this.backendGateToLocalDetection(response);
+      } catch (serverError) {
+        throw new Error(`Phone and server muzzle checks failed: ${serverError instanceof Error ? serverError.message : 'unknown server error'}`);
       }
     }
-
-    return this.muzzleDetector.detectAndCrop(this.video!.nativeElement);
   }
 
   private backendGateToLocalDetection(response: MuzzleGateResponse): LocalMuzzleDetection {
