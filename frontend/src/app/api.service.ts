@@ -97,6 +97,20 @@ export interface MuzzleMatchResult {
   confidencePercent: number;
 }
 
+export interface FarmerMatchComparison {
+  available: boolean;
+  farmerId: string;
+  farmerName: string;
+  candidateCount: number;
+  decision: 'matched_existing' | 'new_cattle' | null;
+  matchedCattleId: string | null;
+  confidence: number;
+  confidencePercent: number;
+  threshold: number;
+  thresholdPercent: number;
+  topMatches: MuzzleMatchResult[];
+}
+
 export interface MuzzleMatchResolution {
   resolved: boolean;
   decision: 'matched_existing' | 'new_cattle';
@@ -108,6 +122,7 @@ export interface MuzzleMatchResolution {
   previousCattleId?: string;
   topMatches: MuzzleMatchResult[];
   rankedTopMatches?: MuzzleMatchResult[];
+  farmerComparison?: FarmerMatchComparison | null;
   resolvedAt: string;
   enrollment: Enrollment;
 }
@@ -336,6 +351,7 @@ export interface MatchReview {
   previousCattleId?: string | null;
   topMatches: MuzzleMatchResult[];
   rankedTopMatches?: MuzzleMatchResult[];
+  farmerComparison?: FarmerMatchComparison | null;
   farmerId?: string;
   farmerName: string;
   fieldOfficerId?: string;

@@ -392,6 +392,21 @@ all_other_muzzle -> legacy/admin label for older records
 
 The app keeps one best candidate per cattle identity before Top-K display. This prevents one cow with multiple captures from filling multiple Top-5 positions.
 
+### Overall and Selected-Farmer Evaluation
+
+One normal Cattle Search now freezes two rankings from the same query embedding:
+
+- Overall field search: existing operational result, selected farmer first and then nearby GPS cattle.
+- Selected farmer only: experimental result restricted to registered cattle under that farmer.
+
+The field officer does not choose a second search mode. Farmer context is taken from the normal
+Cattle Search when available. The admin confirms the ground-truth cow once, and that decision
+scores both rankings independently.
+
+If the confirmed cow belongs to another farmer, the correct selected-farmer-only result is
+No Cattle Found. Searches with no selected farmer cattle are shown as N/A and excluded from the
+selected-farmer accuracy denominator. The operational result and the 0.70 threshold are unchanged.
+
 ## 11. What Scores Mean
 
 ### Muzzle Confidence
@@ -523,6 +538,10 @@ A correct new-cow / no-cattle-found result is excluded from Top-1 and Top-5 beca
 ```text
 Top-5 accuracy = reviewed searches where expected cattle ID appears anywhere in first 5 candidates / reviewed Top-K applicable searches
 ```
+
+The admin shows separate Top-1, Top-5, and found/not-found tables for the overall field search and
+the selected-farmer-only search. Both use the same admin ground truth. They are not added together
+and do not count one field capture as two cattle searches.
 
 ### Officer Quality
 

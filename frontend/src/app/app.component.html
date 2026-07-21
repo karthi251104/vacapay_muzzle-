@@ -50,21 +50,28 @@
         <form class="form-stack" (ngSubmit)="login()">
             <div class="segmented" *ngIf="isNativeFieldApp">
                 <button type="button" [class.active]="loginMode === 'agent'"
-                    (click)="loginMode = 'agent'">Agent</button>
+                    (click)="setLoginMode('agent')">Agent</button>
                 <button type="button" [class.active]="loginMode === 'admin'"
-                    (click)="loginMode = 'admin'">Admin</button>
+                    (click)="setLoginMode('admin')">Admin</button>
             </div>
 
             <label>
-                <span>Phone or ID</span>
-                <input name="loginIdentifier" [(ngModel)]="loginIdentifier" placeholder="admin">
+                <span>{{ loginMode === 'agent' ? '10-digit mobile number' : 'Admin ID' }}</span>
+                <input name="loginIdentifier" [ngModel]="loginIdentifier"
+                    (ngModelChange)="onLoginIdentifierChange($event)"
+                    [type]="loginMode === 'agent' ? 'tel' : 'text'"
+                    [attr.inputmode]="loginMode === 'agent' ? 'numeric' : null"
+                    [attr.maxlength]="loginMode === 'agent' ? 10 : null"
+                    [attr.autocomplete]="loginMode === 'agent' ? 'tel' : 'username'"
+                    [placeholder]="loginMode === 'agent' ? '9876543210' : 'admin'">
             </label>
             <label>
                 <span>Password</span>
                 <input name="loginPassword" type="password" [(ngModel)]="loginPassword" placeholder="........">
             </label>
 
-            <button type="submit" class="primary-action">Sign In</button>
+            <button type="submit" class="primary-action"
+                [disabled]="loginMode === 'agent' && loginIdentifier.length !== 10">Sign In</button>
             <div class="notice" *ngIf="message && message !== 'Start a new cattle capture.'"><span></span>{{ message }}
             </div>
             <p class="hint" *ngIf="!isNativeFieldApp">Use your administrator account.</p>
@@ -277,6 +284,55 @@
                 <p>{{ duplicateGateMetrics.correct }} correct decisions &middot; {{ duplicateGateMetrics.incorrect }} incorrect
                     decisions corrected by admin. This metric is separate from Cattle Search Top-1/Top-5.</p>
             </div>
+        </div>
+
+        <div class="ad-card" *ngIf="farmerFieldTestMetrics.cattleSearches">
+            <div class="ad-card-header">
+                <div>
+                    <h2 class="ad-card-title">Selected Farmer Accuracy</h2>
+                    <p class="ad-card-sub">Same reviewed searches, ranked only against cattle under the selected farmer</p>
+                </div>
+                <span class="ad-scope-count">{{ farmerFieldTestMetrics.reviewedSearches }} reviewed of {{
+                    farmerFieldTestMetrics.cattleSearches }}</span>
+            </div>
+            <div class="ad-accuracy-row">
+                <div class="ad-accuracy-item">
+                    <div class="ad-accuracy-ring" [style.--pct]="farmerFieldTestMetrics.top1Accuracy + '%'">
+                        <strong>{{ farmerFieldTestMetrics.top1Accuracy }}%</strong>
+                        <span>Top-1</span>
+                    </div>
+                    <p>First farmer cattle was correct</p>
+                </div>
+                <div class="ad-accuracy-item">
+                    <div class="ad-accuracy-ring ad-ring-green"
+                        [style.--pct]="farmerFieldTestMetrics.top5Accuracy + '%'">
+                        <strong>{{ farmerFieldTestMetrics.top5Accuracy }}%</strong>
+                        <span>Top-5</span>
+                    </div>
+                    <p>Correct farmer cattle in top 5</p>
+                </div>
+                <div class="ad-confusion">
+                    <table class="ad-cm-table">
+                        <thead>
+                            <tr><th></th><th>Farmer: Found</th><th>Farmer: Not Found</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="ad-cm-label">Actually Under Farmer</td>
+                                <td class="ad-cm-tp">{{ farmerFieldTestMetrics.cattleFoundCorrect }}<small>Correct</small></td>
+                                <td class="ad-cm-fn">{{ farmerFieldTestMetrics.noCattleFoundIncorrect }}<small>Missed</small></td>
+                            </tr>
+                            <tr>
+                                <td class="ad-cm-label">Not Under Farmer</td>
+                                <td class="ad-cm-fp">{{ farmerFieldTestMetrics.cattleFoundIncorrect }}<small>Wrong match</small></td>
+                                <td class="ad-cm-tn">{{ farmerFieldTestMetrics.noCattleFoundCorrect }}<small>Correct</small></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <p class="ad-scope-note">Searches without selected farmer cattle are excluded. The operational overall
+                result and its 70% threshold are unchanged.</p>
         </div>
 
         <!-- Coverage by officer -->
@@ -800,6 +856,28 @@
                 <!-- Expanded detail -->
                 <div class="ad-review-body" *ngIf="isReviewExpanded(review)">
 
+                    <div class="ad-review-section">
+                        <p class="ad-review-section-label">Search strategy comparison</p>
+                        <table class="ad-strategy-table">
+                            <thead>
+                                <tr><th>Strategy</th><th>Result</th><th>Best score</th></tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><strong>Overall field search</strong><small>Current operational result</small></td>
+                                    <td>{{ review.decision === 'matched_existing' ? 'Cattle Found' : 'No Cattle Found' }}</td>
+                                    <td>{{ review.confidencePercent }}%</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Selected farmer only</strong><small>{{ review.farmerComparison?.farmerId ||
+                                            review.farmerId || 'No farmer context' }}</small></td>
+                                    <td>{{ farmerComparisonResultLabel(review) }}</td>
+                                    <td>{{ review.farmerComparison?.available ? (review.farmerComparison?.confidencePercent + '%') : 'N/A' }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
                     <!-- Captured photos -->
                     <div class="ad-review-section">
                         <p class="ad-review-section-label">Photos captured by agent</p>
@@ -814,7 +892,7 @@
 
                     <!-- Top 5 candidates -->
                     <div class="ad-review-section" *ngIf="topReviewCandidates(review, 5).length">
-                        <p class="ad-review-section-label">Top 5 candidate matches (ranked by AI)</p>
+                        <p class="ad-review-section-label">Overall search: Top 5 candidates</p>
                         <div class="ad-candidates">
                             <div class="ad-candidate" *ngFor="let c of topReviewCandidates(review, 5); let rank = index"
                                 [class.ad-candidate-top]="rank === 0"
@@ -839,6 +917,41 @@
                                         (click)="openImage(img.imageType, img.cloudinaryUrl || img.previewUrl)">
                                         <img [src]="img.cloudinaryUrl || img.previewUrl" [alt]="img.imageType"><span>{{
                                             img.imageType }}</span>
+                                    </button>
+                                </div>
+                                <button type="button" class="ad-confirm-btn"
+                                    (click)="confirmMatchReview(review, c.cattleId)">Confirm this cow</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ad-review-section" *ngIf="farmerReviewCandidates(review, 5).length">
+                        <p class="ad-review-section-label">Selected farmer only: Top 5 candidates</p>
+                        <div class="ad-candidates">
+                            <div class="ad-candidate"
+                                *ngFor="let c of farmerReviewCandidates(review, 5); let rank = index"
+                                [class.ad-candidate-top]="rank === 0"
+                                [class.ad-candidate-expected]="expectedCattleId(review) === c.cattleId">
+                                <div class="ad-candidate-head">
+                                    <span class="ad-rank">#{{ rank + 1 }}</span>
+                                    <div>
+                                        <strong>{{ c.farmerName || 'Unknown' }} - {{ c.cattleLabel }}</strong>
+                                        <small>Selected farmer cattle</small>
+                                    </div>
+                                    <span class="ad-confidence">{{ c.confidencePercent }}%</span>
+                                </div>
+                                <div class="ad-candidate-images">
+                                    <button type="button" class="ad-thumb"
+                                        *ngFor="let img of candidateMuzzleImages(c.cattleId)"
+                                        (click)="openImage(img.imageType, img.cloudinaryUrl || img.previewUrl)">
+                                        <img [src]="img.cloudinaryUrl || img.previewUrl" [alt]="img.imageType">
+                                        <span>{{ img.imageType }}</span>
+                                    </button>
+                                    <button type="button" class="ad-thumb"
+                                        *ngFor="let img of candidateEvidenceImages(c.cattleId)"
+                                        (click)="openImage(img.imageType, img.cloudinaryUrl || img.previewUrl)">
+                                        <img [src]="img.cloudinaryUrl || img.previewUrl" [alt]="img.imageType">
+                                        <span>{{ img.imageType }}</span>
                                     </button>
                                 </div>
                                 <button type="button" class="ad-confirm-btn"
@@ -885,8 +998,9 @@
                 <form class="ad-form" (ngSubmit)="createAgent()">
                     <label class="ad-label">Agent Name<input name="agentName" [(ngModel)]="agentName"
                             placeholder="Full name" class="ad-input"></label>
-                    <label class="ad-label">Phone Number<input name="agentPhone" [(ngModel)]="agentPhone"
-                            placeholder="9876543210" class="ad-input"></label>
+                    <label class="ad-label">Phone Number<input name="agentPhone" [ngModel]="agentPhone"
+                            (ngModelChange)="onAgentPhoneChange($event)" type="tel" inputmode="numeric"
+                            maxlength="10" placeholder="9876543210" class="ad-input"></label>
                     <label class="ad-label">Agent ID<input name="newAgentId" [(ngModel)]="newAgentId"
                             placeholder="AGENT-001" class="ad-input"></label>
                     <label class="ad-label">Password<input name="newAgentPassword" type="password"

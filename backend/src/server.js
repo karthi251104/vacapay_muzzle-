@@ -352,11 +352,19 @@ app.post('/api/auth/login', async (req, res, next) => {
   try {
     const identifier = String(req.body.identifier || '').trim().toLowerCase();
     const password = String(req.body.password || '');
+    if (/^\d+$/.test(identifier) && !/^\d{10}$/.test(identifier)) {
+      res.status(400).json({ error: 'Field officer mobile number must contain exactly 10 digits.' });
+      return;
+    }
     const users = await readUsers();
     const user = users.find((item) => item.active && [item.agentId, item.phone].map((value) => String(value || '').toLowerCase()).includes(identifier));
 
     if (!user || !verifyPassword(password, user.passwordHash)) {
       res.status(401).json({ error: 'Invalid login details.' });
+      return;
+    }
+    if (user.role === 'agent' && (!/^\d{10}$/.test(identifier) || identifier !== String(user.phone || '').trim())) {
+      res.status(400).json({ error: 'Field officers must sign in with their 10-digit mobile number.' });
       return;
     }
 
@@ -455,7 +463,7 @@ app.get('/api/reviews/matches', requireAuth, requireAdmin, async (req, res, next
       .sort((a, b) => String(b.resolvedAt || '').localeCompare(String(a.resolvedAt || '')))
       .slice(0, 5000)
       .map((audit) => ({
-        ...audit,
+        ...normalizeAuditScores(audit),
         images: imageLookup.get(`${audit.finalCattleId || audit.cattleId}__${audit.sessionId}`) || []
       }));
 
@@ -532,6 +540,7 @@ app.post('/api/reviews/matches/:auditId', requireAuth, requireAdmin, async (req,
       reviewedAt: new Date().toISOString(),
       correctionAction: action || null
     };
+    audits[index].farmerComparison = audits[index].farmerComparison || buildAuditFarmerComparison(audits[index]);
 
     await persistMatchAudit(audits[index]);
     res.json({ review: audits[index], correctedRecord: correctedRecord ? toCattleSummary(correctedRecord) : null });
@@ -549,6 +558,10 @@ app.post('/api/agents', requireAuth, requireAdmin, async (req, res, next) => {
 
     if (!agentName || !phone || !agentId || password.length < 8) {
       res.status(400).json({ error: 'Agent name, phone, agent ID, and a password of at least 8 characters are required.' });
+      return;
+    }
+    if (!/^\d{10}$/.test(phone)) {
+      res.status(400).json({ error: 'Agent phone number must contain exactly 10 digits.' });
       return;
     }
 
@@ -2028,6 +2041,7 @@ async function resolveMuzzleMatch(cattleId) {
     : bestFarmerMatch || bestGlobalMatch;
   const rankedTopMatches = candidates.slice(0, 20).map(toPublicMatchResult);
   const topMatches = orderedMatches.slice(0, 5).map(toPublicMatchResult);
+  const farmerComparison = buildFarmerComparison(queryRow, farmerCandidates);
   const isMatched = queryWorkflow === 'cattle_search'
     ? Boolean(bestFarmerMatch || bestNearbyMatch)
     : Boolean(bestMatch && bestMatch.score >= EMBEDDING_MATCH_THRESHOLD);
@@ -2042,7 +2056,7 @@ async function resolveMuzzleMatch(cattleId) {
       workflow: queryWorkflow,
       duplicateSavedSeparately: true,
       confidence: bestMatch?.score || 0,
-      confidencePercent: Math.round((bestMatch?.score || 0) * 100),
+      confidencePercent: similarityPercent(bestMatch?.score),
       threshold: EMBEDDING_MATCH_THRESHOLD,
       thresholdPercent: Math.round(EMBEDDING_MATCH_THRESHOLD * 100),
       matchedCattleId: bestMatch.cattleId,
@@ -2051,6 +2065,7 @@ async function resolveMuzzleMatch(cattleId) {
       previousCattleId: queryRow.cattleId,
       topMatches,
       rankedTopMatches,
+      farmerComparison,
       resolvedAt: now
     };
 
@@ -2092,12 +2107,13 @@ async function resolveMuzzleMatch(cattleId) {
     decision: 'new_cattle',
     workflow: queryWorkflow,
     confidence: bestMatch?.score || 0,
-    confidencePercent: Math.round((bestMatch?.score || 0) * 100),
+    confidencePercent: similarityPercent(bestMatch?.score),
     threshold: EMBEDDING_MATCH_THRESHOLD,
     thresholdPercent: Math.round(EMBEDDING_MATCH_THRESHOLD * 100),
     matchedCattleId: null,
     topMatches,
     rankedTopMatches,
+    farmerComparison,
     resolvedAt: now
   };
 
@@ -2668,7 +2684,69 @@ function toPublicMatchResult(match) {
     locationLon: match.locationLon,
     distanceKm: match.distanceKm,
     score: match.score,
-    confidencePercent: Math.round(match.score * 100)
+    confidencePercent: similarityPercent(match.score)
+  };
+}
+
+function buildFarmerComparison(queryRow, farmerCandidates) {
+  const farmerId = String(queryRow.farmerId || '').trim();
+  const farmerName = String(queryRow.farmerName || '').trim();
+  const rankedMatches = bestCandidatePerCattle(farmerCandidates || []).slice(0, 20).map(toPublicMatchResult);
+  const bestMatch = rankedMatches[0] || null;
+  const available = Boolean((farmerId || farmerName) && rankedMatches.length);
+  const isMatched = available && Number(bestMatch.score || 0) >= EMBEDDING_MATCH_THRESHOLD;
+
+  return {
+    available,
+    farmerId,
+    farmerName,
+    candidateCount: rankedMatches.length,
+    decision: available ? (isMatched ? 'matched_existing' : 'new_cattle') : null,
+    matchedCattleId: isMatched ? bestMatch.cattleId : null,
+    confidence: bestMatch?.score || 0,
+    confidencePercent: similarityPercent(bestMatch?.score),
+    threshold: EMBEDDING_MATCH_THRESHOLD,
+    thresholdPercent: Math.round(EMBEDDING_MATCH_THRESHOLD * 100),
+    topMatches: rankedMatches
+  };
+}
+
+function buildAuditFarmerComparison(audit) {
+  const combined = [...(audit.rankedTopMatches || []), ...(audit.topMatches || [])];
+  const uniqueFarmerCandidates = Array.from(
+    new Map(
+      combined
+        .filter((candidate) => candidate?.searchScope === 'farmer_cattle' && candidate?.cattleId)
+        .map((candidate) => [candidate.cattleId, candidate])
+    ).values()
+  ).sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+
+  return buildFarmerComparison(audit, uniqueFarmerCandidates);
+}
+
+function similarityPercent(score) {
+  return Math.round(Math.max(0, Math.min(1, Number(score || 0))) * 100);
+}
+
+function normalizeAuditScores(audit) {
+  const normalizeMatches = (matches) => (matches || []).map((match) => ({
+    ...match,
+    confidencePercent: similarityPercent(match.score)
+  }));
+  const normalized = {
+    ...audit,
+    confidencePercent: similarityPercent(audit.confidence),
+    topMatches: normalizeMatches(audit.topMatches),
+    rankedTopMatches: normalizeMatches(audit.rankedTopMatches || audit.topMatches)
+  };
+  const farmerComparison = audit.farmerComparison || buildAuditFarmerComparison(normalized);
+  return {
+    ...normalized,
+    farmerComparison: {
+      ...farmerComparison,
+      confidencePercent: similarityPercent(farmerComparison?.confidence),
+      topMatches: normalizeMatches(farmerComparison?.topMatches)
+    }
   };
 }
 
@@ -2831,6 +2909,7 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
     previousCattleId: matchResult.previousCattleId || null,
     topMatches: matchResult.topMatches || [],
     rankedTopMatches: matchResult.rankedTopMatches || matchResult.topMatches || [],
+    farmerComparison: matchResult.farmerComparison || null,
     farmerId: farmerId || '',
     farmerName: farmerName || '',
     fieldOfficerId: fieldOfficerId || session.fieldOfficerId || '',

@@ -6727,6 +6727,24 @@ button.coverage-row:hover {
   padding: 20px 24px;
 }
 
+.ad-scope-count {
+  background: #edf7fb;
+  border: 1px solid #badce6;
+  border-radius: 999px;
+  color: #15556a;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 7px 12px;
+}
+
+.ad-scope-note {
+  background: #f5f9fb;
+  border-top: 1px solid #d9e5ea;
+  color: var(--quiet);
+  margin: 0;
+  padding: 14px 24px;
+}
+
 .ad-duplicate-summary {
   align-items: center;
   background: #f5f9fb;
@@ -7405,6 +7423,41 @@ button.coverage-row:hover {
   display: grid;
   gap: 20px;
   padding: 20px;
+}
+
+.ad-strategy-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.ad-strategy-table th,
+.ad-strategy-table td {
+  border: 1px solid #dce8ed;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.ad-strategy-table th {
+  background: #f5f8fa;
+  color: var(--quiet);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.ad-strategy-table td {
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.ad-strategy-table td strong,
+.ad-strategy-table td small {
+  display: block;
+}
+
+.ad-strategy-table td small {
+  color: var(--quiet);
+  margin-top: 2px;
 }
 
 .ad-review-section-label {

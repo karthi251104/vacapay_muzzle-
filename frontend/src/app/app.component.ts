@@ -458,6 +458,10 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   login(): void {
+    if (this.loginMode === 'agent' && !/^\d{10}$/.test(this.loginIdentifier)) {
+      this.message = 'Enter your 10-digit mobile number.';
+      return;
+    }
     this.message = 'Signing in...';
     this.api.login(this.loginIdentifier, this.loginPassword).subscribe({
       next: ({ token, user }) => {
@@ -520,6 +524,22 @@ export class AppComponent implements OnInit, OnDestroy {
         };
         this.message = `Phone muzzle check not ready: ${this.yoloStatus.error}`;
       });
+  }
+
+  setLoginMode(mode: 'agent' | 'admin'): void {
+    this.loginMode = mode;
+    this.loginIdentifier = '';
+    this.message = '';
+  }
+
+  onLoginIdentifierChange(value: string): void {
+    this.loginIdentifier = this.loginMode === 'agent'
+      ? String(value || '').replace(/\D/g, '').slice(0, 10)
+      : String(value || '').trimStart();
+  }
+
+  onAgentPhoneChange(value: string): void {
+    this.agentPhone = String(value || '').replace(/\D/g, '').slice(0, 10);
   }
 
   checkEmbeddingStatus(): void {
@@ -954,6 +974,10 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   createAgent(): void {
+    if (!/^\d{10}$/.test(this.agentPhone)) {
+      this.message = 'Agent phone number must contain exactly 10 digits.';
+      return;
+    }
     this.api
       .createAgent({
         name: this.agentName,
@@ -2489,6 +2513,45 @@ export class AppComponent implements OnInit, OnDestroy {
     };
   }
 
+  get farmerFieldTestMetrics(): FieldTestMetrics {
+    const reviews = this.allMatchReviews.filter((review) =>
+      this.isCattleSearchCandidate(review) && Boolean(review.farmerComparison?.available)
+    );
+    const reviewed = reviews.filter((review) => this.isReviewedCattleSearch(review));
+    const cattleFoundResults = reviews.filter((review) => review.farmerComparison?.decision === 'matched_existing').length;
+    const noCattleFoundResults = reviews.filter((review) => review.farmerComparison?.decision === 'new_cattle').length;
+    const cattleFoundCorrect = reviewed.filter((review) =>
+      review.farmerComparison?.decision === 'matched_existing' && this.isFarmerComparisonCorrect(review)
+    ).length;
+    const cattleFoundIncorrect = reviewed.filter((review) =>
+      review.farmerComparison?.decision === 'matched_existing' && !this.isFarmerComparisonCorrect(review)
+    ).length;
+    const noCattleFoundCorrect = reviewed.filter((review) =>
+      review.farmerComparison?.decision === 'new_cattle' && this.isFarmerComparisonCorrect(review)
+    ).length;
+    const noCattleFoundIncorrect = reviewed.filter((review) =>
+      review.farmerComparison?.decision === 'new_cattle' && !this.isFarmerComparisonCorrect(review)
+    ).length;
+    const topKReviewed = reviewed.filter((review) => Boolean(this.farmerExpectedCattleId(review)));
+    const top1Correct = topKReviewed.filter((review) => this.isFarmerTopKCorrect(review, 1)).length;
+    const top5Correct = topKReviewed.filter((review) => this.isFarmerTopKCorrect(review, 5)).length;
+
+    return {
+      registeredCattle: this.cattleStats?.uniqueCattleCount || this.cattleStats?.cattleCount || 0,
+      cattleSearches: reviews.length,
+      reviewedSearches: reviewed.length,
+      cattleFoundResults,
+      cattleFoundCorrect,
+      cattleFoundIncorrect,
+      noCattleFoundResults,
+      noCattleFoundCorrect,
+      noCattleFoundIncorrect,
+      top1Accuracy: this.percent(top1Correct, topKReviewed.length),
+      top5Accuracy: this.percent(top5Correct, topKReviewed.length),
+      pendingReview: reviews.filter((review) => !this.isReviewedCattleSearch(review)).length
+    };
+  }
+
   get duplicateGateMetrics(): { reviewed: number; correct: number; incorrect: number; accuracy: number } {
     const reviews = this.allMatchReviews.filter((review) =>
       review.workflow === 'cattle_enrolment'
@@ -2643,6 +2706,52 @@ export class AppComponent implements OnInit, OnDestroy {
 
   metricTopMatches(review: MatchReview): MatchReview['topMatches'] {
     return review.rankedTopMatches?.length ? review.rankedTopMatches : review.topMatches;
+  }
+
+  farmerReviewCandidates(review: MatchReview, limit = 20): MatchReview['topMatches'] {
+    return (review.farmerComparison?.topMatches || []).slice(0, limit);
+  }
+
+  farmerComparisonResultLabel(review: MatchReview): string {
+    const comparison = review.farmerComparison;
+    if (!comparison?.available || !comparison.decision) return 'Not available';
+    const result = comparison.decision === 'matched_existing' ? 'Cattle Found' : 'No Cattle Found';
+    if (!this.isReviewedCattleSearch(review)) return result;
+    return `${result} - ${this.isFarmerComparisonCorrect(review) ? 'Correct' : 'Incorrect'}`;
+  }
+
+  isFarmerComparisonCorrect(review: MatchReview): boolean {
+    const comparison = review.farmerComparison;
+    if (!comparison?.available || !comparison.decision || !this.isReviewedCattleSearch(review)) return false;
+    const expected = this.farmerExpectedCattleId(review);
+    return comparison.decision === 'matched_existing'
+      ? Boolean(expected && comparison.matchedCattleId === expected)
+      : !expected;
+  }
+
+  isFarmerTopKCorrect(review: MatchReview, k: number): boolean {
+    const expected = this.farmerExpectedCattleId(review);
+    return Boolean(expected && this.farmerReviewCandidates(review, k).some((match) => match.cattleId === expected));
+  }
+
+  private farmerExpectedCattleId(review: MatchReview): string | null {
+    const expected = this.expectedCattleId(review);
+    if (!expected) return null;
+
+    const registeredCow = this.cattleInventory.find((cow) => cow.cattleId === expected);
+    if (registeredCow) {
+      const reviewFarmerId = String(review.farmerComparison?.farmerId || review.farmerId || '').trim().toLowerCase();
+      const reviewFarmerName = String(review.farmerComparison?.farmerName || review.farmerName || '').trim().toLowerCase();
+      const sameFarmer = Boolean(
+        (reviewFarmerId && String(registeredCow.farmerId || '').trim().toLowerCase() === reviewFarmerId)
+        || (reviewFarmerName && String(registeredCow.farmerName || '').trim().toLowerCase() === reviewFarmerName)
+      );
+      return sameFarmer ? expected : null;
+    }
+
+    return this.farmerReviewCandidates(review).some((candidate) => candidate.cattleId === expected)
+      ? expected
+      : null;
   }
 
   reviewResultLabel(review: MatchReview): string {

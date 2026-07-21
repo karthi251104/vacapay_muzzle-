@@ -285,6 +285,12 @@ Top-1 accuracy
 Top-5 accuracy
 ```
 
+The dashboard also compares the normal overall field-search ranking with a selected-farmer-only
+ranking. Both come from the same Cattle Search and the same three-muzzle average embedding. Admin
+sets ground truth once; each strategy receives separate Top-1, Top-5, and found/not-found metrics.
+Searches without selected farmer cattle are N/A for the farmer-only metric, and the operational
+70% matching decision is unchanged.
+
 The **Enrollment Search Coverage** section tracks field progress separately from model accuracy:
 
 ```text
