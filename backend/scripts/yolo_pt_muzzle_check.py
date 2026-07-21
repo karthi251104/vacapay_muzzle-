@@ -61,8 +61,8 @@ def crop_clahe_jpeg(image, bbox):
     return base64.b64encode(encoded.tobytes()).decode('ascii')
 
 
-def detect_candidates(model, image_path):
-    results = model.predict(str(image_path), imgsz=MODEL_INPUT_SIZE, conf=0.20, verbose=False)
+def detect_candidates(model, image):
+    results = model.predict(image, imgsz=MODEL_INPUT_SIZE, conf=0.20, verbose=False)
     if not results:
         return []
     result = results[0]
@@ -130,7 +130,7 @@ def main():
     source_h, source_w = image.shape[:2]
 
     model = load_model(model_path)
-    candidates = detect_candidates(model, input_path)
+    candidates = detect_candidates(model, image)
     best = select_best(candidates, args.good_conf, args.bad_conf, args.bad_margin)
     if not best:
         print(json.dumps({
