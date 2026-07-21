@@ -1491,7 +1491,7 @@ export class AppComponent implements OnInit, OnDestroy {
       if (this.muzzlePreviews.length >= this.muzzleImageCount) this.toggleAutoCapture();
       return;
     }
-    if (this.lastMuzzleSavedAt && Date.now() - this.lastMuzzleSavedAt < 1000) return;
+    if (this.lastMuzzleSavedAt && Date.now() - this.lastMuzzleSavedAt < 700) return;
 
     this.isDetecting = true;
     this.muzzleGateState = 'scanning';
@@ -1539,9 +1539,9 @@ export class AppComponent implements OnInit, OnDestroy {
       } else if (localResult.className !== 'goodmuzzle') {
         this.muzzleGateLabel = 'Not usable';
         this.muzzleRejectionReason = localResult.reason || 'Show the full muzzle clearly and try again.';
-      } else if (localResult.confidence < 0.70) {
+      } else if (localResult.confidence < 0.55) {
         this.muzzleGateLabel = `Low confidence ${this.muzzleLiveConfidence}%`;
-        this.muzzleRejectionReason = `Confidence is ${this.muzzleLiveConfidence}% - need 70%. Try better lighting or move closer.`;
+        this.muzzleRejectionReason = `Confidence is ${this.muzzleLiveConfidence}% - need 55%. Try better lighting or move closer.`;
       } else {
         this.muzzleGateLabel = 'Too blurry';
         this.muzzleRejectionReason = 'Image is blurry. Hold the phone still and wait for focus.';
@@ -1552,15 +1552,6 @@ export class AppComponent implements OnInit, OnDestroy {
     }
 
     this.consecutiveGoodMuzzleFrames += 1;
-    if (this.consecutiveGoodMuzzleFrames < 2) {
-      if (localResult.cropUrl) URL.revokeObjectURL(localResult.cropUrl);
-      this.isDetecting = false;
-      this.muzzleGateState = 'good';
-      this.muzzleGateLabel = 'Hold steady';
-      this.muzzleRejectionReason = 'Good muzzle found. Hold this position for one more check.';
-      this.message = this.muzzleRejectionReason;
-      return;
-    }
     this.consecutiveGoodMuzzleFrames = 0;
     this.muzzleRejectionReason = '';
     this.muzzleGateState = 'good';

@@ -103,14 +103,13 @@ def select_best(candidates, min_good_confidence, min_bad_confidence, min_wet_con
         elif candidate['kind'] == 'wet' and candidate['confidence'] >= min_wet_confidence:
             if wet is None or candidate['confidence'] > wet['confidence']:
                 wet = candidate
-    # Wet muzzles are always rejected, even when the model also emits a good box.
-    if wet:
-        return wet
+    rejects = [candidate for candidate in (bad, wet) if candidate is not None]
+    strongest_reject = max(rejects, key=lambda value: value['confidence'], default=None)
     if good:
-        if bad and bad['confidence'] >= good['confidence'] + bad_dominance_margin:
-            return bad
+        if strongest_reject and strongest_reject['confidence'] >= good['confidence'] + bad_dominance_margin:
+            return strongest_reject
         return good
-    return bad or good
+    return strongest_reject or good
 
 
 def public_candidate(candidate):
@@ -123,11 +122,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', required=True)
     parser.add_argument('--input', required=True)
-    parser.add_argument('--good-conf', type=float, default=0.70)
-    parser.add_argument('--bad-conf', type=float, default=0.25)
-    parser.add_argument('--wet-conf', type=float, default=0.25)
-    parser.add_argument('--bad-margin', type=float, default=0.12)
-    parser.add_argument('--min-sharpness', type=float, default=18)
+    parser.add_argument('--good-conf', type=float, default=0.55)
+    parser.add_argument('--bad-conf', type=float, default=0.35)
+    parser.add_argument('--wet-conf', type=float, default=0.35)
+    parser.add_argument('--bad-margin', type=float, default=0.05)
+    parser.add_argument('--min-sharpness', type=float, default=14)
     args = parser.parse_args()
 
     model_path = Path(args.model)

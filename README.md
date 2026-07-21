@@ -192,11 +192,11 @@ wetmuzzle
 Current capture thresholds:
 
 ```text
-minimum good muzzle confidence: 0.70
-minimum bad muzzle confidence: 0.25
-minimum wet muzzle confidence: 0.25
-bad dominance margin: 0.12
-minimum blur/sharpness score: 18
+minimum good muzzle confidence: 0.55
+minimum bad muzzle confidence: 0.35
+minimum wet muzzle confidence: 0.35
+reject dominance margin: 0.05
+minimum blur/sharpness score: 14
 ```
 
 Only good, sharp muzzle crops are uploaded. Blurry images are rejected before they can affect the DINOv2 embedding average.

@@ -38,11 +38,11 @@ declare global {
 export class TfliteMuzzleDetectorService {
   private readonly modelUrl = '/assets/models/yolo26s_float32.tflite';
   private readonly modelInputSize = 704;
-  private readonly minGoodConfidence = 0.70;
-  private readonly minBadConfidence = 0.25;
-  private readonly minWetConfidence = 0.25;
-  private readonly badDominanceMargin = 0.12;
-  private readonly minSharpnessScore = 18;
+  private readonly minGoodConfidence = 0.55;
+  private readonly minBadConfidence = 0.35;
+  private readonly minWetConfidence = 0.35;
+  private readonly rejectDominanceMargin = 0.05;
+  private readonly minSharpnessScore = 14;
   private readonly classNames = ['badmuzzle', 'goodmuzzle', 'wetmuzzle'] as const;
 
   private modelPromise?: Promise<TfliteModel>;
@@ -337,14 +337,21 @@ export class TfliteMuzzleDetectorService {
     const bad = candidates.find((candidate) => candidate.className === 'badmuzzle');
     const wet = candidates.find((candidate) => candidate.className === 'wetmuzzle');
 
-    if (wet && wet.confidence >= this.minWetConfidence) return wet;
+    const strongestReject = [bad, wet]
+      .filter((candidate): candidate is YoloCandidate => Boolean(candidate))
+      .filter((candidate) => candidate.confidence >= (
+        candidate.className === 'wetmuzzle' ? this.minWetConfidence : this.minBadConfidence
+      ))
+      .sort((left, right) => right.confidence - left.confidence)[0];
 
     if (good && good.confidence >= this.minGoodConfidence) {
-      if (bad && bad.confidence >= good.confidence + this.badDominanceMargin) return bad;
+      if (strongestReject && strongestReject.confidence >= good.confidence + this.rejectDominanceMargin) {
+        return strongestReject;
+      }
       return good;
     }
 
-    return bad || good;
+    return strongestReject || good;
   }
 
   private nmsCandidate(
