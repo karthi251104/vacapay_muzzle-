@@ -1401,6 +1401,10 @@ app.post('/api/enrollments/:cattleId/resolve-muzzle-match', requireAuth, async (
   }
 });
 
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'API endpoint not found.' });
+});
+
 app.use(express.static(frontendDistDir, {
   setHeaders(res, filePath) {
     if (/\.(?:html|js|css)$/i.test(filePath)) {
