@@ -1850,6 +1850,52 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   }
 
+  confirmEnrollmentAsDifferent(review: MatchReview): void {
+    this.api.updateMatchReview(review.auditId, {
+      reviewStatus: 'no_cattle_correct',
+      reviewNotes: 'Admin confirmed this enrollment is a different cow.'
+    }).subscribe({
+      next: () => {
+        this.loadMatchReviews();
+        this.message = 'Confirmed as a different cow. The registered record was kept.';
+      },
+      error: (error) => { this.message = this.errorMessage(error); }
+    });
+  }
+
+  confirmEnrollmentAsSameCow(review: MatchReview, candidateCattleId: string): void {
+    if (!candidateCattleId) {
+      this.message = 'The closest registered cattle is unavailable.';
+      return;
+    }
+    const confirmed = window.confirm(
+      'Confirm these photos are the SAME cow? The new enrollment will be merged into the registered cattle and counted as a missed duplicate.'
+    );
+    if (!confirmed) return;
+
+    this.message = 'Merging the duplicate enrollment into the registered cow...';
+    this.api.mergeCattleRecords(candidateCattleId, [review.finalCattleId || review.cattleId]).subscribe({
+      next: () => {
+        this.api.updateMatchReview(review.auditId, {
+          reviewStatus: 'no_cattle_incorrect',
+          correctCattleId: candidateCattleId,
+          reviewNotes: 'Admin confirmed this was the same cow. Enrollment duplicate gate missed it.'
+        }).subscribe({
+          next: () => {
+            this.loadCattleInventory();
+            this.loadMatchReviews();
+            this.message = 'Duplicate merged. This missed duplicate now reduces enrollment-gate accuracy.';
+          },
+          error: (error) => {
+            this.loadCattleInventory();
+            this.message = `Cattle merged, but the audit update failed: ${this.errorMessage(error)}`;
+          }
+        });
+      },
+      error: (error) => { this.message = this.errorMessage(error); }
+    });
+  }
+
   stopEvidenceCamera(): void {
     this.evidenceCameraActive = false;
     this.stopCamera();
@@ -2183,6 +2229,34 @@ export class AppComponent implements OnInit, OnDestroy {
     return result;
   }
 
+  get enrollmentCandidatesByOfficer(): Map<string, Array<{
+    audit: MatchReview;
+    attemptRecord: CattleSummary;
+    candidate: CattleSummary;
+    confidencePercent: number;
+  }>> {
+    const result = new Map<string, Array<{ audit: MatchReview; attemptRecord: CattleSummary; candidate: CattleSummary; confidencePercent: number }>>();
+    const cattleById = new Map(this.uniqueCattleInventory.map((cattle) => [cattle.cattleId, cattle]));
+
+    for (const audit of this.allMatchReviews) {
+      if (audit.workflow !== 'cattle_enrolment' || audit.decision !== 'new_cattle' || this.isClosedReview(audit)) continue;
+      const attemptRecord = cattleById.get(audit.finalCattleId || audit.cattleId);
+      const closest = audit.topMatches?.[0];
+      const candidate = closest ? cattleById.get(closest.cattleId) : undefined;
+      if (!attemptRecord || !candidate) continue;
+      const key = this.officerKey(attemptRecord);
+      const list = result.get(key) || [];
+      list.push({
+        audit,
+        attemptRecord,
+        candidate,
+        confidencePercent: Math.round(Number(closest.score || audit.confidence || 0) * 100)
+      });
+      result.set(key, list);
+    }
+    return result;
+  }
+
   // ── Level-1: group all enrolled cattle by officer ──
   get officerGroups(): Array<{
     officerKey: string;
@@ -2417,12 +2491,26 @@ export class AppComponent implements OnInit, OnDestroy {
 
   get duplicateGateMetrics(): { reviewed: number; correct: number; incorrect: number; accuracy: number } {
     const reviews = this.allMatchReviews.filter((review) =>
-      review.workflow === 'cattle_enrolment' && review.decision === 'matched_existing'
+      review.workflow === 'cattle_enrolment'
     );
-    const correct = reviews.filter((review) => ['confirmed', 'found_correct'].includes(review.reviewStatus)).length;
-    const incorrect = reviews.filter((review) => ['found_incorrect', 'wrong_moved_to_registered'].includes(review.reviewStatus)).length;
+    const correct = reviews.filter((review) =>
+      (review.decision === 'matched_existing' && ['confirmed', 'found_correct'].includes(review.reviewStatus))
+      || (review.decision === 'new_cattle' && review.reviewStatus === 'no_cattle_correct')
+    ).length;
+    const incorrect = reviews.filter((review) =>
+      (review.decision === 'matched_existing' && ['found_incorrect', 'wrong_moved_to_registered'].includes(review.reviewStatus))
+      || (review.decision === 'new_cattle' && review.reviewStatus === 'no_cattle_incorrect')
+    ).length;
     const reviewed = correct + incorrect;
     return { reviewed, correct, incorrect, accuracy: this.percent(correct, reviewed) };
+  }
+
+  get pendingEnrollmentReviewCount(): number {
+    return this.allMatchReviews.filter((review) =>
+      review.workflow === 'cattle_enrolment'
+      && !this.isClosedReview(review)
+      && Boolean(review.topMatches?.length)
+    ).length;
   }
 
   get officerFieldSummaries(): OfficerFieldSummary[] {

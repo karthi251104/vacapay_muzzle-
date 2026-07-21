@@ -438,6 +438,7 @@ app.get('/api/farmers/sync', requireAuth, async (req, res, next) => {
 app.get('/api/reviews/matches', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const uncertainOnly = String(req.query.uncertainOnly ?? 'true') !== 'false';
+    await backfillEnrollmentMatchAudits();
     const audits = await readMatchAudits();
     const rows = (await readMetadata()).map(normalizeRecord).filter(Boolean);
     const imageLookup = buildSessionImageLookup(rows);
@@ -2065,22 +2066,20 @@ async function resolveMuzzleMatch(cattleId) {
       await upsertSessionVector(queryRow, querySession, { namespace: PINECONE_SEARCH_NAMESPACE, workflow: 'cattle_search' }).catch(() => null);
     }
     await persistMetadataRecord(queryRow);
-    if (queryWorkflow === 'cattle_search') {
-      await storeMatchAudit({
-        cattleId: queryRow.cattleId,
-        finalCattleId: queryRow.cattleId,
-        session: querySession,
-        matchResult,
-        farmerId: queryRow.farmerId,
-        farmerName: queryRow.farmerName,
-        fieldOfficerId: queryRow.fieldOfficerId,
-        fieldOfficerName: queryRow.fieldOfficerName,
-        locationLat: queryRow.locationLat,
-        locationLon: queryRow.locationLon,
-        locationAccuracyM: queryRow.locationAccuracyM,
-        matchRadiusKm: queryRow.matchRadiusKm
-      });
-    }
+    await storeMatchAudit({
+      cattleId: queryRow.cattleId,
+      finalCattleId: queryRow.cattleId,
+      session: querySession,
+      matchResult,
+      farmerId: queryRow.farmerId,
+      farmerName: queryRow.farmerName,
+      fieldOfficerId: queryRow.fieldOfficerId,
+      fieldOfficerName: queryRow.fieldOfficerName,
+      locationLat: queryRow.locationLat,
+      locationLon: queryRow.locationLon,
+      locationAccuracyM: queryRow.locationAccuracyM,
+      matchRadiusKm: queryRow.matchRadiusKm
+    });
     return {
       ...matchResult,
       enrollment: queryRow
@@ -2111,22 +2110,20 @@ async function resolveMuzzleMatch(cattleId) {
     workflow: queryWorkflow
   }).catch(() => null);
   await persistMetadataRecord(queryRow);
-  if (queryWorkflow === 'cattle_search') {
-    await storeMatchAudit({
-      cattleId: queryRow.cattleId,
-      finalCattleId: queryRow.cattleId,
-      session: querySession,
-      matchResult,
-      farmerId: queryRow.farmerId,
-      farmerName: queryRow.farmerName,
-      fieldOfficerId: queryRow.fieldOfficerId,
-      fieldOfficerName: queryRow.fieldOfficerName,
-      locationLat: queryRow.locationLat,
-      locationLon: queryRow.locationLon,
-      locationAccuracyM: queryRow.locationAccuracyM,
-      matchRadiusKm: queryRow.matchRadiusKm
-    });
-  }
+  await storeMatchAudit({
+    cattleId: queryRow.cattleId,
+    finalCattleId: queryRow.cattleId,
+    session: querySession,
+    matchResult,
+    farmerId: queryRow.farmerId,
+    farmerName: queryRow.farmerName,
+    fieldOfficerId: queryRow.fieldOfficerId,
+    fieldOfficerName: queryRow.fieldOfficerName,
+    locationLat: queryRow.locationLat,
+    locationLon: queryRow.locationLon,
+    locationAccuracyM: queryRow.locationAccuracyM,
+    matchRadiusKm: queryRow.matchRadiusKm
+  });
 
   return {
     ...matchResult,
@@ -2842,20 +2839,67 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
     locationLon: locationLon ?? null,
     locationAccuracyM: locationAccuracyM ?? null,
     matchRadiusKm: Number(matchRadiusKm || 7),
-    searchStrategy: farmerId || farmerName ? 'selected_farmer_then_location' : 'location_only',
+    searchStrategy: matchResult.workflow === 'cattle_enrolment'
+      ? 'enrolment_duplicate_check'
+      : (farmerId || farmerName ? 'selected_farmer_then_location' : 'location_only'),
     folderLocation: session.folderLocation,
     captureDate: session.captureDate,
     resolvedAt: matchResult.resolvedAt || new Date().toISOString(),
-    reviewStatus: isUncertain ? 'needs_review' : 'auto_accepted',
+    reviewStatus: matchResult.workflow === 'cattle_enrolment'
+      ? 'needs_review'
+      : (isUncertain ? 'needs_review' : 'auto_accepted'),
     correctCattleId: null,
     reviewNotes: ''
   };
 
-  if (existingIndex >= 0) audits[existingIndex] = { ...audits[existingIndex], ...audit };
-  else audits.push(audit);
+  const existing = existingIndex >= 0 ? audits[existingIndex] : null;
+  const reviewedStatuses = new Set([
+    'confirmed', 'found_correct', 'found_incorrect', 'no_cattle_correct',
+    'no_cattle_incorrect', 'wrong_moved_to_registered'
+  ]);
+  const savedAudit = existing && reviewedStatuses.has(existing.reviewStatus)
+    ? {
+      ...audit,
+      reviewStatus: existing.reviewStatus,
+      correctCattleId: existing.correctCattleId || null,
+      reviewNotes: existing.reviewNotes || '',
+      reviewedBy: existing.reviewedBy,
+      reviewedAt: existing.reviewedAt,
+      correctionAction: existing.correctionAction || null
+    }
+    : audit;
 
-  await persistMatchAudit(audit);
-  return audit;
+  await persistMatchAudit(savedAudit);
+  return savedAudit;
+}
+
+async function backfillEnrollmentMatchAudits() {
+  const [rows, audits] = await Promise.all([readCleanMetadata(), readMatchAudits()]);
+  const existingIds = new Set(audits.map((audit) => audit.auditId));
+
+  for (const row of rows) {
+    if (normalizeWorkflow(row.workflow, 'cattle_enrolment') !== 'cattle_enrolment') continue;
+    for (const session of row.sessions || []) {
+      const matchResult = session.matchResult;
+      const auditId = `${row.cattleId}__${session.sessionId}`;
+      if (!matchResult?.resolved || existingIds.has(auditId)) continue;
+      await storeMatchAudit({
+        cattleId: row.cattleId,
+        finalCattleId: row.cattleId,
+        session,
+        matchResult,
+        farmerId: row.farmerId,
+        farmerName: row.farmerName,
+        fieldOfficerId: row.fieldOfficerId,
+        fieldOfficerName: row.fieldOfficerName,
+        locationLat: row.locationLat,
+        locationLon: row.locationLon,
+        locationAccuracyM: row.locationAccuracyM,
+        matchRadiusKm: row.matchRadiusKm
+      });
+      existingIds.add(auditId);
+    }
+  }
 }
 
 function buildSessionImageLookup(rows) {
