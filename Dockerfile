@@ -14,7 +14,7 @@ RUN apt-get update \
 
 ENV PYTHON_BIN=/app/.venv/bin/python
 ENV DINOV2_MODEL_PATH=/app/models/dinov2_triplet_v2_best.pt
-ENV YOLO_MUZZLE_MODEL_PATH=/app/models/best.pt
+ENV YOLO_MUZZLE_MODEL_PATH=/app/models/yolo26s.pt
 ENV TORCH_HOME=/app/data/embedding_runtime/torch
 ENV MPLCONFIGDIR=/app/data/matplotlib
 ENV PORT=3000
@@ -34,7 +34,7 @@ COPY backend/src/ /app/backend/src/
 COPY backend/scripts/ /app/backend/scripts/
 RUN mkdir -p /app/models /app/data/embedding_runtime/torch/hub
 COPY backend/dinov2_triplet_v2_best.pt /app/models/dinov2_triplet_v2_best.pt
-COPY backend/best.pt /app/models/best.pt
+COPY backend/yolo26s.pt /app/models/yolo26s.pt
 RUN for attempt in 1 2 3; do \
       /app/.venv/bin/python -c "import torch; torch.hub.set_dir('/app/data/embedding_runtime/torch/hub'); torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14', pretrained=False, skip_validation=True, trust_repo=True)" \
       && break; \

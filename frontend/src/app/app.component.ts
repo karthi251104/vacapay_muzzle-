@@ -369,6 +369,7 @@ export class AppComponent implements OnInit, OnDestroy {
   muzzleLiveConfidence = 0;
   muzzleRejectionReason = '';
   muzzleScanSeconds = 0;
+  private consecutiveGoodMuzzleFrames = 0;
   private muzzleScanTimer?: number;
   yoloStatus?: YoloStatus;
   embeddingStatus?: EmbeddingStatus;
@@ -510,7 +511,7 @@ export class AppComponent implements OnInit, OnDestroy {
       .then(() => {
         this.yoloStatus = {
           ok: true,
-          modelPath: '/assets/models/best.tflite',
+          modelPath: '/assets/models/yolo26s_float32.tflite',
           task: 'phone_tflite_detection'
         };
         this.checkingYolo = false;
@@ -520,7 +521,7 @@ export class AppComponent implements OnInit, OnDestroy {
         this.checkingYolo = false;
         this.yoloStatus = {
           ok: false,
-          modelPath: '/assets/models/best.tflite',
+          modelPath: '/assets/models/yolo26s_float32.tflite',
           error: error instanceof Error ? error.message : 'Phone TFLite model could not load.'
         };
         this.message = `Phone muzzle check not ready: ${this.yoloStatus.error}`;
@@ -850,7 +851,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
     if (this.reviewFilterDecision !== 'all') {
       if (this.reviewFilterDecision === 'pending') {
-        filtered = filtered.filter((review) => !this.isReviewedCattleSearch(review));
+        filtered = filtered.filter((review) => !this.isClosedReview(review));
       } else {
         filtered = filtered.filter((review) => review.decision === this.reviewFilterDecision);
       }
@@ -868,7 +869,10 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   isClosedReview(review: MatchReview): boolean {
-    return ['confirmed', 'found_correct', 'found_incorrect', 'no_cattle_correct', 'no_cattle_incorrect', 'wrong_moved_to_registered'].includes(review.reviewStatus);
+    const overallReviewed = ['confirmed', 'found_correct', 'found_incorrect', 'no_cattle_correct', 'no_cattle_incorrect', 'wrong_moved_to_registered']
+      .includes(review.reviewStatus);
+    const farmerReviewed = !review.farmerComparison?.available || this.isFarmerComparisonReviewed(review);
+    return overallReviewed && farmerReviewed;
   }
 
   toggleReviewMode(): void {
@@ -877,11 +881,20 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   confirmMatchReview(review: MatchReview, correctCattleId?: string): void {
+    const reviewScope = this.reviewCandidateScope;
+    const predictedCattleId = reviewScope === 'farmer'
+      ? review.farmerComparison?.matchedCattleId
+      : review.matchedCattleId;
+    const selectedCattleId = correctCattleId || predictedCattleId || review.finalCattleId;
+    const isDifferentCandidate = Boolean(correctCattleId && correctCattleId !== predictedCattleId);
     this.api
       .updateMatchReview(review.auditId, {
-        reviewStatus: correctCattleId ? 'found_incorrect' : 'found_correct',
-        correctCattleId: correctCattleId || review.matchedCattleId || review.finalCattleId,
-        reviewNotes: correctCattleId ? 'Admin selected a different expected cow from candidate list.' : 'Admin confirmed the cattle-found result is correct.'
+        reviewScope,
+        reviewStatus: isDifferentCandidate ? 'found_incorrect' : 'found_correct',
+        correctCattleId: selectedCattleId,
+        reviewNotes: isDifferentCandidate
+          ? `Admin selected a different expected cow for the ${reviewScope} result.`
+          : `Admin confirmed the ${reviewScope} cattle-found result is correct.`
       })
       .subscribe({
         next: ({ review: updated }) => {
@@ -896,10 +909,12 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   markFoundIncorrect(review: MatchReview): void {
+    const reviewScope = this.reviewCandidateScope;
     this.api
       .updateMatchReview(review.auditId, {
+        reviewScope,
         reviewStatus: 'found_incorrect',
-        reviewNotes: 'Admin confirmed the cattle-found result is incorrect.'
+        reviewNotes: `Admin confirmed the ${reviewScope} cattle-found result is incorrect.`
       })
       .subscribe({
         next: ({ review: updated }) => {
@@ -914,10 +929,12 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   confirmNoCattleFound(review: MatchReview): void {
+    const reviewScope = this.reviewCandidateScope;
     this.api
       .updateMatchReview(review.auditId, {
+        reviewScope,
         reviewStatus: 'no_cattle_correct',
-        reviewNotes: 'Admin confirmed the no-cattle-found result is correct.'
+        reviewNotes: `Admin confirmed the ${reviewScope} no-cattle-found result is correct.`
       })
       .subscribe({
         next: ({ review: updated }) => {
@@ -932,11 +949,16 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   markNoCattleFoundIncorrect(review: MatchReview): void {
+    const reviewScope = this.reviewCandidateScope;
+    const candidates = reviewScope === 'farmer'
+      ? this.farmerReviewCandidates(review)
+      : this.metricTopMatches(review);
     this.api
       .updateMatchReview(review.auditId, {
+        reviewScope,
         reviewStatus: 'no_cattle_incorrect',
-        correctCattleId: this.metricTopMatches(review)[0]?.cattleId || review.finalCattleId,
-        reviewNotes: 'Admin confirmed this should have found an existing registered cow.'
+        correctCattleId: candidates[0]?.cattleId || review.finalCattleId,
+        reviewNotes: `Admin confirmed the ${reviewScope} search should have found an existing registered cow.`
       })
       .subscribe({
         next: ({ review: updated }) => {
@@ -1424,6 +1446,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.muzzleLiveConfidence = 0;
     this.muzzleRejectionReason = '';
     this.muzzleScanSeconds = 0;
+    this.consecutiveGoodMuzzleFrames = 0;
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = undefined;
   }
@@ -1440,6 +1463,7 @@ export class AppComponent implements OnInit, OnDestroy {
       this.muzzleLiveConfidence = 0;
       this.muzzleRejectionReason = '';
       this.muzzleScanSeconds = 0;
+      this.consecutiveGoodMuzzleFrames = 0;
       this.message = 'Auto capture paused.';
       return;
     }
@@ -1448,6 +1472,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.muzzleScanSeconds = 0;
     this.muzzleLiveConfidence = 0;
     this.muzzleRejectionReason = '';
+    this.consecutiveGoodMuzzleFrames = 0;
     this.message = 'Looking for clear muzzle...';
     this.muzzleGateState = 'scanning';
     this.muzzleGateLabel = 'Scanning';
@@ -1466,7 +1491,7 @@ export class AppComponent implements OnInit, OnDestroy {
       if (this.muzzlePreviews.length >= this.muzzleImageCount) this.toggleAutoCapture();
       return;
     }
-    if (this.lastMuzzleSavedAt && Date.now() - this.lastMuzzleSavedAt < 1500) return;
+    if (this.lastMuzzleSavedAt && Date.now() - this.lastMuzzleSavedAt < 1000) return;
 
     this.isDetecting = true;
     this.muzzleGateState = 'scanning';
@@ -1497,6 +1522,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.detectionBox = this.toDetectionBox(localResult.bbox || undefined, localResult.imageSize, localResult.confidence);
 
     if (!localResult.accepted || !localResult.cropBlob) {
+      this.consecutiveGoodMuzzleFrames = 0;
       this.isDetecting = false;
       this.muzzleGateState = 'bad';
 
@@ -1504,12 +1530,18 @@ export class AppComponent implements OnInit, OnDestroy {
       if (localResult.className === 'none' || !localResult.bbox) {
         this.muzzleGateLabel = 'No muzzle found';
         this.muzzleRejectionReason = 'Move closer and point the camera directly at the cow\'s nose.';
+      } else if (localResult.className === 'wetmuzzle') {
+        this.muzzleGateLabel = 'Wet muzzle';
+        this.muzzleRejectionReason = 'Dry the muzzle and try again. Water hides the identifying pattern.';
+      } else if (localResult.className === 'badmuzzle' || localResult.className === 'bad muzzle') {
+        this.muzzleGateLabel = 'Bad muzzle';
+        this.muzzleRejectionReason = 'Face the muzzle straight, move closer, and improve the lighting.';
       } else if (localResult.className !== 'goodmuzzle') {
-        this.muzzleGateLabel = 'Bad angle';
-        this.muzzleRejectionReason = 'Hold the phone steady and face the muzzle straight on.';
-      } else if (localResult.confidence < 0.50) {
+        this.muzzleGateLabel = 'Not usable';
+        this.muzzleRejectionReason = localResult.reason || 'Show the full muzzle clearly and try again.';
+      } else if (localResult.confidence < 0.70) {
         this.muzzleGateLabel = `Low confidence ${this.muzzleLiveConfidence}%`;
-        this.muzzleRejectionReason = `Confidence is ${this.muzzleLiveConfidence}% — need 50%. Try better lighting or move closer.`;
+        this.muzzleRejectionReason = `Confidence is ${this.muzzleLiveConfidence}% - need 70%. Try better lighting or move closer.`;
       } else {
         this.muzzleGateLabel = 'Too blurry';
         this.muzzleRejectionReason = 'Image is blurry. Hold the phone still and wait for focus.';
@@ -1519,6 +1551,18 @@ export class AppComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.consecutiveGoodMuzzleFrames += 1;
+    if (this.consecutiveGoodMuzzleFrames < 2) {
+      if (localResult.cropUrl) URL.revokeObjectURL(localResult.cropUrl);
+      this.isDetecting = false;
+      this.muzzleGateState = 'good';
+      this.muzzleGateLabel = 'Hold steady';
+      this.muzzleRejectionReason = 'Good muzzle found. Hold this position for one more check.';
+      this.message = this.muzzleRejectionReason;
+      return;
+    }
+    this.consecutiveGoodMuzzleFrames = 0;
+    this.muzzleRejectionReason = '';
     this.muzzleGateState = 'good';
     this.muzzleGateLabel = 'Good muzzle';
 
@@ -2520,7 +2564,7 @@ export class AppComponent implements OnInit, OnDestroy {
     const reviews = this.allMatchReviews.filter((review) =>
       this.isCattleSearchCandidate(review) && Boolean(review.farmerComparison?.available)
     );
-    const reviewed = reviews.filter((review) => this.isReviewedCattleSearch(review));
+    const reviewed = reviews.filter((review) => this.isFarmerComparisonReviewed(review));
     const cattleFoundResults = reviews.filter((review) => review.farmerComparison?.decision === 'matched_existing').length;
     const noCattleFoundResults = reviews.filter((review) => review.farmerComparison?.decision === 'new_cattle').length;
     const cattleFoundCorrect = reviewed.filter((review) =>
@@ -2551,7 +2595,7 @@ export class AppComponent implements OnInit, OnDestroy {
       noCattleFoundIncorrect,
       top1Accuracy: this.percent(top1Correct, topKReviewed.length),
       top5Accuracy: this.percent(top5Correct, topKReviewed.length),
-      pendingReview: reviews.filter((review) => !this.isReviewedCattleSearch(review)).length
+      pendingReview: reviews.filter((review) => !this.isFarmerComparisonReviewed(review)).length
     };
   }
 
@@ -2730,13 +2774,18 @@ export class AppComponent implements OnInit, OnDestroy {
     const comparison = review.farmerComparison;
     if (!comparison?.available || !comparison.decision) return 'Not available';
     const result = comparison.decision === 'matched_existing' ? 'Cattle Found' : 'No Cattle Found';
-    if (!this.isReviewedCattleSearch(review)) return result;
+    if (!this.isFarmerComparisonReviewed(review)) return `${result} - Needs confirmation`;
     return `${result} - ${this.isFarmerComparisonCorrect(review) ? 'Correct' : 'Incorrect'}`;
+  }
+
+  isFarmerComparisonReviewed(review: MatchReview): boolean {
+    return ['confirmed', 'found_correct', 'found_incorrect', 'no_cattle_correct', 'no_cattle_incorrect']
+      .includes(review.farmerComparison?.reviewStatus || '');
   }
 
   isFarmerComparisonCorrect(review: MatchReview): boolean {
     const comparison = review.farmerComparison;
-    if (!comparison?.available || !comparison.decision || !this.isReviewedCattleSearch(review)) return false;
+    if (!comparison?.available || !comparison.decision || !this.isFarmerComparisonReviewed(review)) return false;
     const expected = this.farmerExpectedCattleId(review);
     return comparison.decision === 'matched_existing'
       ? Boolean(expected && comparison.matchedCattleId === expected)
@@ -2749,6 +2798,10 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private farmerExpectedCattleId(review: MatchReview): string | null {
+    if (this.isFarmerComparisonReviewed(review)) {
+      if (review.farmerComparison?.reviewStatus === 'no_cattle_correct') return null;
+      return review.farmerComparison?.correctCattleId || review.farmerComparison?.matchedCattleId || null;
+    }
     const expected = this.expectedCattleId(review);
     if (!expected) return null;
 
@@ -2780,6 +2833,26 @@ export class AppComponent implements OnInit, OnDestroy {
     if (this.isWrongMatchedReview(review)) return 'Wrong';
     if (this.isTopKCorrect(review, 5)) return 'In Top 5';
     return 'Check';
+  }
+
+  activeReviewDecision(review: MatchReview): 'matched_existing' | 'new_cattle' | null {
+    return this.reviewCandidateScope === 'farmer'
+      ? (review.farmerComparison?.decision || null)
+      : review.decision;
+  }
+
+  activeReviewStatusLabel(review: MatchReview): string {
+    if (this.reviewCandidateScope === 'farmer') {
+      if (!this.isFarmerComparisonReviewed(review)) return 'Selected Farmer: needs confirmation';
+      return `Selected Farmer: ${this.isFarmerComparisonCorrect(review) ? 'confirmed correct' : 'confirmed incorrect'}`;
+    }
+    return `Overall Search: ${this.reviewResultLabel(review)}`;
+  }
+
+  activeExpectedCattleId(review: MatchReview): string | null {
+    return this.reviewCandidateScope === 'farmer'
+      ? this.farmerExpectedCattleId(review)
+      : this.expectedCattleId(review);
   }
 
   percent(numerator: number, denominator: number): number {

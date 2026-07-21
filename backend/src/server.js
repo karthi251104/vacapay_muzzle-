@@ -51,9 +51,10 @@ const PORT = envNumber('PORT', 3000, 1, 65535, true);
 const PYTHON_BIN = resolvePythonBin();
 const PYTHON_PROCESS_TIMEOUT_MS = envNumber('PYTHON_PROCESS_TIMEOUT_MS', 180_000, 30_000, 900_000, true);
 const DINOV2_MODEL_PATH = process.env.DINOV2_MODEL_PATH || path.join(__dirname, '..', 'dinov2_triplet_v2_best.pt');
-const YOLO_MUZZLE_MODEL_PATH = process.env.YOLO_MUZZLE_MODEL_PATH || path.join(__dirname, '..', 'best.pt');
-const MUZZLE_CONF = envNumber('MUZZLE_CONF', 0.55, 0, 1);
-const MUZZLE_BAD_CONF = envNumber('MUZZLE_BAD_CONF', 0.45, 0, 1);
+const YOLO_MUZZLE_MODEL_PATH = process.env.YOLO_MUZZLE_MODEL_PATH || path.join(__dirname, '..', 'yolo26s.pt');
+const MUZZLE_CONF = envNumber('MUZZLE_CONF', 0.70, 0, 1);
+const MUZZLE_BAD_CONF = envNumber('MUZZLE_BAD_CONF', 0.25, 0, 1);
+const MUZZLE_WET_CONF = envNumber('MUZZLE_WET_CONF', 0.25, 0, 1);
 const MUZZLE_BAD_DOMINANCE_MARGIN = envNumber('MUZZLE_BAD_DOMINANCE_MARGIN', 0.12, 0, 1);
 const MUZZLE_MIN_SHARPNESS = envNumber('MUZZLE_MIN_SHARPNESS', 18, 0, 1000);
 const MUZZLE_IMAGE_COUNT = envNumber('MUZZLE_IMAGE_COUNT', 3, 1, 10, true);
@@ -85,7 +86,7 @@ const PINECONE_SEARCH_NAMESPACE = process.env.PINECONE_SEARCH_NAMESPACE || `${PI
 const pineconeEnabled = Boolean(PINECONE_API_KEY && PINECONE_INDEX_HOST);
 const APP_VERSION = process.env.APP_VERSION || 'field-test-2026-07-14';
 const YOLO_MUZZLE_MODEL_VERSION = process.env.YOLO_MUZZLE_MODEL_VERSION || path.basename(YOLO_MUZZLE_MODEL_PATH);
-const PHONE_TFLITE_MODEL_VERSION = process.env.PHONE_TFLITE_MODEL_VERSION || 'best.tflite';
+const PHONE_TFLITE_MODEL_VERSION = process.env.PHONE_TFLITE_MODEL_VERSION || 'yolo26s_float32.tflite';
 const DINOV2_MODEL_VERSION = process.env.DINOV2_MODEL_VERSION || path.basename(DINOV2_MODEL_PATH);
 const MUZZLE_IMAGE_FILES = Array.from({ length: MUZZLE_IMAGE_COUNT }, (_, index) => `muzzle${index + 1}.jpg`);
 const SUPPORT_IMAGE_FILES = [
@@ -285,6 +286,8 @@ app.get('/api/version', (_req, res) => {
     muzzleImageCount: MUZZLE_IMAGE_COUNT,
     thresholds: {
       muzzleConfidence: MUZZLE_CONF,
+      badMuzzleConfidence: MUZZLE_BAD_CONF,
+      wetMuzzleConfidence: MUZZLE_WET_CONF,
       embeddingMatch: EMBEDDING_MATCH_THRESHOLD,
       embeddingMatchPercent: Math.round(EMBEDDING_MATCH_THRESHOLD * 100)
     },
@@ -484,6 +487,18 @@ app.post('/api/reviews/matches/:auditId', requireAuth, requireAdmin, async (req,
     }
 
     const action = String(req.body.action || '').trim();
+    const reviewScope = req.body.reviewScope === 'farmer' ? 'farmer' : 'overall';
+    const scopeDecision = reviewScope === 'farmer'
+      ? audits[index].farmerComparison?.decision
+      : audits[index].decision;
+    if (reviewScope === 'farmer' && !audits[index].farmerComparison?.available) {
+      res.status(400).json({ error: 'Selected-farmer comparison is not available for this search.' });
+      return;
+    }
+    if (reviewScope === 'farmer' && action) {
+      res.status(400).json({ error: 'Record correction actions apply only to the overall search result.' });
+      return;
+    }
     const reviewNotes = String(req.body.reviewNotes || '').trim();
     const allowedReviewStatuses = new Set([
       'confirmed', 'found_correct', 'found_incorrect', 'no_cattle_correct',
@@ -494,11 +509,11 @@ app.post('/api/reviews/matches/:auditId', requireAuth, requireAdmin, async (req,
       res.status(400).json({ error: 'Invalid match review status.' });
       return;
     }
-    if (audits[index].decision === 'matched_existing' && requestedReviewStatus.startsWith('no_cattle_')) {
+    if (scopeDecision === 'matched_existing' && requestedReviewStatus.startsWith('no_cattle_')) {
       res.status(400).json({ error: 'A cattle-found result must be reviewed with a cattle-found action.' });
       return;
     }
-    if (audits[index].decision === 'new_cattle' && requestedReviewStatus.startsWith('found_')) {
+    if (scopeDecision === 'new_cattle' && requestedReviewStatus.startsWith('found_')) {
       res.status(400).json({ error: 'A no-cattle-found result must be reviewed with a no-cattle-found action.' });
       return;
     }
@@ -524,22 +539,40 @@ app.post('/api/reviews/matches/:auditId', requireAuth, requireAdmin, async (req,
       });
     }
 
+    const predictedCattleId = reviewScope === 'farmer'
+      ? audits[index].farmerComparison?.matchedCattleId
+      : audits[index].matchedCattleId;
     const reviewedCorrectCattleId = requestedReviewStatus === 'no_cattle_correct'
       ? null
       : ((requestedReviewStatus === 'found_correct' || requestedReviewStatus === 'confirmed')
-        && audits[index].decision === 'matched_existing'
-        ? audits[index].matchedCattleId
+        && scopeDecision === 'matched_existing'
+        ? predictedCattleId
         : (correctCattleId || (action === 'move_out_as_registered' ? audits[index].finalCattleId : null)));
 
-    audits[index] = {
-      ...audits[index],
-      reviewStatus: action === 'move_out_as_registered' ? 'wrong_moved_to_registered' : requestedReviewStatus,
-      correctCattleId: reviewedCorrectCattleId,
-      reviewNotes,
-      reviewedBy: req.user,
-      reviewedAt: new Date().toISOString(),
-      correctionAction: action || null
-    };
+    const reviewedAt = new Date().toISOString();
+    if (reviewScope === 'farmer') {
+      audits[index] = {
+        ...audits[index],
+        farmerComparison: {
+          ...audits[index].farmerComparison,
+          reviewStatus: requestedReviewStatus,
+          correctCattleId: reviewedCorrectCattleId,
+          reviewNotes,
+          reviewedBy: req.user,
+          reviewedAt
+        }
+      };
+    } else {
+      audits[index] = {
+        ...audits[index],
+        reviewStatus: action === 'move_out_as_registered' ? 'wrong_moved_to_registered' : requestedReviewStatus,
+        correctCattleId: reviewedCorrectCattleId,
+        reviewNotes,
+        reviewedBy: req.user,
+        reviewedAt,
+        correctionAction: action || null
+      };
+    }
     audits[index].farmerComparison = audits[index].farmerComparison || buildAuditFarmerComparison(audits[index]);
 
     await persistMatchAudit(audits[index]);
@@ -1184,6 +1217,8 @@ app.post('/api/muzzle/check', requireAuth, upload.single('image'), async (req, r
       String(MUZZLE_CONF),
       '--bad-conf',
       String(MUZZLE_BAD_CONF),
+      '--wet-conf',
+      String(MUZZLE_WET_CONF),
       '--bad-margin',
       String(MUZZLE_BAD_DOMINANCE_MARGIN),
       '--min-sharpness',
@@ -2944,9 +2979,30 @@ async function storeMatchAudit({ cattleId, finalCattleId, session, matchResult, 
       reviewNotes: existing.reviewNotes || '',
       reviewedBy: existing.reviewedBy,
       reviewedAt: existing.reviewedAt,
-      correctionAction: existing.correctionAction || null
+      correctionAction: existing.correctionAction || null,
+      farmerComparison: audit.farmerComparison
+        ? {
+          ...audit.farmerComparison,
+          reviewStatus: existing.farmerComparison?.reviewStatus || audit.farmerComparison.reviewStatus,
+          correctCattleId: existing.farmerComparison?.correctCattleId ?? audit.farmerComparison.correctCattleId ?? null,
+          reviewNotes: existing.farmerComparison?.reviewNotes || '',
+          reviewedBy: existing.farmerComparison?.reviewedBy,
+          reviewedAt: existing.farmerComparison?.reviewedAt
+        }
+        : null
     }
     : audit;
+
+  if (existing?.farmerComparison?.reviewStatus && savedAudit.farmerComparison) {
+    savedAudit.farmerComparison = {
+      ...savedAudit.farmerComparison,
+      reviewStatus: existing.farmerComparison.reviewStatus,
+      correctCattleId: existing.farmerComparison.correctCattleId ?? null,
+      reviewNotes: existing.farmerComparison.reviewNotes || '',
+      reviewedBy: existing.farmerComparison.reviewedBy,
+      reviewedAt: existing.farmerComparison.reviewedAt
+    };
+  }
 
   await persistMatchAudit(savedAudit);
   return savedAudit;

@@ -12,6 +12,7 @@ handoff guide first:
 - [App architecture, diagrams, model scores and metrics](docs/APP_ARCHITECTURE_AND_METRICS.md)
 - [Codex account handoff and model-security status](docs/CODEX_HANDOFF.md)
 - [Production deployment](docs/PRODUCTION_DEPLOYMENT.md)
+- [Azure Linux VM backend deployment](docs/AZURE_VM_DEPLOYMENT.md)
 
 The setup guide includes Git LFS model download, Node/pnpm/Python installation,
 private `.env` configuration, Android Studio SDK setup, APK generation,
@@ -21,7 +22,7 @@ Cloudflare phone testing, verification, troubleshooting and safe Git commands.
 
 - **Admin website:** administrator accounts only. It provides enrolment inventory, cattle-search metrics, query evidence, Top-5 visual cattle comparisons, the full Top-20 ranking, and review decisions.
 - **Android field app:** field officer capture and offline upload. Browser sessions reject field officer accounts; the field workflow is enabled only inside the Capacitor Android application.
-- **Backend:** Express, MongoDB Atlas, Cloudinary, backend YOLO `best.pt`, DINOv2 and Pinecone run locally, through Docker, or on a Linux host with sufficient memory. A local PC can be exposed temporarily with Cloudflare Tunnel for controlled field testing. See [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md).
+- **Backend:** Express, MongoDB Atlas, Cloudinary, backend YOLO `yolo26s.pt`, DINOv2 and Pinecone run locally, through Docker, or on an Azure Linux VM with sufficient memory. Cloudinary remains the permanent image store. A local PC can be exposed temporarily with Cloudflare Tunnel for controlled field testing. See [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) and [Azure Linux VM Deployment](docs/AZURE_VM_DEPLOYMENT.md).
 - **Netlify admin hosting:** `netlify.toml` builds only the lightweight admin target and injects the backend API URL from `VACAPAY_API_BASE_URL`.
 
 The admin review expands each cattle search into query muzzle and side images, Top-5 candidate cattle with enrolled muzzle and body evidence, and Top-20 ranked identities. Selecting a candidate records the expected cattle identity for field accuracy metrics.
@@ -94,7 +95,7 @@ It preserves admin and field-officer accounts while clearing cattle enrolments, 
 Production note:
 
 ```text
-The app has a hybrid muzzle gate. When online, it tries the backend YOLO PyTorch model at `backend/best.pt`. If the backend is unavailable or the phone is offline, it falls back to the phone-side TFLite model at `frontend/src/assets/models/best.tflite`. The field build bundles the pinned TensorFlow JS/TFLite runtime, WASM files and phone model inside the APK; it does not require a CDN for offline checking.
+The app has a hybrid muzzle gate. When online, it tries the backend YOLO PyTorch model at `backend/yolo26s.pt`. If the backend is unavailable or the phone is offline, it falls back to the phone-side TFLite model at `frontend/src/assets/models/yolo26s_float32.tflite`. The field build bundles the pinned TensorFlow JS/TFLite runtime, WASM files and phone model inside the APK; it does not require a CDN for offline checking.
 ```
 
 ## Agent Flow
@@ -176,29 +177,31 @@ All seven supporting views are required. The capture screen does not allow a vie
 The field app uses a hybrid muzzle gate:
 
 ```text
-online backend path: backend/best.pt
-offline phone fallback: frontend/src/assets/models/best.tflite
+online backend path: backend/yolo26s.pt
+offline phone fallback: frontend/src/assets/models/yolo26s_float32.tflite
 ```
 
 Classes:
 
 ```text
 goodmuzzle
-bad muzzle
+badmuzzle
+wetmuzzle
 ```
 
 Current capture thresholds:
 
 ```text
-minimum good muzzle confidence: 0.50
-minimum bad muzzle confidence: 0.45
+minimum good muzzle confidence: 0.70
+minimum bad muzzle confidence: 0.25
+minimum wet muzzle confidence: 0.25
 bad dominance margin: 0.12
 minimum blur/sharpness score: 18
 ```
 
 Only good, sharp muzzle crops are uploaded. Blurry images are rejected before they can affect the DINOv2 embedding average.
 
-The phone fallback currently accepts `goodmuzzle` at 0.50. The backend PT gate uses `MUZZLE_CONF` (0.55 in `.env.example`). Admin audit rows store the phone TFLite and backend YOLO model versions separately.
+The backend and phone gates use the three-class `yolo26s` model. Environment variables can tune the deployment thresholds without changing DINOv2 identity matching. Admin audit rows store the phone TFLite and backend YOLO model versions separately.
 
 The accepted crop also receives local contrast enhancement before upload.
 

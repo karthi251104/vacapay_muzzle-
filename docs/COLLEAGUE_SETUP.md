@@ -16,7 +16,7 @@ https://github.com/karthi251104/vacapay_muzzle-.git
 frontend/
   Angular admin UI
   Capacitor Android field app
-  best.tflite phone muzzle detector
+  yolo26s_float32.tflite phone muzzle detector
 
 backend/
   Express API
@@ -96,16 +96,16 @@ Verify both models:
 
 ```powershell
 Get-Item backend\dinov2_triplet_v2_best.pt
-Get-Item backend\best.pt
-Get-Item frontend\src\assets\models\best.tflite
+Get-Item backend\yolo26s.pt
+Get-Item frontend\src\assets\models\yolo26s_float32.tflite
 ```
 
 Expected approximate sizes:
 
 ```text
 backend/dinov2_triplet_v2_best.pt       353 MB
-frontend/src/assets/models/best.tflite   80 MB
-backend/best.pt                          backend YOLO PT model
+frontend/src/assets/models/yolo26s_float32.tflite  phone YOLO TFLite model
+backend/yolo26s.pt                                backend YOLO PT model
 ```
 
 If the `.pt` file is only a few bytes or contains text beginning with
@@ -209,8 +209,11 @@ PINECONE_NAMESPACE=vacapay
 
 EMBEDDING_MATCH_THRESHOLD=0.70
 MUZZLE_IMAGE_COUNT=3
-YOLO_IMGSZ=640
-MUZZLE_CONF=0.55
+YOLO_IMGSZ=704
+MUZZLE_CONF=0.70
+MUZZLE_BAD_CONF=0.25
+MUZZLE_WET_CONF=0.25
+MUZZLE_BAD_DOMINANCE_MARGIN=0.12
 ```
 
 Optional explicit Windows paths:
@@ -218,7 +221,7 @@ Optional explicit Windows paths:
 ```dotenv
 PYTHON_BIN=E:\vacapay\.venv\Scripts\python.exe
 DINOV2_MODEL_PATH=E:\vacapay\backend\dinov2_triplet_v2_best.pt
-YOLO_MUZZLE_MODEL_PATH=E:\vacapay\backend\best.pt
+YOLO_MUZZLE_MODEL_PATH=E:\vacapay\backend\yolo26s.pt
 ```
 
 Rules:
@@ -704,7 +707,7 @@ Before telling another developer the project works, confirm:
 
 ```text
 [ ] Git LFS downloaded the full DINOv2 checkpoint
-[ ] best.tflite exists in frontend assets
+[ ] yolo26s_float32.tflite exists in frontend assets
 [ ] root .env exists but is not tracked
 [ ] Node, pnpm and Python versions are correct
 [ ] Python imports torch and cv2

@@ -87,9 +87,9 @@ The repository currently uses these model artifacts:
 
 | Model | Purpose | Current Git state | Security consequence |
 |---|---|---|---|
-| `backend/best.pt` | Online YOLO good/bad muzzle detection and crop | Local file, not tracked | Keep outside Git and deploy from private storage |
+| `backend/yolo26s.pt` | Online YOLO good/bad/wet muzzle detection and crop | Tracked through Git LFS | Downloadable by anyone who can access the repository |
 | `backend/dinov2_triplet_v2_best.pt` | DINOv2 cattle embedding model | Tracked through Git LFS | Downloadable by anyone who can access the repository |
-| `frontend/src/assets/models/best.tflite` | Offline phone muzzle gate | Tracked in normal Git and bundled in APK | Downloadable from Git and extractable from the APK |
+| `frontend/src/assets/models/yolo26s_float32.tflite` | Offline phone muzzle gate | Tracked through Git LFS and bundled in APK | Downloadable from Git and extractable from the APK |
 
 Important limitation:
 

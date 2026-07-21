@@ -23,4 +23,6 @@ builds/
 *.onnx
 *.engine
 *.ckpt
+!backend/yolo26s.pt
+!frontend/src/assets/models/yolo26s_float32.tflite
 .gstack/

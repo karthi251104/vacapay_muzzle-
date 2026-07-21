@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 
 interface YoloCandidate {
-  className: 'goodmuzzle' | 'bad muzzle';
+  className: 'goodmuzzle' | 'badmuzzle' | 'wetmuzzle';
   classId: number;
   confidence: number;
   bbox: [number, number, number, number];
@@ -21,6 +21,7 @@ export interface LocalMuzzleDetection {
 
 type TfliteModel = {
   predict(input: unknown): unknown;
+  inputs?: Array<{ shape?: number[] }>;
 };
 
 declare global {
@@ -35,13 +36,14 @@ declare global {
 
 @Injectable({ providedIn: 'root' })
 export class TfliteMuzzleDetectorService {
-  private readonly modelUrl = '/assets/models/best.tflite';
-  private readonly modelInputSize = 640;
-  private readonly minGoodConfidence = 0.50;
-  private readonly minBadConfidence = 0.45;
+  private readonly modelUrl = '/assets/models/yolo26s_float32.tflite';
+  private readonly modelInputSize = 704;
+  private readonly minGoodConfidence = 0.70;
+  private readonly minBadConfidence = 0.25;
+  private readonly minWetConfidence = 0.25;
   private readonly badDominanceMargin = 0.12;
   private readonly minSharpnessScore = 18;
-  private readonly classNames = ['bad muzzle', 'goodmuzzle'] as const;
+  private readonly classNames = ['badmuzzle', 'goodmuzzle', 'wetmuzzle'] as const;
 
   private modelPromise?: Promise<TfliteModel>;
   private scriptsPromise?: Promise<void>;
@@ -67,7 +69,7 @@ export class TfliteMuzzleDetectorService {
     if (!frameContext) throw new Error('Could not read camera frame.');
 
     frameContext.drawImage(video, 0, 0, sourceWidth, sourceHeight);
-    const input = this.frameToTensor(frameCanvas);
+    const input = this.frameToTensor(frameCanvas, model);
     let rawOutput: unknown;
     try {
       rawOutput = model.predict(input);
@@ -91,9 +93,10 @@ export class TfliteMuzzleDetectorService {
     }
 
     if (best.className !== 'goodmuzzle') {
+      const label = best.className === 'wetmuzzle' ? 'Wet muzzle' : 'Bad muzzle';
       return {
         accepted: false,
-        reason: `Bad muzzle rejected (${Math.round(best.confidence * 100)}%).`,
+        reason: `${label} rejected (${Math.round(best.confidence * 100)}%).`,
         confidence: best.confidence,
         className: best.className,
         bbox: best.bbox,
@@ -163,7 +166,7 @@ export class TfliteMuzzleDetectorService {
     if (!tf?.zeros) return;
     let input: unknown;
     try {
-      input = tf.zeros([1, 3, this.modelInputSize, this.modelInputSize], 'float32');
+      input = tf.zeros(this.modelInputShape(model), 'float32');
       let output: unknown;
       try {
         output = model.predict(input);
@@ -228,7 +231,15 @@ export class TfliteMuzzleDetectorService {
     });
   }
 
-  private frameToTensor(canvas: HTMLCanvasElement): unknown {
+  private modelInputShape(model: TfliteModel): number[] {
+    const shape = model.inputs?.[0]?.shape;
+    if (Array.isArray(shape) && shape.length === 4 && shape.every((value) => Number.isFinite(value) && value > 0)) {
+      return shape;
+    }
+    return [1, this.modelInputSize, this.modelInputSize, 3];
+  }
+
+  private frameToTensor(canvas: HTMLCanvasElement, model: TfliteModel): unknown {
     const tf = window.tf;
     const letterbox = this.letterboxCanvas;
     letterbox.width = this.modelInputSize;
@@ -250,9 +261,12 @@ export class TfliteMuzzleDetectorService {
     const floatImage = tf.cast(pixels, 'float32');
     const divisor = tf.scalar(255);
     const normalized = tf.div(floatImage, divisor);
-    const channelFirst = tf.transpose(normalized, [2, 0, 1]);
-    const batched = tf.expandDims(channelFirst, 0);
-    tf.dispose([pixels, floatImage, divisor, normalized, channelFirst]);
+    const inputShape = this.modelInputShape(model);
+    const channelFirstInput = inputShape[1] === 3;
+    const prepared = channelFirstInput ? tf.transpose(normalized, [2, 0, 1]) : normalized;
+    const batched = tf.expandDims(prepared, 0);
+    tf.dispose([pixels, floatImage, divisor, normalized]);
+    if (prepared !== normalized) tf.dispose(prepared);
     return batched;
   }
 
@@ -265,17 +279,32 @@ export class TfliteMuzzleDetectorService {
     const data = await (firstTensor as any).data() as ArrayLike<number>;
     let bestGood: YoloCandidate | null = null;
     let bestBad: YoloCandidate | null = null;
+    let bestWet: YoloCandidate | null = null;
 
     const keepBest = (candidate: YoloCandidate | null) => {
       if (!candidate) return;
-      const threshold = candidate.className === 'bad muzzle' ? this.minBadConfidence : this.minGoodConfidence;
+      const threshold = candidate.className === 'goodmuzzle'
+        ? this.minGoodConfidence
+        : (candidate.className === 'wetmuzzle' ? this.minWetConfidence : this.minBadConfidence);
       if (candidate.confidence < threshold) return;
       if (candidate.className === 'goodmuzzle') {
         if (!bestGood || candidate.confidence > bestGood.confidence) bestGood = candidate;
+      } else if (candidate.className === 'wetmuzzle') {
+        if (!bestWet || candidate.confidence > bestWet.confidence) bestWet = candidate;
       } else if (!bestBad || candidate.confidence > bestBad.confidence) {
         bestBad = candidate;
       }
     };
+
+    // YOLO26 LiteRT exports include NMS and return [1, 300, 6]:
+    // x1, y1, x2, y2, confidence, class_id.
+    if (shape.length === 3 && shape[shape.length - 1] === 6) {
+      const rows = shape[shape.length - 2];
+      for (let row = 0; row < rows; row += 1) {
+        keepBest(this.nmsCandidate(data, row * 6, sourceWidth, sourceHeight));
+      }
+      return this.compactCandidates(bestGood, bestBad, bestWet);
+    }
 
     if (shape.length === 3 && shape[1] >= 6 && shape[2] > shape[1]) {
       const channels = shape[1];
@@ -283,7 +312,7 @@ export class TfliteMuzzleDetectorService {
       for (let anchor = 0; anchor < anchors; anchor += 1) {
         keepBest(this.channelFirstCandidate(data, channels, anchors, anchor, sourceWidth, sourceHeight));
       }
-      return this.compactCandidates(bestGood, bestBad);
+      return this.compactCandidates(bestGood, bestBad, bestWet);
     }
 
     const rowLength = shape.length >= 2 ? shape[shape.length - 1] : 6;
@@ -292,7 +321,7 @@ export class TfliteMuzzleDetectorService {
     for (let row = 0; row < rowCount; row += 1) {
       keepBest(this.rowMajorCandidate(data, row * rowLength, rowLength, sourceWidth, sourceHeight));
     }
-    return this.compactCandidates(bestGood, bestBad);
+    return this.compactCandidates(bestGood, bestBad, bestWet);
   }
 
   private compactCandidates(...candidates: Array<YoloCandidate | null>): YoloCandidate[] {
@@ -305,7 +334,10 @@ export class TfliteMuzzleDetectorService {
 
   private selectBestCandidate(candidates: YoloCandidate[]): YoloCandidate | undefined {
     const good = candidates.find((candidate) => candidate.className === 'goodmuzzle');
-    const bad = candidates.find((candidate) => candidate.className === 'bad muzzle');
+    const bad = candidates.find((candidate) => candidate.className === 'badmuzzle');
+    const wet = candidates.find((candidate) => candidate.className === 'wetmuzzle');
+
+    if (wet && wet.confidence >= this.minWetConfidence) return wet;
 
     if (good && good.confidence >= this.minGoodConfidence) {
       if (bad && bad.confidence >= good.confidence + this.badDominanceMargin) return bad;
@@ -313,6 +345,38 @@ export class TfliteMuzzleDetectorService {
     }
 
     return bad || good;
+  }
+
+  private nmsCandidate(
+    data: ArrayLike<number>,
+    offset: number,
+    sourceWidth: number,
+    sourceHeight: number
+  ): YoloCandidate | null {
+    const confidence = Number(data[offset + 4]);
+    const classId = Math.round(Number(data[offset + 5]));
+    const className = this.classNames[classId];
+    if (!className || !Number.isFinite(confidence) || confidence <= 0) return null;
+
+    let x1 = Number(data[offset]);
+    let y1 = Number(data[offset + 1]);
+    let x2 = Number(data[offset + 2]);
+    let y2 = Number(data[offset + 3]);
+    if (Math.max(x1, y1, x2, y2) <= 1.5) {
+      x1 *= this.modelInputSize;
+      y1 *= this.modelInputSize;
+      x2 *= this.modelInputSize;
+      y2 *= this.modelInputSize;
+    }
+
+    const { scale, padX, padY } = this.preprocessMeta;
+    x1 = Math.max(0, (x1 - padX) / scale);
+    y1 = Math.max(0, (y1 - padY) / scale);
+    x2 = Math.min(sourceWidth, (x2 - padX) / scale);
+    y2 = Math.min(sourceHeight, (y2 - padY) / scale);
+    if (x2 <= x1 || y2 <= y1) return null;
+
+    return { className, classId, confidence, bbox: [x1, y1, x2, y2] };
   }
 
   private channelFirstCandidate(

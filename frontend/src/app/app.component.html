@@ -813,7 +813,7 @@
                         <div class="ad-candidates">
                             <div class="ad-candidate" *ngFor="let c of reviewCandidatesForScope(review, 5); let rank = index"
                                 [class.ad-candidate-top]="rank === 0"
-                                [class.ad-candidate-expected]="expectedCattleId(review) === c.cattleId">
+                                [class.ad-candidate-expected]="activeExpectedCattleId(review) === c.cattleId">
                                 <div class="ad-candidate-head">
                                     <span class="ad-rank">#{{ rank + 1 }}</span>
                                     <div>
@@ -844,17 +844,18 @@
 
                     <!-- Admin decision -->
                     <div class="ad-decision-bar">
-                        <span class="ad-decision-label">Your decision:</span>
+                        <span class="ad-decision-label">{{ activeReviewStatusLabel(review) }}</span>
                         <div class="ad-decision-btns">
-                            <button type="button" class="ad-btn-correct" *ngIf="review.decision === 'matched_existing'"
+                            <button type="button" class="ad-btn-correct" *ngIf="activeReviewDecision(review) === 'matched_existing'"
                                 (click)="confirmMatchReview(review)">✓ Correct Match</button>
-                            <button type="button" class="ad-btn-wrong" *ngIf="review.decision === 'matched_existing'"
+                            <button type="button" class="ad-btn-wrong" *ngIf="activeReviewDecision(review) === 'matched_existing'"
                                 (click)="markFoundIncorrect(review)">✗ Wrong Match</button>
-                            <button type="button" class="ad-btn-correct" *ngIf="review.decision === 'new_cattle'"
+                            <button type="button" class="ad-btn-correct" *ngIf="activeReviewDecision(review) === 'new_cattle'"
                                 (click)="confirmNoCattleFound(review)">✓ Correct — New Cow</button>
-                            <button type="button" class="ad-btn-wrong" *ngIf="review.decision === 'new_cattle'"
+                            <button type="button" class="ad-btn-wrong" *ngIf="activeReviewDecision(review) === 'new_cattle'"
                                 (click)="markNoCattleFoundIncorrect(review)">✗ Should Have Matched</button>
-                            <button type="button" class="ad-btn-ghost" *ngIf="review.decision === 'matched_existing'"
+                            <button type="button" class="ad-btn-ghost"
+                                *ngIf="reviewCandidateScope === 'overall' && review.decision === 'matched_existing'"
                                 (click)="moveWrongMatchToRegistered(review)">Register as New Cow</button>
                         </div>
                     </div>

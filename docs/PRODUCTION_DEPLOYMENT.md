@@ -29,10 +29,10 @@ host. The image contains:
 - CPU-only PyTorch and torchvision.
 - Pillow and NumPy for DINOv2 image preparation.
 - `dinov2_triplet_v2_best.pt`.
-- `best.pt` backend YOLO good/bad muzzle detector.
+- `yolo26s.pt` backend YOLO good/bad/wet muzzle detector.
 - A preloaded DINOv2 backbone cache.
 
-The backend now contains `backend/best.pt` for online YOLO good/bad muzzle checking and cropping through `/api/muzzle/check`. The Android/field app still keeps `best.tflite` as the offline fallback so capture can continue without internet. Uploaded muzzle files marked `clientProcessed=true` are treated as already cropped by the phone.
+The backend contains `backend/yolo26s.pt` for online YOLO good/bad/wet muzzle checking and cropping through `/api/muzzle/check`. The Android field app keeps `yolo26s_float32.tflite` as the offline fallback so capture can continue without internet. Uploaded muzzle files marked `clientProcessed=true` are treated as already cropped by the phone.
 
 Create a service from the GitHub repository and set these variables:
 
@@ -50,7 +50,11 @@ PINECONE_INDEX_HOST=<index-host>
 PINECONE_NAMESPACE=vacapay
 PINECONE_ENROLMENT_NAMESPACE=vacapay-cattle-enrolment
 PINECONE_SEARCH_NAMESPACE=vacapay-cattle-search
-YOLO_MUZZLE_MODEL_PATH=/app/models/best.pt
+YOLO_MUZZLE_MODEL_PATH=/app/models/yolo26s.pt
+YOLO_IMGSZ=704
+MUZZLE_CONF=0.70
+MUZZLE_BAD_CONF=0.25
+MUZZLE_WET_CONF=0.25
 EMBEDDING_MATCH_THRESHOLD=0.70
 CORS_ORIGINS=https://<admin-domain>,https://localhost,capacitor://localhost,http://localhost
 ```
@@ -60,6 +64,9 @@ The deployment must pass `/api/health`. Production startup intentionally fails w
 Use a service with at least 4 GB RAM and 2 vCPU for CPU PyTorch, backend YOLO, DINOv2 and concurrent image processing. A 512 MB free instance is not sufficient and may be terminated while loading the model.
 
 MongoDB is the permanent metadata store, Cloudinary is the permanent image store and Pinecone is the vector store. Container local disk is temporary processing space only.
+
+For a complete Azure Linux VM procedure, including Docker, Nginx, HTTPS,
+updates, monitoring and rollback, see [Azure Linux VM Backend Deployment](AZURE_VM_DEPLOYMENT.md).
 
 For a short controlled field test, the backend can run on a sufficiently
 powerful Windows PC and be exposed with Cloudflare Tunnel. A quick tunnel has
@@ -87,7 +94,7 @@ pnpm --dir frontend run build:field
 pnpm --dir frontend exec cap sync android
 ```
 
-The Android application must bundle `best.tflite`, keep unsynced images in app-private storage, and upload records using stable `offlineCaptureId` values.
+The Android application must bundle `yolo26s_float32.tflite`, keep unsynced images in app-private storage, and upload records using stable `offlineCaptureId` values.
 
 ## Netlify Admin Website
 
@@ -103,7 +110,7 @@ Optionally set `VACAPAY_MEDIA_BASE_URL=https://<backend-domain>`. Add the final 
 CORS_ORIGINS=https://<site-name>.netlify.app,capacitor://localhost,http://localhost
 ```
 
-Netlify builds the admin-only production target. It does not upload `best.tflite` or the TFLite WASM runtime.
+Netlify builds the admin-only production target. It does not upload `yolo26s_float32.tflite` or the TFLite WASM runtime.
 
 ## Android Scaffold
 
@@ -119,7 +126,7 @@ pnpm --dir frontend exec cap sync android
 pnpm --dir frontend exec cap open android
 ```
 
-The field build includes the local TFLite model and WASM runtime. Camera, network and location permissions are declared in the Android manifest. A signed release APK still requires an Android release keystore.
+The field build includes the local `yolo26s_float32.tflite` model and WASM runtime. Camera, network and location permissions are declared in the Android manifest. A signed release APK still requires an Android release keystore.
 
 ## Release Verification
 

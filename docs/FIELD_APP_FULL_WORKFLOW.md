@@ -161,8 +161,8 @@ Every supporting view is required. There is no skip path because missing evidenc
 The current field app uses a hybrid muzzle gate:
 
 ```text
-online backend path: backend/best.pt
-offline phone fallback: frontend/src/assets/models/best.tflite
+online backend path: backend/yolo26s.pt
+offline phone fallback: frontend/src/assets/models/yolo26s_float32.tflite
 ```
 
 The model predicts two detection classes:
@@ -237,15 +237,15 @@ phone should reject bad images immediately
 Recommended Android model location:
 
 ```text
-android/app/src/main/assets/models/best.tflite
+android/app/src/main/assets/models/yolo26s_float32.tflite
 ```
 
 Current offline runtime:
 
 ```text
-best.tflite and the TFLite WASM files are stored locally in frontend assets.
+yolo26s_float32.tflite and the TFLite WASM files are stored locally in frontend assets.
 TensorFlow JS core, CPU backend and TFLite loader scripts are copied from pinned local packages.
-The field build includes those scripts, the WASM runtime and best.tflite in the APK.
+The field build includes those scripts, the WASM runtime and yolo26s_float32.tflite in the APK.
 No CDN is required for offline muzzle checking.
 ```
 

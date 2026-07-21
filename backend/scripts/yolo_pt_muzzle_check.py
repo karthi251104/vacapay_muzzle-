@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-MODEL_INPUT_SIZE = 640
+MODEL_INPUT_SIZE = 704
 def normalize_name(name):
     return str(name or '').strip().lower().replace('_', ' ').replace('-', ' ')
 
@@ -18,6 +18,8 @@ def class_kind(name):
         return 'bad'
     if 'good' in value:
         return 'good'
+    if 'wet' in value:
+        return 'wet'
     return 'unknown'
 
 
@@ -87,9 +89,10 @@ def detect_candidates(model, image):
     return candidates
 
 
-def select_best(candidates, min_good_confidence, min_bad_confidence, bad_dominance_margin):
+def select_best(candidates, min_good_confidence, min_bad_confidence, min_wet_confidence, bad_dominance_margin):
     good = None
     bad = None
+    wet = None
     for candidate in candidates:
         if candidate['kind'] == 'good' and candidate['confidence'] >= min_good_confidence:
             if good is None or candidate['confidence'] > good['confidence']:
@@ -97,6 +100,12 @@ def select_best(candidates, min_good_confidence, min_bad_confidence, bad_dominan
         elif candidate['kind'] == 'bad' and candidate['confidence'] >= min_bad_confidence:
             if bad is None or candidate['confidence'] > bad['confidence']:
                 bad = candidate
+        elif candidate['kind'] == 'wet' and candidate['confidence'] >= min_wet_confidence:
+            if wet is None or candidate['confidence'] > wet['confidence']:
+                wet = candidate
+    # Wet muzzles are always rejected, even when the model also emits a good box.
+    if wet:
+        return wet
     if good:
         if bad and bad['confidence'] >= good['confidence'] + bad_dominance_margin:
             return bad
@@ -114,8 +123,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', required=True)
     parser.add_argument('--input', required=True)
-    parser.add_argument('--good-conf', type=float, default=0.55)
-    parser.add_argument('--bad-conf', type=float, default=0.45)
+    parser.add_argument('--good-conf', type=float, default=0.70)
+    parser.add_argument('--bad-conf', type=float, default=0.25)
+    parser.add_argument('--wet-conf', type=float, default=0.25)
     parser.add_argument('--bad-margin', type=float, default=0.12)
     parser.add_argument('--min-sharpness', type=float, default=18)
     args = parser.parse_args()
@@ -131,7 +141,7 @@ def main():
 
     model = load_model(model_path)
     candidates = detect_candidates(model, image)
-    best = select_best(candidates, args.good_conf, args.bad_conf, args.bad_margin)
+    best = select_best(candidates, args.good_conf, args.bad_conf, args.wet_conf, args.bad_margin)
     if not best:
         print(json.dumps({
             'accepted': False,
@@ -146,9 +156,10 @@ def main():
 
     best_public = public_candidate(best)
     if best['kind'] != 'good':
+        label = 'Wet muzzle' if best['kind'] == 'wet' else 'Bad muzzle'
         print(json.dumps({
             'accepted': False,
-            'reason': f"Bad muzzle rejected ({round(best['confidence'] * 100)}%).",
+            'reason': f"{label} rejected ({round(best['confidence'] * 100)}%).",
             **best_public,
             'imageSize': [source_w, source_h],
             'source': 'backend_yolo_pt'

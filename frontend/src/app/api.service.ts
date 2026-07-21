@@ -109,6 +109,11 @@ export interface FarmerMatchComparison {
   threshold: number;
   thresholdPercent: number;
   topMatches: MuzzleMatchResult[];
+  reviewStatus?: string;
+  correctCattleId?: string | null;
+  reviewNotes?: string;
+  reviewedBy?: AppUser;
+  reviewedAt?: string;
 }
 
 export interface MuzzleMatchResolution {
@@ -442,7 +447,7 @@ export class ApiService {
   }
 
 
-  updateMatchReview(auditId: string, payload: { reviewStatus: string; correctCattleId?: string; reviewNotes?: string; action?: 'move_out_as_registered' }): Observable<{ review: MatchReview; correctedRecord?: CattleSummary | null }> {
+  updateMatchReview(auditId: string, payload: { reviewStatus: string; reviewScope?: 'overall' | 'farmer'; correctCattleId?: string; reviewNotes?: string; action?: 'move_out_as_registered' }): Observable<{ review: MatchReview; correctedRecord?: CattleSummary | null }> {
     return this.http.post<{ review: MatchReview }>(`${this.baseUrl}/reviews/matches/${auditId}`, payload, { headers: this.authHeaders() });
   }
 
