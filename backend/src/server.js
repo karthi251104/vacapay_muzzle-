@@ -52,10 +52,10 @@ const PYTHON_BIN = resolvePythonBin();
 const PYTHON_PROCESS_TIMEOUT_MS = envNumber('PYTHON_PROCESS_TIMEOUT_MS', 180_000, 30_000, 900_000, true);
 const DINOV2_MODEL_PATH = process.env.DINOV2_MODEL_PATH || path.join(__dirname, '..', 'dinov2_triplet_v2_best.pt');
 const YOLO_MUZZLE_MODEL_PATH = process.env.YOLO_MUZZLE_MODEL_PATH || path.join(__dirname, '..', 'yolo26s.pt');
-const MUZZLE_CONF = envNumber('MUZZLE_CONF', 0.55, 0, 1);
-const MUZZLE_BAD_CONF = envNumber('MUZZLE_BAD_CONF', 0.35, 0, 1);
-const MUZZLE_WET_CONF = envNumber('MUZZLE_WET_CONF', 0.35, 0, 1);
-const MUZZLE_BAD_DOMINANCE_MARGIN = envNumber('MUZZLE_BAD_DOMINANCE_MARGIN', 0.05, 0, 1);
+const MUZZLE_CONF = envNumber('MUZZLE_CONF', 0.90, 0, 1);
+const MUZZLE_BAD_CONF = envNumber('MUZZLE_BAD_CONF', 0.25, 0, 1);
+const MUZZLE_WET_CONF = envNumber('MUZZLE_WET_CONF', 0.25, 0, 1);
+const MUZZLE_BAD_DOMINANCE_MARGIN = envNumber('MUZZLE_BAD_DOMINANCE_MARGIN', 0.12, 0, 1);
 const MUZZLE_MIN_SHARPNESS = envNumber('MUZZLE_MIN_SHARPNESS', 14, 0, 1000);
 const MUZZLE_IMAGE_COUNT = envNumber('MUZZLE_IMAGE_COUNT', 3, 1, 10, true);
 const EMBEDDING_MATCH_THRESHOLD = envNumber('EMBEDDING_MATCH_THRESHOLD', 0.70, 0, 1);
@@ -1214,7 +1214,11 @@ app.post('/api/muzzle/check', requireAuth, upload.single('image'), async (req, r
       return;
     }
 
-    const result = await runYoloWorker(req.file.path);
+    const previewOnly = ['preview', 'live'].includes(String(req.body.stage || '').toLowerCase());
+    const result = await runYoloWorker(req.file.path, {
+      minSharpness: previewOnly ? 0 : MUZZLE_MIN_SHARPNESS,
+      includeCrop: !previewOnly
+    });
     await fs.unlink(req.file.path).catch(() => { });
 
     if (result?.backendUnavailable) {
@@ -3401,7 +3405,7 @@ function resetYoloWorker(error) {
   yoloWorkerPending.clear();
 }
 
-async function runYoloWorker(inputPath) {
+async function runYoloWorker(inputPath, options = {}) {
   await ensureYoloWorker();
   const worker = yoloWorkerProcess;
   if (!worker?.stdin?.writable) throw new Error('YOLO worker is not available.');
@@ -3419,7 +3423,8 @@ async function runYoloWorker(inputPath) {
       badConfidence: MUZZLE_BAD_CONF,
       wetConfidence: MUZZLE_WET_CONF,
       badDominanceMargin: MUZZLE_BAD_DOMINANCE_MARGIN,
-      minSharpness: MUZZLE_MIN_SHARPNESS
+      minSharpness: options.minSharpness ?? MUZZLE_MIN_SHARPNESS,
+      includeCrop: options.includeCrop ?? true
     })}\n`, (error) => {
       if (!error) return;
       clearTimeout(timeout);

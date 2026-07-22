@@ -51,10 +51,10 @@ export class TfliteMuzzleDetectorService {
   private readonly modelUrl = '/assets/models/yolo26s_float32.tflite';
   private readonly modelInputSize = 704;
   private readonly classNames: readonly MuzzleClassName[] = ['badmuzzle', 'goodmuzzle', 'wetmuzzle'];
-  private readonly minGoodConfidence = 0.55;
-  private readonly minBadConfidence = 0.35;
-  private readonly minWetConfidence = 0.35;
-  private readonly rejectDominanceMargin = 0.05;
+  private readonly minGoodConfidence = 0.90;
+  private readonly minBadConfidence = 0.25;
+  private readonly minWetConfidence = 0.25;
+  private readonly rejectDominanceMargin = 0.12;
   private readonly minSharpnessScore = 14;
 
   private modelPromise?: Promise<TfliteModel>;
@@ -96,6 +96,20 @@ export class TfliteMuzzleDetectorService {
     const candidates = this.usesNativeTflite()
       ? await this.readNativeCandidates(frameCanvas)
       : await this.readBrowserCandidates(frameCanvas, model!, tf, sourceWidth, sourceHeight);
+    const usableGoodCandidates = candidates.filter((candidate) =>
+      candidate.className === 'goodmuzzle' && candidate.confidence >= this.minGoodConfidence
+    );
+    if (usableGoodCandidates.length > 1) {
+      const strongest = usableGoodCandidates.sort((left, right) => right.confidence - left.confidence)[0];
+      return {
+        accepted: false,
+        reason: 'Multiple usable muzzle boxes detected.',
+        confidence: strongest.confidence,
+        className: 'multiple_muzzles',
+        bbox: strongest.bbox,
+        imageSize: [sourceWidth, sourceHeight]
+      };
+    }
     const best = this.selectBestCandidate(candidates);
 
     if (!best) {
@@ -351,10 +365,12 @@ export class TfliteMuzzleDetectorService {
     // x1, y1, x2, y2, confidence, class_id.
     if (shape.length === 3 && shape[shape.length - 1] === 6) {
       const rows = shape[shape.length - 2];
+      const candidates: YoloCandidate[] = [];
       for (let row = 0; row < rows; row += 1) {
-        keepBest(this.nmsCandidate(data, row * 6, sourceWidth, sourceHeight));
+        const candidate = this.nmsCandidate(data, row * 6, sourceWidth, sourceHeight);
+        if (candidate && candidate.confidence >= 0.20) candidates.push(candidate);
       }
-      return this.compactCandidates(bestGood, bestBad, bestWet);
+      return candidates;
     }
 
     if (shape.length === 3 && shape[1] >= 6 && shape[2] > shape[1]) {
@@ -384,25 +400,27 @@ export class TfliteMuzzleDetectorService {
   }
 
   private selectBestCandidate(candidates: YoloCandidate[]): YoloCandidate | undefined {
-    const good = candidates.find((candidate) => candidate.className === 'goodmuzzle');
-    const bad = candidates.find((candidate) => candidate.className === 'badmuzzle');
-    const wet = candidates.find((candidate) => candidate.className === 'wetmuzzle');
+    const good = candidates
+      .filter((candidate) => candidate.className === 'goodmuzzle')
+      .sort((left, right) => right.confidence - left.confidence);
+    const bad = candidates
+      .filter((candidate) => candidate.className === 'badmuzzle')
+      .sort((left, right) => right.confidence - left.confidence);
+    const wet = candidates
+      .filter((candidate) => candidate.className === 'wetmuzzle')
+      .sort((left, right) => right.confidence - left.confidence);
+    const usableWet = wet.find((candidate) => candidate.confidence >= this.minWetConfidence);
+    if (usableWet) return usableWet;
 
-    const strongestReject = [bad, wet]
-      .filter((candidate): candidate is YoloCandidate => Boolean(candidate))
-      .filter((candidate) => candidate.confidence >= (
-        candidate.className === 'wetmuzzle' ? this.minWetConfidence : this.minBadConfidence
-      ))
-      .sort((left, right) => right.confidence - left.confidence)[0];
+    const usableGood = good.filter((candidate) => candidate.confidence >= this.minGoodConfidence);
+    const usableBad = bad.find((candidate) => candidate.confidence >= this.minBadConfidence);
+    if (!usableGood.length) return usableBad || good[0];
 
-    if (good && good.confidence >= this.minGoodConfidence) {
-      if (strongestReject && strongestReject.confidence >= good.confidence + this.rejectDominanceMargin) {
-        return strongestReject;
-      }
-      return good;
+    const selectedGood = usableGood[0];
+    if (usableBad && selectedGood.confidence - usableBad.confidence < this.rejectDominanceMargin) {
+      return usableBad;
     }
-
-    return strongestReject || good;
+    return selectedGood;
   }
 
   private nmsCandidate(

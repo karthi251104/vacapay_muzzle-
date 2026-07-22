@@ -95,7 +95,7 @@ It preserves admin and field-officer accounts while clearing cattle enrolments, 
 Production note:
 
 ```text
-The app has a hybrid muzzle gate with strict routing. When the phone reports internet access, capture uses the backend YOLO PyTorch model at `backend/yolo26s.pt`; an online backend failure is shown as an error and does not silently switch models. Only when the phone is offline does capture use `frontend/src/assets/models/yolo26s_float32.tflite`. The field build bundles the pinned TensorFlow JS/TFLite runtime, WASM files and phone model inside the APK, so offline checking does not require a CDN.
+The app has a hybrid muzzle gate. Online capture first uses the backend YOLO PyTorch model at `backend/yolo26s.pt`. If the phone is offline, or that backend request fails because of connectivity, timeout or temporary server unavailability, capture immediately uses `frontend/src/assets/models/yolo26s_float32.tflite`. Authentication and validation errors do not trigger a silent fallback. The field build bundles the pinned TensorFlow JS/TFLite runtime, WASM files and phone model inside the APK, so offline checking does not require a CDN.
 ```
 
 ## Agent Flow
@@ -192,14 +192,14 @@ wetmuzzle
 Current capture thresholds:
 
 ```text
-minimum good muzzle confidence: 0.55
-minimum bad muzzle confidence: 0.35
-minimum wet muzzle confidence: 0.35
-reject dominance margin: 0.05
+minimum good muzzle confidence: 0.90
+minimum bad muzzle confidence: 0.25
+minimum wet muzzle confidence: 0.25
+required good/bad margin: 0.12
 minimum blur/sharpness score: 14
 ```
 
-Online frames are center-cropped to a 704 x 704 JPEG and checked every 400 ms. The backend keeps `yolo26s.pt` loaded in one persistent Python worker; warm inference is designed for the live capture loop instead of loading PyTorch for every frame. Only good, sharp muzzle crops are saved. CLAHE is applied to the accepted detector box, and those saved crops are the images later passed to DINOv2 for embedding and averaging.
+Online preview frames are center-cropped to a 704 x 704 JPEG and checked every 400 ms without a live blur block. A good preview triggers one high-resolution center-frame validation. That second pass enforces sharpness, rejects wet, uncertain or multiple muzzles, crops the accepted YOLO box and applies CLAHE. The saved high-resolution crop is later passed to DINOv2 for embedding and averaging. The backend keeps `yolo26s.pt` loaded in one persistent Python worker rather than loading PyTorch for every frame.
 
 The backend and phone gates use the three-class `yolo26s` model. Environment variables can tune the deployment thresholds without changing DINOv2 identity matching. Admin audit rows store the phone TFLite and backend YOLO model versions separately.
 

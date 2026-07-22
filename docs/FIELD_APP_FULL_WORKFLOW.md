@@ -165,34 +165,35 @@ online backend path: backend/yolo26s.pt
 offline phone fallback: frontend/src/assets/models/yolo26s_float32.tflite
 ```
 
-The model predicts two detection classes:
+The model predicts three detection classes:
 
 ```text
 goodmuzzle
-bad muzzle
+badmuzzle
+wetmuzzle
 ```
 
 Current phone-side thresholds:
 
 ```text
-minimum good muzzle confidence: 0.50
-minimum bad muzzle confidence: 0.45
+minimum good muzzle confidence: 0.90
+minimum bad muzzle confidence: 0.25
+minimum wet muzzle confidence: 0.25
 bad dominance margin: 0.12
-minimum blur/sharpness score: 18
+minimum validation blur/sharpness score: 14
 ```
 
 Capture logic:
 
 ```text
-camera frame
--> backend YOLO PT or phone TFLite detector finds muzzle box
--> if best class is bad muzzle, reject
--> if good confidence is too low, reject
--> crop the detected muzzle
--> check crop sharpness
--> if blurry, reject
--> apply local contrast enhancement
--> upload only accepted crop
+camera center crop
+-> online: fast 704 x 704 backend preview
+-> good preview: high-resolution backend validation
+-> offline/unreachable server: phone TFLite validation
+-> reject wet, uncertain, multiple or low-confidence muzzles
+-> check sharpness on the final validation frame
+-> crop the detected muzzle and apply CLAHE
+-> save/upload only the accepted crop
 ```
 
 Why blur rejection is important:
