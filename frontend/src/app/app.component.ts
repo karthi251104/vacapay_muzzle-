@@ -3098,7 +3098,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
       try {
         this.message = `Phone check unavailable. Checking photo ${slot}/${this.muzzleImageCount} on server...`;
-        const frame = await this.frameBlob(1280, 0.82);
+        const frame = await this.frameBlob(1280, 0.82, true);
         const response = await this.withTimeout(
           firstValueFrom(this.api.checkMuzzleFrame(frame)),
           4000,
@@ -3148,19 +3148,27 @@ export class AppComponent implements OnInit, OnDestroy {
     });
   }
 
-  private frameBlob(maxDimension = 1280, quality = 0.82): Promise<Blob> {
+  private frameBlob(maxDimension = 1280, quality = 0.82, centerCrop = false): Promise<Blob> {
     const video = this.video!.nativeElement;
     const canvas = this.canvas!.nativeElement;
     const sourceWidth = video.videoWidth || 1280;
     const sourceHeight = video.videoHeight || 720;
-    const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight));
-    const width = Math.max(1, Math.round(sourceWidth * scale));
-    const height = Math.max(1, Math.round(sourceHeight * scale));
+    const sourceSize = centerCrop ? Math.min(sourceWidth, sourceHeight) : 0;
+    const cropX = centerCrop ? (sourceWidth - sourceSize) / 2 : 0;
+    const cropY = centerCrop ? (sourceHeight - sourceSize) / 2 : 0;
+    const referenceDimension = centerCrop ? sourceSize : Math.max(sourceWidth, sourceHeight);
+    const scale = Math.min(1, maxDimension / referenceDimension);
+    const width = Math.max(1, Math.round((centerCrop ? sourceSize : sourceWidth) * scale));
+    const height = Math.max(1, Math.round((centerCrop ? sourceSize : sourceHeight) * scale));
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Canvas is not available.');
-    context.drawImage(video, 0, 0, width, height);
+    if (centerCrop) {
+      context.drawImage(video, cropX, cropY, sourceSize, sourceSize, 0, 0, width, height);
+    } else {
+      context.drawImage(video, 0, 0, width, height);
+    }
 
     return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {

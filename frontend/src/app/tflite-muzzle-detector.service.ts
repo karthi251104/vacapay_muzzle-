@@ -47,7 +47,7 @@ export class TfliteMuzzleDetectorService {
 
   private modelPromise?: Promise<TfliteModel>;
   private scriptsPromise?: Promise<void>;
-  private preprocessMeta = { scale: 1, padX: 0, padY: 0 };
+  private preprocessMeta = { scale: 1, cropX: 0, cropY: 0 };
   private readonly frameCanvas = document.createElement('canvas');
   private readonly letterboxCanvas = document.createElement('canvas');
   private readonly sharpnessCanvas = document.createElement('canvas');
@@ -247,15 +247,12 @@ export class TfliteMuzzleDetectorService {
     const context = letterbox.getContext('2d');
     if (!context) throw new Error('Could not prepare YOLO input.');
 
-    context.fillStyle = 'rgb(114, 114, 114)';
-    context.fillRect(0, 0, this.modelInputSize, this.modelInputSize);
-    const scale = Math.min(this.modelInputSize / canvas.width, this.modelInputSize / canvas.height);
-    const drawWidth = Math.round(canvas.width * scale);
-    const drawHeight = Math.round(canvas.height * scale);
-    const padX = Math.round((this.modelInputSize - drawWidth) / 2);
-    const padY = Math.round((this.modelInputSize - drawHeight) / 2);
-    context.drawImage(canvas, 0, 0, canvas.width, canvas.height, padX, padY, drawWidth, drawHeight);
-    this.preprocessMeta = { scale, padX, padY };
+    const sourceSize = Math.min(canvas.width, canvas.height);
+    const cropX = (canvas.width - sourceSize) / 2;
+    const cropY = (canvas.height - sourceSize) / 2;
+    const scale = this.modelInputSize / sourceSize;
+    context.drawImage(canvas, cropX, cropY, sourceSize, sourceSize, 0, 0, this.modelInputSize, this.modelInputSize);
+    this.preprocessMeta = { scale, cropX, cropY };
 
     const pixels = tf.browser.fromPixels(letterbox);
     const floatImage = tf.cast(pixels, 'float32');
@@ -376,11 +373,11 @@ export class TfliteMuzzleDetectorService {
       y2 *= this.modelInputSize;
     }
 
-    const { scale, padX, padY } = this.preprocessMeta;
-    x1 = Math.max(0, (x1 - padX) / scale);
-    y1 = Math.max(0, (y1 - padY) / scale);
-    x2 = Math.min(sourceWidth, (x2 - padX) / scale);
-    y2 = Math.min(sourceHeight, (y2 - padY) / scale);
+    const { scale, cropX, cropY } = this.preprocessMeta;
+    x1 = Math.max(0, (x1 / scale) + cropX);
+    y1 = Math.max(0, (y1 / scale) + cropY);
+    x2 = Math.min(sourceWidth, (x2 / scale) + cropX);
+    y2 = Math.min(sourceHeight, (y2 / scale) + cropY);
     if (x2 <= x1 || y2 <= y1) return null;
 
     return { className, classId, confidence, bbox: [x1, y1, x2, y2] };
@@ -463,11 +460,11 @@ export class TfliteMuzzleDetectorService {
     const confidence = objectness * bestClassScore;
     if (!Number.isFinite(confidence) || confidence <= 0) return null;
 
-    const { scale, padX, padY } = this.preprocessMeta;
-    const x1 = Math.max(0, ((cx - width / 2) - padX) / scale);
-    const y1 = Math.max(0, ((cy - height / 2) - padY) / scale);
-    const x2 = Math.min(sourceWidth, ((cx + width / 2) - padX) / scale);
-    const y2 = Math.min(sourceHeight, ((cy + height / 2) - padY) / scale);
+    const { scale, cropX, cropY } = this.preprocessMeta;
+    const x1 = Math.max(0, ((cx - width / 2) / scale) + cropX);
+    const y1 = Math.max(0, ((cy - height / 2) / scale) + cropY);
+    const x2 = Math.min(sourceWidth, ((cx + width / 2) / scale) + cropX);
+    const y2 = Math.min(sourceHeight, ((cy + height / 2) / scale) + cropY);
     if (x2 <= x1 || y2 <= y1) return null;
 
     return {
