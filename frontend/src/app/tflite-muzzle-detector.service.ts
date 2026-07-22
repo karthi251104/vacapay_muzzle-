@@ -1,4 +1,5 @@
 import { Injectable } from '@angular/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 
 type MuzzleClassName = 'goodmuzzle' | 'badmuzzle' | 'wetmuzzle';
 
@@ -25,6 +26,15 @@ type TfliteModel = {
   predict(input: unknown): unknown;
   inputs?: Array<{ shape?: number[] }>;
 };
+
+interface NativeMuzzleTflitePlugin {
+  status(): Promise<{ inputSize: number; outputShape: number[] }>;
+  detect(options: { imageBase64: string }): Promise<{
+    candidates: Array<{ classId: number; confidence: number; bbox: number[] }>;
+  }>;
+}
+
+const NativeMuzzleTflite = registerPlugin<NativeMuzzleTflitePlugin>('MuzzleTflite');
 
 declare global {
   interface Window {
@@ -55,6 +65,10 @@ export class TfliteMuzzleDetectorService {
   private readonly sharpnessCanvas = document.createElement('canvas');
 
   async isReady(): Promise<boolean> {
+    if (this.usesNativeTflite()) {
+      await NativeMuzzleTflite.status();
+      return true;
+    }
     await this.loadModel();
     return true;
   }
@@ -68,7 +82,7 @@ export class TfliteMuzzleDetectorService {
   }
 
   async detectAndCrop(video: HTMLVideoElement): Promise<LocalMuzzleDetection> {
-    const model = await this.loadModel();
+    const model = this.usesNativeTflite() ? undefined : await this.loadModel();
     const tf = window.tf;
     const sourceWidth = video.videoWidth || 1280;
     const sourceHeight = video.videoHeight || 720;
@@ -79,16 +93,9 @@ export class TfliteMuzzleDetectorService {
     if (!frameContext) throw new Error('Could not read camera frame.');
 
     frameContext.drawImage(video, 0, 0, sourceWidth, sourceHeight);
-    const input = this.frameToTensor(frameCanvas, model);
-    let rawOutput: unknown;
-    try {
-      rawOutput = model.predict(input);
-    } finally {
-      tf.dispose(input);
-    }
-
-    const candidates = await this.readCandidates(rawOutput, sourceWidth, sourceHeight);
-    this.disposeOutput(rawOutput);
+    const candidates = this.usesNativeTflite()
+      ? await this.readNativeCandidates(frameCanvas)
+      : await this.readBrowserCandidates(frameCanvas, model!, tf, sourceWidth, sourceHeight);
     const best = this.selectBestCandidate(candidates);
 
     if (!best) {
@@ -172,6 +179,40 @@ export class TfliteMuzzleDetectorService {
       });
     }
     return this.modelPromise;
+  }
+
+  private usesNativeTflite(): boolean {
+    return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
+  }
+
+  private async readNativeCandidates(canvas: HTMLCanvasElement): Promise<YoloCandidate[]> {
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+    const response = await NativeMuzzleTflite.detect({ imageBase64: dataUrl });
+    return (response.candidates || []).flatMap((candidate) => {
+      const className = this.classNames[candidate.classId];
+      const bbox = candidate.bbox as [number, number, number, number];
+      if (!className || !Array.isArray(bbox) || bbox.length !== 4 || !Number.isFinite(candidate.confidence)) return [];
+      return [{ className, classId: candidate.classId, confidence: candidate.confidence, bbox }];
+    });
+  }
+
+  private async readBrowserCandidates(
+    canvas: HTMLCanvasElement,
+    model: TfliteModel,
+    tf: any,
+    sourceWidth: number,
+    sourceHeight: number
+  ): Promise<YoloCandidate[]> {
+    const input = this.frameToTensor(canvas, model);
+    let rawOutput: unknown;
+    try {
+      rawOutput = model.predict(input);
+    } finally {
+      tf.dispose(input);
+    }
+    const candidates = await this.readCandidates(rawOutput, sourceWidth, sourceHeight);
+    this.disposeOutput(rawOutput);
+    return candidates;
   }
 
   private async warmupModel(model: TfliteModel): Promise<void> {
