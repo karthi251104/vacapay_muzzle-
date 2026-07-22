@@ -1,7 +1,9 @@
 import { Injectable } from '@angular/core';
 
+type MuzzleClassName = 'goodmuzzle' | 'badmuzzle' | 'wetmuzzle';
+
 interface YoloCandidate {
-  className: 'goodmuzzle' | 'badmuzzle' | 'wetmuzzle';
+  className: MuzzleClassName;
   classId: number;
   confidence: number;
   bbox: [number, number, number, number];
@@ -28,7 +30,7 @@ declare global {
   interface Window {
     tf?: any;
     tflite?: {
-      loadTFLiteModel(modelUrl: string): Promise<TfliteModel>;
+      loadTFLiteModel(modelUrl: string, options?: { numThreads?: number }): Promise<TfliteModel>;
       setWasmPath?(path: string): void;
     };
   }
@@ -38,12 +40,12 @@ declare global {
 export class TfliteMuzzleDetectorService {
   private readonly modelUrl = '/assets/models/yolo26s_float32.tflite';
   private readonly modelInputSize = 704;
+  private readonly classNames: readonly MuzzleClassName[] = ['badmuzzle', 'goodmuzzle', 'wetmuzzle'];
   private readonly minGoodConfidence = 0.55;
   private readonly minBadConfidence = 0.35;
   private readonly minWetConfidence = 0.35;
   private readonly rejectDominanceMargin = 0.05;
   private readonly minSharpnessScore = 14;
-  private readonly classNames = ['badmuzzle', 'goodmuzzle', 'wetmuzzle'] as const;
 
   private modelPromise?: Promise<TfliteModel>;
   private scriptsPromise?: Promise<void>;
@@ -55,6 +57,14 @@ export class TfliteMuzzleDetectorService {
   async isReady(): Promise<boolean> {
     await this.loadModel();
     return true;
+  }
+
+  get activeModelInfo(): { modelPath: string; label: string; usingFallback: boolean } {
+    return {
+      modelPath: this.modelUrl,
+      label: 'YOLO26S good/bad/wet',
+      usingFallback: false
+    };
   }
 
   async detectAndCrop(video: HTMLVideoElement): Promise<LocalMuzzleDetection> {
@@ -150,7 +160,10 @@ export class TfliteMuzzleDetectorService {
         if (!window.tflite?.loadTFLiteModel) {
           throw new Error('TFLite browser runtime did not load.');
         }
-        const model = await window.tflite.loadTFLiteModel(this.modelUrl);
+        // Android WebView is not cross-origin isolated, so loading the model with
+        // the runtime's default multi-thread count can fail during initialization.
+        // One local WASM thread is reliable and keeps the exact TFLite model offline.
+        const model = await window.tflite.loadTFLiteModel(this.modelUrl, { numThreads: 1 });
         await this.warmupModel(model);
         return model;
       })().catch((error) => {

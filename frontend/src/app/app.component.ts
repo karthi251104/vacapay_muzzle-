@@ -509,9 +509,10 @@ export class AppComponent implements OnInit, OnDestroy {
     this.checkingYolo = true;
     this.muzzleDetector.isReady()
       .then(() => {
+        const model = this.muzzleDetector.activeModelInfo;
         this.yoloStatus = {
           ok: true,
-          modelPath: '/assets/models/yolo26s_float32.tflite',
+          modelPath: model.modelPath,
           task: 'phone_tflite_detection'
         };
         this.checkingYolo = false;
