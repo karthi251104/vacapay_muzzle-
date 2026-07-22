@@ -95,7 +95,7 @@ It preserves admin and field-officer accounts while clearing cattle enrolments, 
 Production note:
 
 ```text
-The app has a hybrid muzzle gate. When online, it tries the backend YOLO PyTorch model at `backend/yolo26s.pt`. If the backend is unavailable or the phone is offline, it falls back to the phone-side TFLite model at `frontend/src/assets/models/yolo26s_float32.tflite`. The field build bundles the pinned TensorFlow JS/TFLite runtime, WASM files and phone model inside the APK; it does not require a CDN for offline checking.
+The app has a hybrid muzzle gate with strict routing. When the phone reports internet access, capture uses the backend YOLO PyTorch model at `backend/yolo26s.pt`; an online backend failure is shown as an error and does not silently switch models. Only when the phone is offline does capture use `frontend/src/assets/models/yolo26s_float32.tflite`. The field build bundles the pinned TensorFlow JS/TFLite runtime, WASM files and phone model inside the APK, so offline checking does not require a CDN.
 ```
 
 ## Agent Flow
@@ -178,7 +178,7 @@ The field app uses a hybrid muzzle gate:
 
 ```text
 online backend path: backend/yolo26s.pt
-offline phone fallback: frontend/src/assets/models/yolo26s_float32.tflite
+offline-only phone path: frontend/src/assets/models/yolo26s_float32.tflite
 ```
 
 Classes:
@@ -199,7 +199,7 @@ reject dominance margin: 0.05
 minimum blur/sharpness score: 14
 ```
 
-Only good, sharp muzzle crops are uploaded. Blurry images are rejected before they can affect the DINOv2 embedding average.
+Online frames are center-cropped to a 704 x 704 JPEG and checked every 400 ms. The backend keeps `yolo26s.pt` loaded in one persistent Python worker; warm inference is designed for the live capture loop instead of loading PyTorch for every frame. Only good, sharp muzzle crops are saved. CLAHE is applied to the accepted detector box, and those saved crops are the images later passed to DINOv2 for embedding and averaging.
 
 The backend and phone gates use the three-class `yolo26s` model. Environment variables can tune the deployment thresholds without changing DINOv2 identity matching. Admin audit rows store the phone TFLite and backend YOLO model versions separately.
 

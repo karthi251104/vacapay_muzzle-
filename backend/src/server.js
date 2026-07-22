@@ -102,6 +102,13 @@ const REQUIRED_IMAGES = [...MUZZLE_IMAGE_FILES, ...SUPPORT_IMAGE_FILES];
 const JWT_SECRET = process.env.JWT_SECRET || randomUUID();
 let writeLock = Promise.resolve();
 let embeddingProcessLock = Promise.resolve();
+let yoloWorkerProcess;
+let yoloWorkerReadyPromise;
+let yoloWorkerReadyResolve;
+let yoloWorkerReadyReject;
+let yoloWorkerBuffer = '';
+let yoloWorkerRequestId = 0;
+const yoloWorkerPending = new Map();
 
 function envNumber(name, fallback, min, max, integer = false) {
   const parsed = Number(process.env[name]);
@@ -1207,23 +1214,7 @@ app.post('/api/muzzle/check', requireAuth, upload.single('image'), async (req, r
       return;
     }
 
-    const result = await runPythonJson([
-      path.join(__dirname, '..', 'scripts', 'yolo_pt_muzzle_check.py'),
-      '--model',
-      YOLO_MUZZLE_MODEL_PATH,
-      '--input',
-      req.file.path,
-      '--good-conf',
-      String(MUZZLE_CONF),
-      '--bad-conf',
-      String(MUZZLE_BAD_CONF),
-      '--wet-conf',
-      String(MUZZLE_WET_CONF),
-      '--bad-margin',
-      String(MUZZLE_BAD_DOMINANCE_MARGIN),
-      '--min-sharpness',
-      String(MUZZLE_MIN_SHARPNESS)
-    ]);
+    const result = await runYoloWorker(req.file.path);
     await fs.unlink(req.file.path).catch(() => { });
 
     if (result?.backendUnavailable) {
@@ -1266,7 +1257,7 @@ app.post('/api/enrollments/:cattleId/muzzle', requireAuth, upload.single('image'
     if (!clientProcessed) {
       await fs.unlink(req.file.path).catch(() => { });
       res.status(422).json({
-        error: 'Upload rejected. Muzzle images must pass the phone TFLite check, crop and CLAHE before upload.'
+        error: 'Upload rejected. Muzzle images must pass the active quality gate, crop and CLAHE before upload.'
       });
       return;
     }
@@ -1487,6 +1478,11 @@ app.use((error, _req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`Muzzle backend listening on http://localhost:${PORT}`);
+  if (existsSync(YOLO_MUZZLE_MODEL_PATH)) {
+    void ensureYoloWorker().catch((error) => {
+      console.warn(`YOLO worker warm-up failed: ${cleanPythonError(error.message)}`);
+    });
+  }
 });
 
 async function ensureStorage() {
@@ -3326,6 +3322,111 @@ async function resizeAndSave(inputPath, outputPath) {
   const args = [scriptPath, '--input', inputPath, '--output', outputPath];
 
   await runPythonJson(args);
+}
+
+function ensureYoloWorker() {
+  if (yoloWorkerProcess && yoloWorkerProcess.exitCode === null && yoloWorkerReadyPromise) {
+    return yoloWorkerReadyPromise;
+  }
+
+  const workerPath = path.join(__dirname, '..', 'scripts', 'yolo_pt_worker.py');
+  yoloWorkerBuffer = '';
+  yoloWorkerReadyPromise = new Promise((resolve, reject) => {
+    yoloWorkerReadyResolve = resolve;
+    yoloWorkerReadyReject = reject;
+  });
+  yoloWorkerProcess = spawn(PYTHON_BIN, ['-u', workerPath, '--model', YOLO_MUZZLE_MODEL_PATH], {
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  yoloWorkerProcess.stdout.on('data', (chunk) => {
+    yoloWorkerBuffer += chunk.toString();
+    const lines = yoloWorkerBuffer.split(/\r?\n/);
+    yoloWorkerBuffer = lines.pop() || '';
+    lines.map((line) => line.trim()).filter(Boolean).forEach(handleYoloWorkerLine);
+  });
+  yoloWorkerProcess.stderr.on('data', (chunk) => {
+    const message = chunk.toString().trim();
+    if (message) console.warn(`YOLO worker: ${message}`);
+  });
+  yoloWorkerProcess.on('error', (error) => resetYoloWorker(error));
+  yoloWorkerProcess.on('close', (code) => {
+    resetYoloWorker(new Error(`YOLO worker exited with code ${code}.`));
+  });
+
+  return yoloWorkerReadyPromise;
+}
+
+function handleYoloWorkerLine(line) {
+  let message;
+  try {
+    message = JSON.parse(line);
+  } catch {
+    console.warn(`YOLO worker returned non-JSON output: ${line}`);
+    return;
+  }
+
+  if (message.type === 'ready') {
+    yoloWorkerReadyResolve?.();
+    yoloWorkerReadyResolve = undefined;
+    yoloWorkerReadyReject = undefined;
+    console.log('YOLO muzzle worker is warm and ready.');
+    return;
+  }
+  if (message.type === 'startup_error') {
+    resetYoloWorker(new Error(message.error || 'YOLO worker could not start.'));
+    return;
+  }
+
+  const pending = yoloWorkerPending.get(message.requestId);
+  if (!pending) return;
+  clearTimeout(pending.timeout);
+  yoloWorkerPending.delete(message.requestId);
+  if (message.error) pending.reject(new Error(message.error));
+  else pending.resolve(message.result);
+}
+
+function resetYoloWorker(error) {
+  yoloWorkerReadyReject?.(error);
+  yoloWorkerReadyResolve = undefined;
+  yoloWorkerReadyReject = undefined;
+  yoloWorkerReadyPromise = undefined;
+  const processToStop = yoloWorkerProcess;
+  yoloWorkerProcess = undefined;
+  if (processToStop && processToStop.exitCode === null) processToStop.kill('SIGKILL');
+  yoloWorkerPending.forEach((pending) => {
+    clearTimeout(pending.timeout);
+    pending.reject(error);
+  });
+  yoloWorkerPending.clear();
+}
+
+async function runYoloWorker(inputPath) {
+  await ensureYoloWorker();
+  const worker = yoloWorkerProcess;
+  if (!worker?.stdin?.writable) throw new Error('YOLO worker is not available.');
+
+  return new Promise((resolve, reject) => {
+    const requestId = ++yoloWorkerRequestId;
+    const timeout = setTimeout(() => {
+      resetYoloWorker(new Error('YOLO worker inference timed out.'));
+    }, Math.min(PYTHON_PROCESS_TIMEOUT_MS, 15_000));
+    yoloWorkerPending.set(requestId, { resolve, reject, timeout });
+    worker.stdin.write(`${JSON.stringify({
+      requestId,
+      input: inputPath,
+      goodConfidence: MUZZLE_CONF,
+      badConfidence: MUZZLE_BAD_CONF,
+      wetConfidence: MUZZLE_WET_CONF,
+      badDominanceMargin: MUZZLE_BAD_DOMINANCE_MARGIN,
+      minSharpness: MUZZLE_MIN_SHARPNESS
+    })}\n`, (error) => {
+      if (!error) return;
+      clearTimeout(timeout);
+      yoloWorkerPending.delete(requestId);
+      reject(error);
+    });
+  });
 }
 
 function runPythonJson(args) {

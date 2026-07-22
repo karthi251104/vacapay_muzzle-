@@ -1479,7 +1479,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.muzzleGateLabel = 'Scanning';
     this.captureTimer = window.setInterval(() => {
       void this.tryCaptureMuzzle();
-    }, 350);
+    }, 400);
     // Scan timer — increments every second for manual fallback button
     this.muzzleScanTimer = window.setInterval(() => {
       this.muzzleScanSeconds += 1;
@@ -1552,7 +1552,6 @@ export class AppComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.consecutiveGoodMuzzleFrames += 1;
     this.consecutiveGoodMuzzleFrames = 0;
     this.muzzleRejectionReason = '';
     this.muzzleGateState = 'good';
@@ -3091,30 +3090,24 @@ export class AppComponent implements OnInit, OnDestroy {
     return `FARM-${Math.random().toString(36).slice(2, 10).toUpperCase().padEnd(8, 'X')}`;
   }
   private async detectMuzzleForCapture(slot: number): Promise<LocalMuzzleDetection> {
-    try {
-      this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on phone...`;
-      return await this.muzzleDetector.detectAndCrop(this.video!.nativeElement);
-    } catch (phoneError) {
-      if (!navigator.onLine) throw phoneError;
-
-      try {
-        this.message = `Phone check unavailable. Checking photo ${slot}/${this.muzzleImageCount} on server...`;
-        const frame = await this.frameBlob(1280, 0.82, true);
-        const response = await this.withTimeout(
-          firstValueFrom(this.api.checkMuzzleFrame(frame)),
-          4000,
-          'Server muzzle check timed out.'
-        );
-
-        if (response.backendUnavailable) {
-          throw new Error(response.error || 'Backend muzzle model is unavailable.');
-        }
-
-        return this.backendGateToLocalDetection(response);
-      } catch (serverError) {
-        throw new Error(`Phone and server muzzle checks failed: ${serverError instanceof Error ? serverError.message : 'unknown server error'}`);
-      }
+    if (!navigator.onLine) {
+      this.message = `Offline: checking muzzle photo ${slot}/${this.muzzleImageCount} on phone...`;
+      return this.muzzleDetector.detectAndCrop(this.video!.nativeElement);
     }
+
+    this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on server...`;
+    const frame = await this.frameBlob(704, 0.85, true);
+    const response = await this.withTimeout(
+      firstValueFrom(this.api.checkMuzzleFrame(frame)),
+      5000,
+      'Server muzzle check timed out.'
+    );
+
+    if (response.backendUnavailable) {
+      throw new Error(response.error || 'Backend muzzle model is unavailable.');
+    }
+
+    return this.backendGateToLocalDetection(response);
   }
 
   private backendGateToLocalDetection(response: MuzzleGateResponse): LocalMuzzleDetection {

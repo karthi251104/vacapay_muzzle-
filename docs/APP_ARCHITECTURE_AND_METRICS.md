@@ -50,7 +50,7 @@ flowchart TD
 
     I --> J{"Muzzle Quality Gate"}
     J -->|"Online"| K["Backend YOLO PT yolo26s.pt"]
-    J -->|"Offline or backend unavailable"| L["Phone TFLite yolo26s_float32.tflite"]
+    J -->|"Offline only"| L["Phone TFLite yolo26s_float32.tflite"]
     K --> M["Good/Bad Detection + Crop + CLAHE"]
     L --> M
     M --> N["Save Good Crops On Phone"]
@@ -186,12 +186,12 @@ minimum sharpness score: 18
 
 ### Online Behavior
 
-When the app has internet and backend is reachable, the app tries backend muzzle checking first:
+When the app reports internet access, it uses backend muzzle checking:
 
 ```text
 camera frame
 -> /api/muzzle/check
--> backend/scripts/yolo_pt_muzzle_check.py
+-> persistent backend/scripts/yolo_pt_worker.py
 -> backend/yolo26s.pt
 -> good/bad/wet detection
 -> crop selected muzzle box
@@ -205,15 +205,17 @@ The backend response source is:
 backend_yolo_pt
 ```
 
-### Offline Or Backend-Fallback Behavior
+### Offline-Only Behavior
 
-If the backend check times out or the phone is offline, the app uses the phone model:
+Only when the phone reports no internet does the app use the phone model:
 
 ```text
 frontend/src/assets/models/yolo26s_float32.tflite
 ```
 
 The phone still rejects bad/blurry muzzles and saves only accepted crops.
+
+An online backend error remains visible and does not silently switch to TFLite. This prevents one capture session from mixing decisions from two model runtimes merely because the server was slow or misconfigured.
 
 ### Why Backend PT And Phone TFLite Both Exist
 
@@ -226,8 +228,7 @@ Important trade-off:
 
 ```text
 PyTorch .pt is heavier than TFLite.
-If the backend starts a new Python process for every frame, backend checking can be slower.
-For production speed, the next improvement is a persistent Python model service that keeps yolo26s.pt loaded once.
+The backend therefore starts one persistent Python worker, loads and warms yolo26s.pt once, and reuses it for subsequent 704 x 704 frames. The phone sends a new frame at most every 400 ms and never overlaps inference requests.
 ```
 
 ## 6. Backend Embedding Flow
@@ -608,10 +609,7 @@ better: 4 GB or more for stable testing
 
 ### Backend PT Latency
 
-`backend/yolo26s.pt` is heavier than phone TFLite. A persistent Python service would be faster than spawning Python per request.
-The online path checks the backend first and falls back to the phone for 30 seconds after a timeout/failure, avoiding
-two serial model runs for every accepted image. Python subprocesses have a configurable hard timeout
-(`PYTHON_PROCESS_TIMEOUT_MS`, default 180 seconds) so an upload cannot remain stuck forever.
+`backend/yolo26s.pt` is heavier than phone TFLite, so the server keeps it loaded in `yolo_pt_worker.py` instead of spawning Python and loading the model for every frame. The camera loop submits one center-cropped 704 x 704 JPEG every 400 ms. Each response includes `inferenceMs` for latency diagnosis. Online failures are reported; TFLite is reserved for offline capture.
 
 ### Offline Runtime
 

@@ -118,6 +118,72 @@ def public_candidate(candidate):
     return value
 
 
+def analyze_image(
+    model,
+    image,
+    min_good_confidence=0.55,
+    min_bad_confidence=0.35,
+    min_wet_confidence=0.35,
+    bad_dominance_margin=0.05,
+    min_sharpness=14,
+):
+    if image is None:
+        raise RuntimeError('Could not read image.')
+
+    source_h, source_w = image.shape[:2]
+    candidates = detect_candidates(model, image)
+    best = select_best(
+        candidates,
+        min_good_confidence,
+        min_bad_confidence,
+        min_wet_confidence,
+        bad_dominance_margin,
+    )
+    if not best:
+        return {
+            'accepted': False,
+            'reason': 'No good muzzle box found.',
+            'confidence': 0,
+            'className': 'none',
+            'bbox': None,
+            'imageSize': [source_w, source_h],
+            'source': 'backend_yolo_pt',
+        }
+
+    best_public = public_candidate(best)
+    if best['kind'] != 'good':
+        label = 'Wet muzzle' if best['kind'] == 'wet' else 'Bad muzzle'
+        return {
+            'accepted': False,
+            'reason': f"{label} rejected ({round(best['confidence'] * 100)}%).",
+            **best_public,
+            'imageSize': [source_w, source_h],
+            'source': 'backend_yolo_pt',
+        }
+
+    crop_quality = sharpness(image, best['bbox'])
+    if crop_quality < min_sharpness:
+        return {
+            'accepted': False,
+            'reason': f'Image is blurry ({round(crop_quality)} sharpness).',
+            **best_public,
+            'sharpness': round(crop_quality),
+            'imageSize': [source_w, source_h],
+            'source': 'backend_yolo_pt',
+        }
+
+    crop_b64 = crop_clahe_jpeg(image, best['bbox'])
+    return {
+        'accepted': True,
+        'reason': 'Good muzzle accepted.',
+        **best_public,
+        'sharpness': round(crop_quality),
+        'imageSize': [source_w, source_h],
+        'cropBase64': crop_b64,
+        'source': 'backend_yolo_pt',
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', required=True)
@@ -136,57 +202,16 @@ def main():
     image = cv2.imread(str(input_path))
     if image is None:
         raise RuntimeError('Could not read image.')
-    source_h, source_w = image.shape[:2]
-
     model = load_model(model_path)
-    candidates = detect_candidates(model, image)
-    best = select_best(candidates, args.good_conf, args.bad_conf, args.wet_conf, args.bad_margin)
-    if not best:
-        print(json.dumps({
-            'accepted': False,
-            'reason': 'No good muzzle box found.',
-            'confidence': 0,
-            'className': 'none',
-            'bbox': None,
-            'imageSize': [source_w, source_h],
-            'source': 'backend_yolo_pt'
-        }))
-        return
-
-    best_public = public_candidate(best)
-    if best['kind'] != 'good':
-        label = 'Wet muzzle' if best['kind'] == 'wet' else 'Bad muzzle'
-        print(json.dumps({
-            'accepted': False,
-            'reason': f"{label} rejected ({round(best['confidence'] * 100)}%).",
-            **best_public,
-            'imageSize': [source_w, source_h],
-            'source': 'backend_yolo_pt'
-        }))
-        return
-
-    crop_quality = sharpness(image, best['bbox'])
-    if crop_quality < args.min_sharpness:
-        print(json.dumps({
-            'accepted': False,
-            'reason': f'Image is blurry ({round(crop_quality)} sharpness).',
-            **best_public,
-            'sharpness': round(crop_quality),
-            'imageSize': [source_w, source_h],
-            'source': 'backend_yolo_pt'
-        }))
-        return
-
-    crop_b64 = crop_clahe_jpeg(image, best['bbox'])
-    print(json.dumps({
-        'accepted': True,
-        'reason': 'Good muzzle accepted.',
-        **best_public,
-        'sharpness': round(crop_quality),
-        'imageSize': [source_w, source_h],
-        'cropBase64': crop_b64,
-        'source': 'backend_yolo_pt'
-    }))
+    print(json.dumps(analyze_image(
+        model,
+        image,
+        args.good_conf,
+        args.bad_conf,
+        args.wet_conf,
+        args.bad_margin,
+        args.min_sharpness,
+    )))
 
 
 if __name__ == '__main__':

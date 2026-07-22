@@ -32,7 +32,7 @@ host. The image contains:
 - `yolo26s.pt` backend YOLO good/bad/wet muzzle detector.
 - A preloaded DINOv2 backbone cache.
 
-The backend contains `backend/yolo26s.pt` for online YOLO good/bad/wet muzzle checking and cropping through `/api/muzzle/check`. The Android field app keeps `yolo26s_float32.tflite` as the offline fallback so capture can continue without internet. Uploaded muzzle files marked `clientProcessed=true` are treated as already cropped by the phone.
+The backend contains `backend/yolo26s.pt` for online YOLO good/bad/wet muzzle checking and cropping through `/api/muzzle/check`. A persistent Python worker loads the model once and applies crop plus CLAHE to accepted boxes. The Android field app uses `yolo26s_float32.tflite` only while offline so capture can continue without internet. Uploaded muzzle files marked `clientProcessed=true` are treated as already quality-checked, cropped and contrast-enhanced.
 
 Create a service from the GitHub repository and set these variables:
 
