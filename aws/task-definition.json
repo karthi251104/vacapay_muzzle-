@@ -1,6 +1,6 @@
 {
   "family": "vacapay-backend",
-  "networkMode": "awsvpc",
+  "networkMode": "bridge",
   "requiresCompatibilities": ["EC2"],
   "cpu": "2048",
   "memory": "7168",
