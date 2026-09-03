@@ -3,6 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # ── Build arg: passes the git commit SHA into the image label ──
+      # When you run: docker compose build
+      # Docker sets VERSION label inside the image for traceability
+      args:
+        VERSION: "${APP_VERSION:-dev}"
     container_name: vacapay-app
     ports:
       - "3000:3000"
@@ -12,6 +17,7 @@ services:
       PORT: "3000"
       PYTHON_BIN: "/app/.venv/bin/python"
       DINOV2_MODEL_PATH: "/app/models/dinov2_triplet_v2_best.pt"
+      YOLO_MUZZLE_MODEL_PATH: "/app/models/yolo26s.pt"
       EMBEDDING_MATCH_THRESHOLD: "0.70"
       CLOUDINARY_ROOT_FOLDER: "vacapay"
       MONGODB_DB_NAME: "vacapay"
@@ -20,4 +26,15 @@ services:
     volumes:
       - ./data:/app/data
       - ./backend/dinov2_triplet_v2_best.pt:/app/models/dinov2_triplet_v2_best.pt:ro
+      - ./backend/yolo26s.pt:/app/models/yolo26s.pt:ro
+    # ── Health check: same as Dockerfile HEALTHCHECK ──────────────
+    # docker compose also supports healthcheck. This lets you run:
+    #   docker compose ps
+    # and see "healthy" / "unhealthy" status for the container
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
     restart: unless-stopped

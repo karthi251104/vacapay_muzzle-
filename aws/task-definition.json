@@ -1,0 +1,112 @@
+{
+  "family": "vacapay-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["EC2"],
+  "cpu": "2048",
+  "memory": "7168",
+  "executionRoleArn": "arn:aws:iam::591064574408:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::591064574408:role/vacapayTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "vacapay-backend",
+      "image": "591064574408.dkr.ecr.ap-south-1.amazonaws.com/vacapay-backend:latest",
+      "cpu": 2048,
+      "memory": 7168,
+      "memoryReservation": 4096,
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "hostPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"],
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3,
+        "startPeriod": 120
+      },
+      "environment": [
+        { "name": "PORT", "value": "3000" },
+        { "name": "REQUIRE_PRODUCTION_SERVICES", "value": "true" },
+        { "name": "PYTHON_BIN", "value": "/app/.venv/bin/python" },
+        { "name": "DINOV2_MODEL_PATH", "value": "/app/models/dinov2_triplet_v2_best.pt" },
+        { "name": "YOLO_MUZZLE_MODEL_PATH", "value": "/app/models/yolo26s.pt" },
+        { "name": "EMBEDDING_MATCH_THRESHOLD", "value": "0.70" },
+        { "name": "CLOUDINARY_ROOT_FOLDER", "value": "vacapay" },
+        { "name": "MONGODB_DB_NAME", "value": "vacapay" },
+        { "name": "PINECONE_NAMESPACE", "value": "vacapay" },
+        { "name": "PINECONE_ENROLMENT_NAMESPACE", "value": "vacapay-cattle-enrolment" },
+        { "name": "PINECONE_SEARCH_NAMESPACE", "value": "vacapay-cattle-search" },
+        { "name": "MPLCONFIGDIR", "value": "/app/data/matplotlib" },
+        { "name": "MUZZLE_IMAGE_COUNT", "value": "3" },
+        { "name": "YOLO_IMGSZ", "value": "704" },
+        { "name": "MUZZLE_CONF", "value": "0.70" },
+        { "name": "MUZZLE_BAD_CONF", "value": "0.25" },
+        { "name": "MUZZLE_WET_CONF", "value": "0.25" },
+        { "name": "MUZZLE_BAD_DOMINANCE_MARGIN", "value": "0.12" },
+        { "name": "MUZZLE_MIN_SHARPNESS", "value": "18" }
+      ],
+      "secrets": [
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:591064574408:secret:vacapay/production:JWT_SECRET::"
+        },
+        {
+          "name": "MONGODB_URI",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:591064574408:secret:vacapay/production:MONGODB_URI::"
+        },
+        {
+          "name": "CLOUDINARY_CLOUD_NAME",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:591064574408:secret:vacapay/production:CLOUDINARY_CLOUD_NAME::"
+        },
+        {
+          "name": "CLOUDINARY_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:591064574408:secret:vacapay/production:CLOUDINARY_API_KEY::"
+        },
+        {
+          "name": "CLOUDINARY_API_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:591064574408:secret:vacapay/production:CLOUDINARY_API_SECRET::"
+        },
+        {
+          "name": "PINECONE_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:591064574408:secret:vacapay/production:PINECONE_API_KEY::"
+        },
+        {
+          "name": "PINECONE_INDEX_HOST",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:591064574408:secret:vacapay/production:PINECONE_INDEX_HOST::"
+        },
+        {
+          "name": "CORS_ORIGINS",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:591064574408:secret:vacapay/production:CORS_ORIGINS::"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/vacapay-backend",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      },
+      "mountPoints": [
+        {
+          "sourceVolume": "vacapay-data",
+          "containerPath": "/app/data",
+          "readOnly": false
+        }
+      ]
+    }
+  ],
+  "volumes": [
+    {
+      "name": "vacapay-data",
+      "host": {
+        "sourcePath": "/var/lib/vacapay/data"
+      }
+    }
+  ]
+}

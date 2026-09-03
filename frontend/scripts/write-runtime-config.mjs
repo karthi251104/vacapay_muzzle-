@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const frontendDir = path.resolve(scriptDir, '..');
 const requireUrl = process.argv.includes('--require-url');
-const configuredApiUrl = String(process.env.VACAPAY_API_BASE_URL || '').trim().replace(/\/+$/, '');
+const dev = 'https://vr0df7bz-3000.inc1.devtunnels.ms/';
+const configuredApiUrl = String(process.env.VACAPAY_API_BASE_URL || dev ).trim().replace(/\/+$/, '');
 
 if (requireUrl && !/^https:\/\//i.test(configuredApiUrl)) {
   throw new Error('VACAPAY_API_BASE_URL is required and must start with https://');

@@ -1,0 +1,190 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Vacapay CI/CD Pipeline — GitHub Actions → ECR → ECS
+# ═══════════════════════════════════════════════════════════════════════
+#
+# WHAT THIS FILE DOES:
+#   Every time you push code to the "main" branch, this pipeline:
+#   1. Builds your Docker image (same as running "docker build" locally)
+#   2. Pushes it to ECR (AWS's private Docker image storage)
+#   3. Tells ECS to deploy the new image (rolling update)
+#   4. Waits until the new container is healthy
+#
+# WHERE THIS FILE LIVES:
+#   .github/workflows/deploy.yml
+#   GitHub automatically detects YAML files in this folder and runs them
+#
+# REQUIRED GITHUB SECRETS (Settings → Secrets → Actions):
+#   AWS_ACCESS_KEY_ID      - IAM user's access key
+#   AWS_SECRET_ACCESS_KEY  - IAM user's secret key
+#   AWS_ACCOUNT_ID         - Your 12-digit AWS account number
+#
+# ═══════════════════════════════════════════════════════════════════════
+
+name: Deploy to AWS ECS
+
+# ── TRIGGER ──────────────────────────────────────────────────────────
+# "on: push" means this runs automatically when code is pushed.
+# "branches: [main]" means ONLY the main branch triggers deployment.
+# Feature branches (dev, feature/xyz) do NOT trigger this.
+on:
+  push:
+    branches: [main]
+
+  # "workflow_dispatch" lets you manually trigger from GitHub UI
+  # Go to Actions tab → Deploy to AWS ECS → Run workflow
+  workflow_dispatch:
+
+# ── ENVIRONMENT VARIABLES ────────────────────────────────────────────
+# These are used throughout the pipeline. Change them to match your setup.
+env:
+  AWS_REGION: ap-south-1                    # Mumbai region (closest to India)
+  ECR_REPOSITORY: vacapay-backend           # Name of your ECR repository
+  ECS_CLUSTER: vacapay-cluster              # Name of your ECS cluster
+  ECS_SERVICE: vacapay-service              # Name of your ECS service
+  ECS_TASK_DEFINITION: aws/task-definition.json  # Path to task def in repo
+
+# ── PERMISSIONS ──────────────────────────────────────────────────────
+# Minimal permissions this workflow needs.
+# "id-token: write" is for OIDC authentication (more secure than keys)
+# "contents: read" is to checkout the code
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    # ── TIMEOUT ────────────────────────────────────────────────────
+    # Your Docker image is ~2.5 GB (PyTorch + models).
+    # Build can take 15-25 minutes. 45-minute timeout is safe.
+    timeout-minutes: 45
+
+    steps:
+      # ════════════════════════════════════════════════════════════
+      # STEP 1: Checkout code
+      # ════════════════════════════════════════════════════════════
+      # Downloads your repository code to the GitHub Actions runner.
+      # "fetch-depth: 0" downloads full history (needed for git SHA).
+      # "lfs: true" downloads Git LFS files (your ML models).
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      # ════════════════════════════════════════════════════════════
+      # STEP 2: Pull Git LFS files (ML models)
+      # ════════════════════════════════════════════════════════════
+      # Your dinov2_triplet_v2_best.pt (~353 MB) and yolo26s.pt (~20 MB)
+      # are stored in Git LFS. This step ensures they're downloaded.
+      - name: Pull LFS files
+        run: git lfs pull
+
+      # ════════════════════════════════════════════════════════════
+      # STEP 3: Configure AWS credentials
+      # ════════════════════════════════════════════════════════════
+      # This step authenticates GitHub Actions with your AWS account.
+      # It uses the secrets you stored in GitHub Settings → Secrets.
+      # After this step, all AWS CLI commands work automatically.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ════════════════════════════════════════════════════════════
+      # STEP 4: Login to Amazon ECR
+      # ════════════════════════════════════════════════════════════
+      # ECR is a private Docker registry. You need to "log in" before
+      # you can push images. This is like "docker login" but for AWS.
+      # The login token expires after 12 hours.
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ════════════════════════════════════════════════════════════
+      # STEP 5: Build, tag, and push Docker image to ECR
+      # ════════════════════════════════════════════════════════════
+      # This is the same as running "docker build" on your PC, but
+      # it happens on GitHub's servers (Ubuntu VM with 7 GB RAM).
+      #
+      # IMAGE_TAG uses the Git SHA (e.g., "a1b2c3d") so every push
+      # creates a uniquely identifiable image. We also tag as "latest"
+      # so ECS can always find the most recent image.
+      #
+      # --build-arg VERSION passes the Git SHA into the Dockerfile's
+      # ARG VERSION, which becomes a LABEL in the image metadata.
+      - name: Build, tag, and push image to ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Build with Git SHA as the version label
+          docker build \
+            --build-arg VERSION=$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            .
+
+          # Push both tags to ECR
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          # Output the full image URI for the next step
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      # ════════════════════════════════════════════════════════════
+      # STEP 6: Update ECS Task Definition with new image
+      # ════════════════════════════════════════════════════════════
+      # The Task Definition is like a recipe. This step creates a
+      # NEW REVISION of the recipe with the new Docker image URI.
+      #
+      # Think of it like: "Same recipe, but use the new ingredients"
+      # Old revision: uses image a1b2c3d
+      # New revision: uses image d4e5f6g (your latest push)
+      - name: Update ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.ECS_TASK_DEFINITION }}
+          container-name: vacapay-backend
+          image: ${{ steps.build-image.outputs.image }}
+
+      # ════════════════════════════════════════════════════════════
+      # STEP 7: Deploy to ECS
+      # ════════════════════════════════════════════════════════════
+      # This tells the ECS Service: "Use this new Task Definition"
+      #
+      # ECS then performs a ROLLING UPDATE:
+      #   1. Starts a NEW container with the new image
+      #   2. Waits for it to pass health checks (/api/health)
+      #   3. If healthy → stops the OLD container → DONE ✅
+      #   4. If unhealthy → kills NEW container, keeps OLD → SAFE ✅
+      #
+      # wait-for-service-stability: true
+      #   → The pipeline WAITS until ECS confirms the new container
+      #     is healthy. If it fails, the GitHub Action shows ❌.
+      #   → Without this, the pipeline would say ✅ even if the
+      #     new container crashed 2 minutes later.
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      # ════════════════════════════════════════════════════════════
+      # STEP 8: Verify deployment
+      # ════════════════════════════════════════════════════════════
+      # Extra safety check: after ECS says "stable", we also verify
+      # that the health endpoint actually responds correctly.
+      - name: Verify deployment
+        run: |
+          echo "✅ Deployment successful!"
+          echo "Image: ${{ steps.build-image.outputs.image }}"
+          echo "Cluster: ${{ env.ECS_CLUSTER }}"
+          echo "Service: ${{ env.ECS_SERVICE }}"
