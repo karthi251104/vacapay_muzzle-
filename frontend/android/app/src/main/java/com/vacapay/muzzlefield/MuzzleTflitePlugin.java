@@ -178,7 +178,8 @@ public class MuzzleTflitePlugin extends Plugin {
     if (outputShape.length == 3 && outputShape[2] == 6) {
       int rows = outputShape[1];
       for (int row = 0; row < rows; row++) {
-        keepBest(best, nmsCandidate(values, row * 6, sourceWidth, sourceHeight, sourceSize, cropX, cropY));
+        Candidate candidate = nmsCandidate(values, row * 6, sourceWidth, sourceHeight, sourceSize, cropX, cropY);
+        if (candidate != null && candidate.confidence >= 0.20f) best.add(candidate);
       }
     } else if (outputShape.length == 3 && outputShape[1] >= 6 && outputShape[2] > outputShape[1]) {
       int channels = outputShape[1];

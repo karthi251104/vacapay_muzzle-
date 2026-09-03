@@ -178,10 +178,11 @@ bad muzzle
 Current thresholds:
 
 ```text
-minimum good muzzle confidence: 0.50
-minimum bad muzzle confidence: 0.45
-bad dominance margin: 0.12
-minimum sharpness score: 18
+minimum good muzzle confidence: 0.90
+minimum bad muzzle confidence: 0.25
+minimum wet muzzle confidence: 0.25
+required good/bad margin: 0.12
+minimum validation sharpness score: 14
 ```
 
 ### Online Behavior
@@ -189,11 +190,12 @@ minimum sharpness score: 18
 When the app reports internet access, it uses backend muzzle checking:
 
 ```text
-camera frame
--> /api/muzzle/check
+704 x 704 center-cropped preview
+-> /api/muzzle/check (preview)
 -> persistent backend/scripts/yolo_pt_worker.py
 -> backend/yolo26s.pt
--> good/bad/wet detection
+-> good/bad/wet/multiple-muzzle decision
+-> accepted preview triggers high-resolution center-frame validation
 -> crop selected muzzle box
 -> CLAHE contrast enhancement
 -> return cropBase64 to phone
@@ -205,9 +207,9 @@ The backend response source is:
 backend_yolo_pt
 ```
 
-### Offline-Only Behavior
+### Offline And Connectivity Fallback
 
-Only when the phone reports no internet does the app use the phone model:
+When the phone reports no internet, or the backend is unreachable, times out or is temporarily unavailable, the app uses the phone model:
 
 ```text
 frontend/src/assets/models/yolo26s_float32.tflite
@@ -215,7 +217,7 @@ frontend/src/assets/models/yolo26s_float32.tflite
 
 The phone still rejects bad/blurry muzzles and saves only accepted crops.
 
-An online backend error remains visible and does not silently switch to TFLite. This prevents one capture session from mixing decisions from two model runtimes merely because the server was slow or misconfigured.
+Authentication and application validation errors remain visible and do not trigger fallback. Only connectivity and temporary service failures switch to TFLite.
 
 ### Why Backend PT And Phone TFLite Both Exist
 
@@ -427,8 +429,8 @@ This is only a capture-quality score. It does not identify the cow.
 This is a blur/edge score calculated on the muzzle crop.
 
 ```text
-sharpness < 18 -> reject as blurry
-sharpness >= 18 -> allow if muzzle class is good
+validation sharpness < 14 -> reject as blurry
+validation sharpness >= 14 -> allow if muzzle class is good and no wet/bad/multiple-muzzle rule rejects it
 ```
 
 This is also only a quality score.
@@ -609,7 +611,7 @@ better: 4 GB or more for stable testing
 
 ### Backend PT Latency
 
-`backend/yolo26s.pt` is heavier than phone TFLite, so the server keeps it loaded in `yolo_pt_worker.py` instead of spawning Python and loading the model for every frame. The camera loop submits one center-cropped 704 x 704 JPEG every 400 ms. Each response includes `inferenceMs` for latency diagnosis. Online failures are reported; TFLite is reserved for offline capture.
+`backend/yolo26s.pt` is heavier than phone TFLite, so the server keeps it loaded in `yolo_pt_worker.py` instead of spawning Python and loading the model for every frame. The camera loop submits one center-cropped 704 x 704 preview JPEG every 400 ms. A good preview triggers one high-resolution validation request. Each response includes `inferenceMs` for latency diagnosis. Connectivity failures switch to the bundled TFLite model.
 
 ### Offline Runtime
 

@@ -492,9 +492,10 @@ export class ApiService {
     return this.http.get<{ cattle: CattleMatch[] }>(`${this.baseUrl}/cattle/search?${query.toString()}`, { headers: this.authHeaders() });
   }
 
-  checkMuzzleFrame(file: Blob): Observable<MuzzleGateResponse> {
+  checkMuzzleFrame(file: Blob, stage: 'preview' | 'validate' = 'validate'): Observable<MuzzleGateResponse> {
     const formData = new FormData();
     formData.append('image', file, 'muzzle-frame.jpg');
+    formData.append('stage', stage);
     return this.http.post<MuzzleGateResponse>(`${this.baseUrl}/muzzle/check`, formData, { headers: this.authHeaders() });
   }
 

@@ -121,24 +121,83 @@ def public_candidate(candidate):
 def analyze_image(
     model,
     image,
-    min_good_confidence=0.55,
-    min_bad_confidence=0.35,
-    min_wet_confidence=0.35,
-    bad_dominance_margin=0.05,
+    min_good_confidence=0.90,
+    min_bad_confidence=0.25,
+    min_wet_confidence=0.25,
+    bad_dominance_margin=0.12,
     min_sharpness=14,
+    include_crop=True,
 ):
     if image is None:
         raise RuntimeError('Could not read image.')
 
     source_h, source_w = image.shape[:2]
     candidates = detect_candidates(model, image)
-    best = select_best(
-        candidates,
-        min_good_confidence,
-        min_bad_confidence,
-        min_wet_confidence,
-        bad_dominance_margin,
+    usable_good = sorted(
+        (candidate for candidate in candidates
+         if candidate['kind'] == 'good' and candidate['confidence'] >= min_good_confidence),
+        key=lambda candidate: candidate['confidence'],
+        reverse=True,
     )
+    usable_bad = sorted(
+        (candidate for candidate in candidates
+         if candidate['kind'] == 'bad' and candidate['confidence'] >= min_bad_confidence),
+        key=lambda candidate: candidate['confidence'],
+        reverse=True,
+    )
+    usable_wet = sorted(
+        (candidate for candidate in candidates
+         if candidate['kind'] == 'wet' and candidate['confidence'] >= min_wet_confidence),
+        key=lambda candidate: candidate['confidence'],
+        reverse=True,
+    )
+    best_good = max(
+        (candidate for candidate in candidates if candidate['kind'] == 'good'),
+        key=lambda candidate: candidate['confidence'],
+        default=None,
+    )
+
+    # Match the reference capture contract: wet is always unsafe, and a frame
+    # containing multiple usable muzzles must never auto-capture.
+    if usable_wet:
+        best = usable_wet[0]
+    elif len(usable_good) > 1:
+        best = usable_good[0]
+        return {
+            'accepted': False,
+            'reason': 'Multiple usable muzzle boxes detected.',
+            **public_candidate(best),
+            'className': 'multiple_muzzles',
+            'imageSize': [source_w, source_h],
+            'source': 'backend_yolo_pt',
+        }
+    elif not usable_good:
+        if usable_bad:
+            best = usable_bad[0]
+        elif best_good:
+            return {
+                'accepted': False,
+                'reason': f"Good muzzle confidence too low ({round(best_good['confidence'] * 100)}%).",
+                **public_candidate(best_good),
+                'imageSize': [source_w, source_h],
+                'source': 'backend_yolo_pt',
+            }
+        else:
+            best = None
+    else:
+        best = usable_good[0]
+        if usable_bad and best['confidence'] - usable_bad[0]['confidence'] < bad_dominance_margin:
+            return {
+                'accepted': False,
+                'reason': (
+                    f"Uncertain muzzle: good {round(best['confidence'] * 100)}%, "
+                    f"bad {round(usable_bad[0]['confidence'] * 100)}%."
+                ),
+                **public_candidate(best),
+                'className': 'uncertain',
+                'imageSize': [source_w, source_h],
+                'source': 'backend_yolo_pt',
+            }
     if not best:
         return {
             'accepted': False,
@@ -162,7 +221,7 @@ def analyze_image(
         }
 
     crop_quality = sharpness(image, best['bbox'])
-    if crop_quality < min_sharpness:
+    if min_sharpness > 0 and crop_quality < min_sharpness:
         return {
             'accepted': False,
             'reason': f'Image is blurry ({round(crop_quality)} sharpness).',
@@ -172,26 +231,27 @@ def analyze_image(
             'source': 'backend_yolo_pt',
         }
 
-    crop_b64 = crop_clahe_jpeg(image, best['bbox'])
-    return {
+    result = {
         'accepted': True,
         'reason': 'Good muzzle accepted.',
         **best_public,
         'sharpness': round(crop_quality),
         'imageSize': [source_w, source_h],
-        'cropBase64': crop_b64,
         'source': 'backend_yolo_pt',
     }
+    if include_crop:
+        result['cropBase64'] = crop_clahe_jpeg(image, best['bbox'])
+    return result
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', required=True)
     parser.add_argument('--input', required=True)
-    parser.add_argument('--good-conf', type=float, default=0.55)
-    parser.add_argument('--bad-conf', type=float, default=0.35)
-    parser.add_argument('--wet-conf', type=float, default=0.35)
-    parser.add_argument('--bad-margin', type=float, default=0.05)
+    parser.add_argument('--good-conf', type=float, default=0.90)
+    parser.add_argument('--bad-conf', type=float, default=0.25)
+    parser.add_argument('--wet-conf', type=float, default=0.25)
+    parser.add_argument('--bad-margin', type=float, default=0.12)
     parser.add_argument('--min-sharpness', type=float, default=14)
     args = parser.parse_args()
 

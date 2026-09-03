@@ -1492,7 +1492,7 @@ export class AppComponent implements OnInit, OnDestroy {
       if (this.muzzlePreviews.length >= this.muzzleImageCount) this.toggleAutoCapture();
       return;
     }
-    if (this.lastMuzzleSavedAt && Date.now() - this.lastMuzzleSavedAt < 700) return;
+    if (this.lastMuzzleSavedAt && Date.now() - this.lastMuzzleSavedAt < 1200) return;
 
     this.isDetecting = true;
     this.muzzleGateState = 'scanning';
@@ -1540,9 +1540,9 @@ export class AppComponent implements OnInit, OnDestroy {
       } else if (localResult.className !== 'goodmuzzle') {
         this.muzzleGateLabel = 'Not usable';
         this.muzzleRejectionReason = localResult.reason || 'Show the full muzzle clearly and try again.';
-      } else if (localResult.confidence < 0.55) {
+      } else if (localResult.confidence < 0.90) {
         this.muzzleGateLabel = `Low confidence ${this.muzzleLiveConfidence}%`;
-        this.muzzleRejectionReason = `Confidence is ${this.muzzleLiveConfidence}% - need 55%. Try better lighting or move closer.`;
+        this.muzzleRejectionReason = `Confidence is ${this.muzzleLiveConfidence}% - need 90%. Try better lighting or move closer.`;
       } else {
         this.muzzleGateLabel = 'Too blurry';
         this.muzzleRejectionReason = 'Image is blurry. Hold the phone still and wait for focus.';
@@ -3039,7 +3039,7 @@ export class AppComponent implements OnInit, OnDestroy {
       case 'location': return this.isCattleSearchFlow
         ? 'GPS is required. Selecting a downloaded farmer is optional and works without internet.'
         : 'Select a downloaded farmer by name or nearby GPS before enrolling a new cow.';
-      case 'muzzle': return `Take ${this.muzzleImageCount} good muzzle photos. The phone checks and crops each image immediately, even offline. The server is used only if the phone model cannot start.`;
+      case 'muzzle': return `Take ${this.muzzleImageCount} good muzzle photos. Online capture uses the server model; offline or unreachable server capture switches to the phone model.`;
       case 'evidence': return 'Add face, side, back and udder photos for the same cattle.';
       case 'review': return 'Check the record once, then save and return home.';
       default: return 'Start capture, continue pending work, or check recent cattle.';
@@ -3095,19 +3095,44 @@ export class AppComponent implements OnInit, OnDestroy {
       return this.muzzleDetector.detectAndCrop(this.video!.nativeElement);
     }
 
-    this.message = `Checking muzzle photo ${slot}/${this.muzzleImageCount} on server...`;
-    const frame = await this.frameBlob(704, 0.85, true);
-    const response = await this.withTimeout(
-      firstValueFrom(this.api.checkMuzzleFrame(frame)),
-      5000,
-      'Server muzzle check timed out.'
-    );
+    try {
+      this.message = `Scanning muzzle photo ${slot}/${this.muzzleImageCount} on server...`;
+      const previewFrame = await this.frameBlob(704, 0.85, true);
+      const preview = await this.withTimeout(
+        firstValueFrom(this.api.checkMuzzleFrame(previewFrame, 'preview')),
+        5000,
+        'Server muzzle preview timed out.'
+      );
+      if (preview.backendUnavailable) throw new Error(preview.error || 'Backend muzzle model is unavailable.');
+      if (!preview.accepted) return this.backendGateToLocalDetection(preview);
 
-    if (response.backendUnavailable) {
-      throw new Error(response.error || 'Backend muzzle model is unavailable.');
+      // Match the reference app: use the small frame only to find a good
+      // moment, then validate and crop a high-resolution center frame.
+      this.message = `Validating clear muzzle photo ${slot}/${this.muzzleImageCount}...`;
+      const highResolutionFrame = await this.frameBlob(1920, 0.95, true);
+      const validated = await this.withTimeout(
+        firstValueFrom(this.api.checkMuzzleFrame(highResolutionFrame, 'validate')),
+        10000,
+        'Server muzzle validation timed out.'
+      );
+      if (validated.backendUnavailable) throw new Error(validated.error || 'Backend muzzle model is unavailable.');
+      return this.backendGateToLocalDetection(validated);
+    } catch (error) {
+      if (!this.shouldUsePhoneMuzzleFallback(error)) throw error;
+      this.message = `Server unavailable. Checking muzzle photo ${slot}/${this.muzzleImageCount} on phone...`;
+      return this.muzzleDetector.detectAndCrop(this.video!.nativeElement);
     }
+  }
 
-    return this.backendGateToLocalDetection(response);
+  private shouldUsePhoneMuzzleFallback(error: unknown): boolean {
+    if (!navigator.onLine) return true;
+    const status = Number((error as { status?: number } | null)?.status ?? NaN);
+    if ([0, 502, 503, 504].includes(status)) return true;
+    const message = String((error as { message?: string } | null)?.message || error || '').toLowerCase();
+    return message.includes('timed out')
+      || message.includes('failed to fetch')
+      || message.includes('network')
+      || message.includes('backend muzzle model is unavailable');
   }
 
   private backendGateToLocalDetection(response: MuzzleGateResponse): LocalMuzzleDetection {

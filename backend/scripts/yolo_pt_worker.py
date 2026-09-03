@@ -36,11 +36,12 @@ def main():
             result = analyze_image(
                 model,
                 image,
-                float(request.get('goodConfidence', 0.55)),
-                float(request.get('badConfidence', 0.35)),
-                float(request.get('wetConfidence', 0.35)),
-                float(request.get('badDominanceMargin', 0.05)),
+                float(request.get('goodConfidence', 0.90)),
+                float(request.get('badConfidence', 0.25)),
+                float(request.get('wetConfidence', 0.25)),
+                float(request.get('badDominanceMargin', 0.12)),
                 float(request.get('minSharpness', 14)),
+                bool(request.get('includeCrop', True)),
             )
             result['inferenceMs'] = round((time.perf_counter() - started_at) * 1000)
             write({'requestId': request_id, 'result': result})

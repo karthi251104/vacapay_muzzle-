@@ -980,18 +980,6 @@
                 </button>
             </div>
 
-            <!-- Phone storage banner -->
-            <div class="fh-storage-banner" *ngIf="phoneStorageText || pendingSyncCount > 0">
-                <div>
-                    <strong>Phone storage</strong>
-                    <small>{{ phoneStorageText || 'Storage estimate not available' }}. Uploaded records are removed automatically.</small>
-                </div>
-                <button type="button" class="ghost danger" [disabled]="clearingPhoneData || syncService.syncing"
-                    (click)="clearFailedPhoneRecords()">
-                    {{ clearingPhoneData ? 'Clearing...' : 'Clear Failed' }}
-                </button>
-            </div>
-
             <!-- Main action buttons -->
             <p class="fh-section-label">What are you doing now?</p>
 
@@ -1073,10 +1061,20 @@
                 </div>
             </details>
 
-            <details class="fh-details" *ngIf="appVersion">
+            <details class="fh-details">
                 <summary>App info</summary>
-                <small>{{ appVersion.appVersion }} &#183; match {{ appVersion.thresholds.embeddingMatchPercent
-                    }}%</small>
+                <small *ngIf="appVersion">{{ appVersion.appVersion }} &#183; match {{
+                    appVersion.thresholds.embeddingMatchPercent }}%</small>
+                <div class="fh-storage-banner" *ngIf="phoneStorageText || pendingSyncCount > 0">
+                    <div>
+                        <strong>Phone storage</strong>
+                        <small>{{ phoneStorageText || 'Storage estimate not available' }}. Uploaded records are removed automatically.</small>
+                    </div>
+                    <button type="button" class="ghost danger" [disabled]="clearingPhoneData || syncService.syncing"
+                        (click)="clearFailedPhoneRecords()">
+                        {{ clearingPhoneData ? 'Clearing...' : 'Clear Failed' }}
+                    </button>
+                </div>
             </details>
 
         </section>
