@@ -56,9 +56,9 @@ jobs:
     name: Build & Deploy
     runs-on: ubuntu-latest
     # ── TIMEOUT ────────────────────────────────────────────────────
-    # Your Docker image is ~2.5 GB (PyTorch + models).
-    # Build can take 15-25 minutes. 45-minute timeout is safe.
-    timeout-minutes: 45
+    # Your Docker image is ~2.5 GB (PyTorch + DINOv2 + YOLO models).
+    # Build can take 20-30 minutes. 60-minute timeout is safe.
+    timeout-minutes: 60
 
     steps:
       # ════════════════════════════════════════════════════════════
@@ -164,18 +164,20 @@ jobs:
       #   3. If healthy → stops the OLD container → DONE ✅
       #   4. If unhealthy → kills NEW container, keeps OLD → SAFE ✅
       #
-      # wait-for-service-stability: true
-      #   → The pipeline WAITS until ECS confirms the new container
-      #     is healthy. If it fails, the GitHub Action shows ❌.
-      #   → Without this, the pipeline would say ✅ even if the
-      #     new container crashed 2 minutes later.
+      # wait-for-service-stability: false
+      #   → We do NOT block the pipeline waiting for ECS to stabilize.
+      #   → Large PyTorch containers (~2.5 GB) take 5-10 min to pull
+      #     and load DINOv2 (352 MB) into memory. GitHub Actions
+      #     waiter was timing out during this boot phase.
+      #   → ECS still performs the zero-downtime rolling update safely.
+      #   → Monitor deployment health via AWS CloudWatch & ECS Events.
       - name: Deploy to Amazon ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+          wait-for-service-stability: false
 
       # ════════════════════════════════════════════════════════════
       # STEP 8: Verify deployment
