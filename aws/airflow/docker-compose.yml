@@ -1,0 +1,108 @@
+# ============================================================
+# VacaPay Airflow — EC2 + Docker Compose Setup
+# ============================================================
+# WHAT THIS DOES:
+#   Runs Apache Airflow on your EC2 instance using Docker.
+#   3 services run together:
+#     - airflow-webserver : The UI dashboard (port 8080)
+#     - airflow-scheduler : Watches schedules and triggers DAGs
+#     - postgres          : Airflow's internal database
+#
+# HOW TO USE:
+#   1. SSH into your EC2 instance
+#   2. Upload this folder to ~/vacapay-airflow/
+#   3. Run: docker compose up -d
+#   4. Visit: http://<EC2-PUBLIC-IP>:8080
+#      Username: admin  Password: vacapay2026
+# ============================================================
+
+version: '3.8'
+
+# ── SHARED ENVIRONMENT ──────────────────────────────────────
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.2-python3.11
+  environment:
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__FERNET_KEY: 'ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg='
+    AIRFLOW__WEBSERVER__BASE_URL: 'http://localhost:8080'
+    VACAPAY_PROJECT_ROOT: /opt/vacapay
+    MLFLOW_TRACKING_URI: http://host.docker.internal:5000
+    AWS_DEFAULT_REGION: ap-south-1
+
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./vacapay_code:/opt/vacapay
+    - airflow-logs:/opt/airflow/logs
+    - airflow-plugins:/opt/airflow/plugins
+
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --password vacapay2026 \
+          --firstname VacaPay \
+          --lastname MLOps \
+          --role Admin \
+          --email mlops@vacapay.com
+        echo "Airflow initialized successfully!"
+    restart: on-failure
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-db:
+  airflow-logs:
+  airflow-plugins:
