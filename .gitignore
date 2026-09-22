@@ -26,3 +26,6 @@ builds/
 !backend/yolo26s.pt
 !frontend/src/assets/models/yolo26s_float32.tflite
 .gstack/
+mlflow.db
+mlruns/
+mlartifacts/
